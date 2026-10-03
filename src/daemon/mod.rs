@@ -644,7 +644,12 @@ impl Daemon {
             ClientMsg::Hello { .. } => {}
             ClientMsg::Input { term, data } => {
                 if self.terms.get(&term).is_some_and(|t| t.asleep) {
-                    self.wake(term);
+                    // Wake it, and hand over what was typed once it's ready.
+                    if let Some(new) = self.wake(term)
+                        && let Some(t) = self.terms.get_mut(&new)
+                    {
+                        t.pending_input = Some((data, Instant::now()));
+                    }
                 } else if let Some(t) = self.terms.get_mut(&term) {
                     t.input(&data);
                 }
@@ -844,6 +849,18 @@ impl Daemon {
 
     /// Heuristic statuses for agents without hooks, and "seen" bookkeeping for everyone.
     fn update_statuses(&mut self) {
+        // Messages typed to a sleeping agent: deliver once it's ready (its hooks say idle) or
+        // after a few seconds.
+        for t in self.terms.values_mut() {
+            let ready = matches!(t.status, Status::Idle | Status::Done) && t.hooked;
+            if let Some((data, at)) = t.pending_input.take() {
+                if ready || at.elapsed() > Duration::from_secs(8) {
+                    t.input(&data);
+                } else {
+                    t.pending_input = Some((data, at));
+                }
+            }
+        }
         let focused = self.has_viewer().then(|| self.focused_term()).flatten();
         let window = Duration::from_millis(self.cfg.detection.working_window_ms);
         let grace = Duration::from_millis(self.cfg.detection.echo_grace_ms);
@@ -1404,8 +1421,8 @@ impl Daemon {
     }
 
     /// Bring a sleeping agent back: start its resume command in the same spot.
-    fn wake(&mut self, old: TermId) {
-        let Some(t) = self.terms.get(&old) else { return };
+    fn wake(&mut self, old: TermId) -> Option<TermId> {
+        let t = self.terms.get(&old)?;
         let cmd = self.resume_cmd(t).or_else(|| t.cmd.clone());
         let (cwd, cols, rows) = (t.cwd.clone(), t.cols, t.rows);
         let (agent, session, orig) = (t.agent.clone(), t.session.clone(), t.cmd.clone());
@@ -1413,7 +1430,7 @@ impl Daemon {
             Ok(n) => n,
             Err(e) => {
                 tracing::warn!("waking {old}: {e:#}");
-                return;
+                return None;
             }
         };
         if let Some(n) = self.terms.get_mut(&new) {
@@ -1441,6 +1458,7 @@ impl Daemon {
             self.active_ws = Some(ws);
         }
         self.dirty = true;
+        Some(new)
     }
 
     /// The linked worktrees these terminals are in.

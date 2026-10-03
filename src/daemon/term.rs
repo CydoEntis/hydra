@@ -113,6 +113,8 @@ pub struct Term {
     pub trusted: std::collections::HashSet<u32>,
     /// Finished and not seen before a restart: stays "done" once it's back.
     pub restore_unseen: bool,
+    /// Typed while it was asleep: delivered once it's back up (or after a few seconds).
+    pub pending_input: Option<(Vec<u8>, Instant)>,
 }
 
 pub struct SpawnSpec<'a> {
@@ -382,6 +384,7 @@ impl Term {
             last_working_hook: None,
             trusted: std::collections::HashSet::new(),
             restore_unseen: false,
+            pending_input: None,
             colors: {
                 let t = crate::theme::Theme::named(&cfg.theme);
                 let rgb = |c| match c {

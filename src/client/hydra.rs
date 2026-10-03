@@ -89,6 +89,12 @@ pub(super) struct Hy {
     pub splash_sel: usize,
     /// The scrollbar being dragged: (pane, track, lines of history).
     pub bar: Option<(TermId, Rect, usize)>,
+    /// Where each agent row was drawn in the sidebar (for the follow-up box beside it).
+    pub row_y: std::collections::HashMap<TermId, u16>,
+    /// The message box opened from a sidebar row: drawn beside it, and back to the sidebar
+    /// cursor after sending.
+    pub talk_anchor: Option<u16>,
+    pub talk_back: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -837,6 +843,7 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     app.hy.side_scroll = scroll as u16;
 
     app.hy.visible = lines.iter().filter_map(|l| line_term(model, l)).collect();
+    app.hy.row_y.clear();
     app.hy.proj_keys = model.iter().map(|p| p.key.clone()).collect();
     let tk = k(app, &Action::Talk);
     let (x0, w) = (r.x, r.width);
@@ -930,6 +937,7 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
             }
             Line::Sess(pi, wi, si) => {
                 let s = &model[*pi].wts[*wi].sessions[*si];
+                app.hy.row_y.insert(s.term, y);
                 let (bg, ink, sel) = look(app, s.term, row);
                 fill(buf, row, bg);
                 let st = Style::default().bg(bg);
@@ -1729,37 +1737,82 @@ pub(super) fn draw_new_pane(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
 
 pub(super) fn draw_talk(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, term: TermId, input: &str) {
     let model = app.hy_model();
-    let (title, agent) = find(&model, term).map(|(_, _, s)| (s.title.clone(), s.agent.clone())).unwrap_or_default();
+    let found = find(&model, term).map(|(_, _, s)| s.clone());
+    let (title, agent) = found.as_ref().map(|s| (s.title.clone(), s.agent.clone())).unwrap_or_default();
+    let status = found.as_ref().map(|s| s.status).unwrap_or(Status::None);
+    // What it last said or asks, for context.
+    let context = found.as_ref().and_then(|s| s.question.clone()).or_else(|| {
+        app.parsers.get(&term).and_then(|p| {
+            let sc = p.screen();
+            let (_, cols) = sc.size();
+            sc.rows(0, cols)
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty() && !l.chars().all(|c| "─━-_ ".contains(c)) && !l.starts_with('❯') && !l.starts_with('>'))
+                .last()
+        })
+    });
+    let lines: Vec<&str> = if input.is_empty() { vec![""] } else { input.split('\n').collect() };
+    let shown = lines.len().min(5) as u16;
     let buf = f.buffer_mut();
-    dim_all(buf, area, t);
-    let ink = Style::default();
-    let r = panel(
-        app,
-        buf,
-        area,
-        96,
-        8,
-        &format!("Message {agent} · {title}"),
-        &[seg("Enter", ink.add_modifier(Modifier::BOLD)), seg(" send   ", ink), seg("Esc", ink.add_modifier(Modifier::BOLD)), seg(" close ", ink)],
-        t,
-    );
-    // The last two things on its screen, for context.
-    if let Some(p) = app.parsers.get(&term) {
-        let screen = p.screen();
-        let (_, cols) = screen.size();
-        let lines: Vec<String> = screen.rows(0, cols).map(|l| l.trim_end().to_string()).filter(|l| !l.trim().is_empty()).collect();
-        for (i, l) in lines.iter().rev().take(2).rev().enumerate() {
-            put(buf, r.x + 3, r.y + 2 + i as u16, &[seg(truncate(l.trim(), (r.width - 6) as usize), Style::default().fg(t.text).bg(t.card))], r.right() - 2);
+    // Beside its row in the sidebar (the view behind stays as it is), else centered.
+    let side = app.hy.side_rect;
+    let r = match app.hy.talk_anchor {
+        Some(y) if side.width > 0 && area.right() > side.right() + 40 => {
+            let w = (area.right() - side.right() - 3).min(84);
+            let h = 5 + shown;
+            let y = y.min(area.bottom().saturating_sub(h + 1)).max(area.y + 1);
+            let r = Rect { x: side.right() + 1, y, width: w, height: h };
+            hit(app, area, HyHit::Close);
+            fill(buf, r, t.card);
+            let edge = Style::default().fg(t.accent).bg(t.card);
+            for yy in r.top()..r.bottom() {
+                buf[(r.x, yy)].set_symbol("▌").set_style(edge);
+            }
+            hit(app, r, HyHit::Noop);
+            r
         }
+        _ => {
+            dim_all(buf, area, t);
+            let r = panel(app, buf, area, 96, 6 + shown, "", &[], t);
+            fill(buf, Rect { height: 1, ..r }, t.card);
+            r
+        }
+    };
+    let c = Style::default().bg(t.card);
+    let mut head = vec![
+        seg(format!("{} ", glyph(app, status)), c.fg(t.status(status)).add_modifier(Modifier::BOLD)),
+        seg(agent.clone(), c.fg(t.strong).add_modifier(Modifier::BOLD)),
+    ];
+    if title != WAITING && !title.is_empty() {
+        head.push(seg(format!("  {title}"), c.fg(t.muted)));
     }
-    let row = Rect { x: r.x + 1, y: r.y + 5, width: r.width - 2, height: 1 };
-    fill(buf, row, t.card2);
+    put(buf, r.x + 2, r.y, &head, r.right() - 1);
+    if let Some(cx) = context {
+        let col = if status == Status::Blocked { t.blocked } else { t.text };
+        put(buf, r.x + 2, r.y + 1, &[seg(truncate(&cx, (r.width - 4) as usize), c.fg(col))], r.right() - 1);
+    }
+    let box_ = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: shown };
+    fill(buf, box_, t.card2);
     let s = Style::default().bg(t.card2);
-    let mut segs = vec![seg("› ", s.fg(t.accent).add_modifier(Modifier::BOLD)), seg(input.to_string(), s.fg(t.strong)), seg("█", s.fg(t.accent))];
-    if input.is_empty() {
-        segs.push(seg(" type a message…", s.fg(t.muted)));
+    let first = lines.len().saturating_sub(5);
+    for (i, l) in lines[first..].iter().enumerate() {
+        let last = i + first + 1 == lines.len();
+        let mut segs = vec![seg(if i + first == 0 { "› " } else { "  " }, s.fg(t.accent).add_modifier(Modifier::BOLD)), seg(l.to_string(), s.fg(t.strong))];
+        if last {
+            segs.push(seg("█", s.fg(t.accent)));
+            if input.is_empty() {
+                segs.push(seg(format!(" message {agent}…"), s.fg(t.muted)));
+            }
+        }
+        put(buf, r.x + 2, box_.y + i as u16, &segs, r.right() - 2);
     }
-    put(buf, r.x + 3, row.y, &segs, r.right() - 2);
+    put(
+        buf,
+        r.x + 2,
+        r.bottom() - 2,
+        &hints(t, &[("Enter", "send"), ("Shift+Enter", "new line"), ("Esc", "close")]),
+        r.right() - 1,
+    );
 }
 
 // Settings ------------------------------------------------------------------------------------
@@ -2154,6 +2207,14 @@ impl App {
         self.cfg.quick.agents.first().map(|a| a.name.clone()).unwrap_or_else(|| "claude".into())
     }
 
+    /// Message an agent: a small box beside its sidebar row when it has one, else centered.
+    /// From the sidebar cursor, sending returns there so the next one is a key away.
+    pub(super) fn hy_talk(&mut self, term: TermId, from_side: bool) {
+        self.hy.talk_anchor = self.hy.row_y.get(&term).copied();
+        self.hy.talk_back = from_side;
+        self.mode = Mode::Talk { term, input: String::new() };
+    }
+
     /// Show a session: it becomes the focused one.
     pub(super) fn hy_focus(&mut self, term: TermId) {
         self.hy.cursor = None;
@@ -2287,10 +2348,11 @@ impl App {
             Action::Jump | Action::Picker => self.mode = Mode::Jump { sel: 0 },
             Action::OpenProject => self.hy_open_finder(),
             Action::Talk | Action::Reply => {
+                let from_side = *a == Action::Talk && self.hy.cursor.is_some();
                 let term = if *a == Action::Talk { self.hy.cursor.or(focused) } else { focused };
                 match term {
-                    Some(term) => self.mode = Mode::Talk { term, input: String::new() },
-                    None => self.notify("no session to message".into(), true),
+                    Some(term) => self.hy_talk(term, from_side),
+                    None => self.notify("nothing to message".into(), true),
                 }
             }
             Action::Zoom => self.sidebar = !self.sidebar,
@@ -2363,6 +2425,11 @@ impl App {
         match k.code {
             KeyCode::Up => self.hy_side_move(-1),
             KeyCode::Down => self.hy_side_move(1),
+            KeyCode::Char(' ') => {
+                if let Some(c) = self.hy.cursor {
+                    self.hy_talk(c, true);
+                }
+            }
             KeyCode::Enter => {
                 if let Some(c) = self.hy.cursor {
                     self.hy_focus(c);
@@ -2624,7 +2691,7 @@ impl App {
             }
             HyHit::OpenFolder => self.hy_open_finder(),
             HyHit::Session(t) => self.hy_focus(t),
-            HyHit::Talk(t) => self.mode = Mode::Talk { term: t, input: String::new() },
+            HyHit::Talk(t) => self.hy_talk(t, false),
             HyHit::Settings => self.hy_settings(),
             HyHit::Jump => self.mode = Mode::Jump { sel: 0 },
             HyHit::NewPane => self.hy_open_new_pane(false),

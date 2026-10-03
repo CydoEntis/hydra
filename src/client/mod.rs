@@ -2712,26 +2712,37 @@ impl App {
 
     fn on_talk_key(&mut self, term: TermId, mut input: String, k: &KeyEvent) {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        // From the sidebar, done means back to the sidebar cursor (next agent: ↓ Space).
+        let back = if self.hy.talk_back && self.hy.cursor.is_some() { Mode::Side } else { Mode::Normal };
         match k.code {
             KeyCode::Esc => {
-                self.mode = Mode::Normal;
+                self.mode = back;
                 return;
             }
+            KeyCode::Enter if k.modifiers.intersects(KeyModifiers::SHIFT | KeyModifiers::ALT) => input.push('\n'),
             KeyCode::Char('o') if ctrl || input.is_empty() => {
                 self.cmd(Command::FocusPane { term });
                 self.mode = Mode::Normal;
                 return;
             }
             KeyCode::Enter => {
-                if !input.is_empty() {
-                    let data = std::mem::take(&mut input).into_bytes();
-                    self.send(ClientMsg::Input { term, data });
+                if !input.trim().is_empty() {
+                    let text = std::mem::take(&mut input);
+                    // Several lines go as one paste, so they arrive as one message.
+                    let bracketed = self.parsers.get(&term).is_some_and(|p| p.screen().bracketed_paste());
+                    let data = if text.contains('\n') && bracketed { format!("\x1b[200~{text}\x1b[201~") } else { text.replace('\n', " ") };
+                    self.send(ClientMsg::Input { term, data: data.into_bytes() });
+                    // Enter a moment later, so the program has taken the text first.
                     let out = self.out.clone();
-                    tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_millis(60)).await;
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(60));
                         let _ = out.send(ClientMsg::Input { term, data: b"\r".to_vec() });
                     });
+                    let who = self.snap.terms.get(&term).map(|t| t.display_name()).unwrap_or_default();
+                    self.notify(format!("sent to {who}"), false);
                 }
+                self.mode = back;
+                return;
             }
             KeyCode::Backspace => {
                 input.pop();
@@ -4209,7 +4220,7 @@ mod hydra_tests {
             (Mode::HyPane(hydra::NewPaneHy::new(0, false)), "claude gets its own new worktree in shop-api"),
             (Mode::HyPane(hydra::NewPaneHy { place: Some(1), ..hydra::NewPaneHy::new(0, false) }), "Switches shop-api to a new branch"),
             (Mode::Help { scroll: 0 }, "PANES & CODE"),
-            (Mode::Talk { term: 1, input: String::new() }, "Message claude"),
+            (Mode::Talk { term: 1, input: String::new() }, "message claude…"),
         ] {
             app.mode = mode;
             let o = draw(&mut app, 160, 45);
@@ -4516,6 +4527,32 @@ mod hydra_tests {
         let bytes = std::fs::read(&p).unwrap();
         assert_eq!(&bytes[..8], &[0x89, b'P', b'N', b'G', 13, 10, 26, 10], "a real PNG");
         let _ = std::fs::remove_file(p);
+    }
+
+    #[test]
+    fn quick_follow_up_from_the_sidebar() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
+        draw(&mut app, 160, 45);
+        app.act(Action::SideMove(0));
+        assert!(matches!(app.mode, Mode::Side));
+        let row = app.hy.row_y[&app.hy.cursor.unwrap()];
+        app.on_key(key(KeyCode::Char(' ')));
+        assert!(matches!(app.mode, Mode::Talk { .. }), "Space opens the box");
+        for c in "run the tests".chars() {
+            app.on_key(key(KeyCode::Char(c)));
+        }
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        let line = o.lines().nth(row as usize + 2).unwrap_or("");
+        assert!(line.contains("› run the tests"), "the box sits beside the row: {line:?}");
+        assert!(o.contains("Run npm test -- checkout?"), "with the agent's question for context");
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT));
+        app.on_key(key(KeyCode::Char('x')));
+        assert!(matches!(&app.mode, Mode::Talk { input, .. } if input == "run the tests\nx"), "Shift+Enter: a new line");
+        app.on_key(key(KeyCode::Enter));
+        assert!(matches!(app.mode, Mode::Side), "sent, and back on the list for the next one");
+        assert!(app.notice.as_ref().is_some_and(|(m, ..)| m.starts_with("sent to")));
     }
 
     #[test]
