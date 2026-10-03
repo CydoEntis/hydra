@@ -48,7 +48,24 @@ enum Cmd {
         /// Send key presses instead of text, e.g. `--key ctrl+space --key %` (no Enter).
         #[arg(long = "key", short = 'k')]
         keys: Vec<String>,
+        /// Wait for the agent to finish its turn, then print its reply.
+        #[arg(long)]
+        wait: bool,
+        /// Give up waiting after this many seconds (exit code 2).
+        #[arg(long, default_value_t = 1800)]
+        timeout: u64,
         text: Vec<String>,
+    },
+    /// Wait for an agent to finish its turn (or need you), or for text on its screen.
+    /// Prints the reply (or the matching line). Exit code 2 on timeout.
+    Wait {
+        #[arg(long, short)]
+        pane: Option<protocol::TermId>,
+        /// Wait for this regex on the screen instead.
+        #[arg(long)]
+        regex: Option<String>,
+        #[arg(long, default_value_t = 1800)]
+        timeout: u64,
     },
     /// Split a pane, optionally running a command in the new one.
     Split {
@@ -171,7 +188,9 @@ fn main() {
         Some(Cmd::Ls { json }) => cli::ls(json),
         Some(Cmd::Read { pane }) => cli::read(pane),
         Some(Cmd::Send { pane, keys, .. }) if !keys.is_empty() => cli::send_keys(pane, keys),
+        Some(Cmd::Send { pane, no_enter, text, wait: true, timeout, .. }) => cli::send_wait(pane, text.join(" "), !no_enter, timeout),
         Some(Cmd::Send { pane, no_enter, text, .. }) => cli::send(pane, text.join(" "), !no_enter),
+        Some(Cmd::Wait { pane, regex, timeout }) => cli::wait(pane, regex, timeout),
         Some(Cmd::Split { pane, down, command }) => cli::split(pane, down, command),
         Some(Cmd::New { path, name, command }) => cli::new_workspace(path, name, command),
         Some(Cmd::Focus { pane }) => cli::focus(pane),

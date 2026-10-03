@@ -105,6 +105,88 @@ pub fn read(pane: Option<TermId>) -> Result<()> {
     }
 }
 
+/// What a wait ended on.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Waited {
+    /// The turn ended: its status then, and its last message (if hooks said).
+    Turn(Status, String),
+    /// The regex matched this line.
+    Matched(String),
+    TimedOut,
+}
+
+/// Wait on pane `term`: for its turn to end (it was working, now it isn't; a prompt that
+/// never starts a turn counts as ended after a few seconds), or for `regex` on its screen.
+/// `just_sent`: the turn hasn't started yet, so wait for it to start first.
+pub fn wait_on(term: TermId, regex: Option<&str>, timeout: Duration, just_sent: bool) -> Result<Waited> {
+    let re = regex.map(|r| regex::RegexBuilder::new(r).case_insensitive(true).build()).transpose().context("bad --regex")?;
+    let start = std::time::Instant::now();
+    let mut seen_working = !just_sent;
+    loop {
+        if let Some(re) = &re {
+            if let Reply::Text(screen) = block_on(request(ClientMsg::Query(Query::Read { term })))?
+                && let Some(l) = screen.lines().find(|l| re.is_match(l))
+            {
+                return Ok(Waited::Matched(l.trim().to_string()));
+            }
+        } else {
+            let snap = snapshot()?;
+            let t = snap.terms.get(&term).ok_or_else(|| anyhow!("pane {term} is gone"))?;
+            match t.status {
+                Status::Working => seen_working = true,
+                s @ (Status::Blocked | Status::Done | Status::Idle) if seen_working || start.elapsed() > Duration::from_secs(8) => {
+                    return Ok(Waited::Turn(s, t.said.clone()));
+                }
+                // An agent without hooks: no status at all, so wait on output going quiet.
+                Status::None if start.elapsed() > Duration::from_secs(8) => return Ok(Waited::Turn(Status::None, String::new())),
+                _ => {}
+            }
+        }
+        if start.elapsed() >= timeout {
+            return Ok(Waited::TimedOut);
+        }
+        std::thread::sleep(Duration::from_millis(400));
+    }
+}
+
+pub fn send_wait(pane: Option<TermId>, text: String, enter: bool, timeout: u64) -> Result<()> {
+    let term = resolve_pane(pane)?;
+    send(Some(term), text, enter)?;
+    wait_print(term, None, timeout, true)
+}
+
+pub fn wait(pane: Option<TermId>, regex: Option<String>, timeout: u64) -> Result<()> {
+    wait_print(resolve_pane(pane)?, regex, timeout, false)
+}
+
+/// `hydra wait` / `hydra send --wait`: wait, then print the reply (or the screen's end).
+fn wait_print(term: TermId, regex: Option<String>, timeout: u64, just_sent: bool) -> Result<()> {
+    match wait_on(term, regex.as_deref(), Duration::from_secs(timeout), just_sent)? {
+        Waited::Matched(l) => println!("{l}"),
+        Waited::Turn(s, said) => {
+            if s == Status::Blocked {
+                eprintln!("(pane {term} needs you)");
+            }
+            if said.trim().is_empty() {
+                if let Reply::Text(screen) = block_on(request(ClientMsg::Query(Query::Read { term })))? {
+                    let lines: Vec<&str> = screen.trim_end().lines().collect();
+                    println!("{}", lines[lines.len().saturating_sub(30)..].join("\n"));
+                }
+            } else {
+                println!("{}", said.trim_end());
+            }
+            if s == Status::Blocked {
+                std::process::exit(3);
+            }
+        }
+        Waited::TimedOut => {
+            eprintln!("timed out waiting on pane {term}");
+            std::process::exit(2);
+        }
+    }
+    Ok(())
+}
+
 pub fn send(pane: Option<TermId>, text: String, enter: bool) -> Result<()> {
     let term = resolve_pane(pane)?;
     block_on(async move {

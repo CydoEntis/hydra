@@ -55,8 +55,22 @@ fn tools() -> Value {
         },
         {
             "name": "hydra_send",
-            "description": "Type a message into a session's prompt and press Enter, like a person would.",
-            "inputSchema": { "type": "object", "properties": { "id": id, "text": { "type": "string" } }, "required": ["id", "text"] }
+            "description": "Type a message into a session's prompt and press Enter, like a person would. With wait, returns once it has finished that turn, with its reply.",
+            "inputSchema": { "type": "object", "properties": {
+                "id": id,
+                "text": { "type": "string" },
+                "wait": { "type": "boolean", "description": "Wait for its turn to end and return its reply (default false)." },
+                "timeout": { "type": "integer", "description": "Seconds to wait at most (default 600)." }
+            }, "required": ["id", "text"] }
+        },
+        {
+            "name": "hydra_wait",
+            "description": "Wait until a session finishes its turn (or needs an answer), or until text matching a regex shows on its screen. Returns its reply or the matching line.",
+            "inputSchema": { "type": "object", "properties": {
+                "id": id,
+                "regex": { "type": "string", "description": "Wait for this on the screen instead of the turn ending." },
+                "timeout": { "type": "integer", "description": "Seconds to wait at most (default 600)." }
+            }, "required": ["id"] }
         },
         {
             "name": "hydra_answer",
@@ -137,6 +151,10 @@ impl Server {
             "hydra_list" => self.list(),
             "hydra_read" => self.read(args),
             "hydra_send" => self.send(args),
+            "hydra_wait" => self.session(args).and_then(|t| {
+                let regex = args.get("regex").and_then(Value::as_str).map(str::to_string);
+                self.wait(t.id, regex.as_deref(), args, false)
+            }),
             "hydra_answer" => self.answer(args),
             "hydra_start" => self.start(args),
             "hydra_interrupt" => self.session(args).and_then(|t| cli::send(Some(t.id), "\x03".into(), false).map(|_| format!("interrupted {}", t.id)).map_err(|e| format!("{e:#}"))),
@@ -191,7 +209,35 @@ impl Server {
         }
         let msg = args.get("text").and_then(Value::as_str).ok_or("give the text")?;
         cli::send(Some(t.id), msg.to_string(), true).map_err(|e| format!("{e:#}"))?;
+        if args.get("wait").and_then(Value::as_bool) == Some(true) {
+            return self.wait(t.id, None, args, true);
+        }
         Ok(format!("sent to {} ({})", t.id, t.agent.unwrap_or_default()))
+    }
+
+    fn wait(&self, term: TermId, regex: Option<&str>, args: &Value, just_sent: bool) -> Result<String, String> {
+        if Some(term) == self.me {
+            return Err("that's you".into());
+        }
+        let secs = args.get("timeout").and_then(Value::as_u64).unwrap_or(600);
+        match cli::wait_on(term, regex, std::time::Duration::from_secs(secs), just_sent).map_err(|e| format!("{e:#}"))? {
+            cli::Waited::Matched(l) => Ok(format!("matched: {l}")),
+            cli::Waited::TimedOut => Err(format!("still going after {secs}s")),
+            cli::Waited::Turn(s, said) => {
+                let reply = if said.trim().is_empty() {
+                    let screen = self.screen(term)?;
+                    let lines: Vec<&str> = screen.trim_end().lines().collect();
+                    lines[lines.len().saturating_sub(30)..].join("\n")
+                } else {
+                    said
+                };
+                let state = match s {
+                    Status::Blocked => "needs an answer (see hydra_read / hydra_answer)",
+                    _ => "finished",
+                };
+                Ok(format!("{term} {state}:\n{reply}"))
+            }
+        }
     }
 
     fn answer(&self, args: &Value) -> Result<String, String> {
