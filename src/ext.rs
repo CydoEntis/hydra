@@ -154,7 +154,7 @@ pub fn run(shell: &[String], ext: &Ext, cwd: &Path, cmd: &str, vars: &[(String, 
         Ok(text)
     } else {
         let err = String::from_utf8_lossy(&out.stderr);
-        let last = err.lines().chain(text.lines()).filter(|l| !l.trim().is_empty()).last().unwrap_or("failed").trim().to_string();
+        let last = err.lines().rev().chain(text.lines().rev()).find(|l| !l.trim().is_empty()).unwrap_or("failed").trim().to_string();
         Err(last)
     }
 }

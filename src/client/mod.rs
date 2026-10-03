@@ -3400,7 +3400,7 @@ impl App {
             Bg::ExtDone(r) => {
                 match r {
                     Ok(out) => {
-                        let last = out.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("done").trim().to_string();
+                        let last = out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("done").trim().to_string();
                         self.notify(last, false);
                     }
                     Err(e) => self.notify(e, true),
