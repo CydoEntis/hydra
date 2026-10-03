@@ -4,12 +4,18 @@
 
 prefix = "ctrl+space"
 
-# hydra | catppuccin-mocha | catppuccin-latte | tokyo-night | gruvbox | nord | dracula | mono
+# hydra | papercolor-dark | tango-dark | monokai | tokyo-night | catppuccin-mocha | catppuccin-latte | gruvbox | nord | dracula | mono
 theme = "hydra"
 
 # Shell for new panes. Default: pwsh / powershell on Windows, $SHELL elsewhere.
 # shell = "pwsh.exe"
 # shell_args = ["-NoLogo"]
+
+# Put agents to sleep after sitting idle this long: "15m", "1h", "4h" or "never".
+# sleep_after = "never"
+
+# Editor for "open in editor" (e). Empty: $VISUAL, $EDITOR, then code.
+# editor = "nvim"
 
 scrollback = 10000          # lines kept per pane in the client
 replay_bytes = 2097152      # output kept per pane by the daemon, replayed on reattach
@@ -75,7 +81,10 @@ shell = "›"
 branch = "\ue0a0 "          # Nerd Font branch glyph; use "" or "on " without one
 
 [notify]
-bell = true                 # bell when an agent blocks or finishes out of view
+desktop = true              # a desktop notification when an agent you're not looking at needs you
+sound_needs = "ping"        # glass | ping | chime | pop | off | a path to a sound file
+sound_done = "glass"
+bell = false                # also ring the terminal bell
 
 [detection]
 working_window_ms = 1500
@@ -126,17 +135,6 @@ A = "new-worktree:claude"   # worktree picker; whatever you open or create start
 # name = "goose"
 # enabled = false
 
-# Put agents to sleep after sitting idle this long: "15m", "1h", "4h" or "never".
-# sleep_after = "never"
-
-# Editor for "open in editor" (e). Empty: $VISUAL, $EDITOR, then code.
-# editor = "nvim"
-
-[notify]
-desktop = true          # a desktop notification when an agent you're not looking at needs you
-sound_needs = "ping"    # glass | ping | chime | pop | off | a path to a sound file
-sound_done = "glass"
-bell = false
 
 [tickets]
 sources = ["github", "linear", "plane"]
