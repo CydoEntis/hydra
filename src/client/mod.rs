@@ -652,11 +652,19 @@ impl App {
     // ---- server messages -----------------------------------------------------------
 
     fn on_server(&mut self, msg: ServerMsg) {
-        // Output doesn't change the sidebar; everything else might.
-        if !matches!(msg, ServerMsg::Output { .. }) {
-            self.hy_fresh();
+        // Output doesn't change the sidebar; everything else might. Output for a pane you
+        // can't see changes nothing on screen at all: no redraw for it.
+        match &msg {
+            ServerMsg::Output { term, .. } => {
+                if self.panes.iter().any(|(t, _)| t == term) || self.panes.is_empty() {
+                    self.dirty = true;
+                }
+            }
+            _ => {
+                self.hy_fresh();
+                self.dirty = true;
+            }
         }
-        self.dirty = true;
         match msg {
             ServerMsg::State(s) => {
                 self.parsers.retain(|id, _| s.terms.contains_key(id));

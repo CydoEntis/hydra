@@ -2271,6 +2271,11 @@ impl App {
         self.hy.cursor = Some(vis[next]);
         self.hy.follow = true;
         self.mode = Mode::Side;
+        // Resting on a finished agent counts as seeing it.
+        let t = vis[next];
+        if self.snap.terms.get(&t).is_some_and(|i| i.status == Status::Done) {
+            self.cmd(Command::MarkSeen { term: t });
+        }
     }
 
     /// Actions that work differently in this layout. Returns true if handled.

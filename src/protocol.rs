@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 14;
+pub const PROTOCOL_VERSION: u32 = 15;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -35,6 +35,10 @@ pub enum ClientMsg {
         said: Option<String>,
         /// A subagent starting or stopping.
         subagent: Option<Subagent>,
+        /// The hook event ("Stop", "Notification:permission_prompt", …).
+        event: String,
+        /// The reporting process; only reports from inside the pane's own process tree count.
+        pid: u32,
     },
     Query(Query),
 }
@@ -54,6 +58,8 @@ pub enum Command {
     ClosePane { term: TermId },
     /// Focus a pane anywhere: switches workspace and tab as needed.
     FocusPane { term: TermId },
+    /// You've seen a finished agent (the cursor rested on it): done → idle.
+    MarkSeen { term: TermId },
     /// Grow (positive) or shrink the pane along `dir`'s axis by `delta` (fraction of parent).
     ResizePane { term: TermId, dir: Dir, delta: f32 },
     /// `git worktree add` next to the workspace's repo, then open it as a new workspace.

@@ -49,6 +49,9 @@ pub struct SavedPane {
     pub agent: Option<String>,
     /// Agent session id reported by hooks, for `resume`.
     pub session: Option<String>,
+    /// Finished and not looked at yet.
+    #[serde(default)]
+    pub unseen: bool,
 }
 
 pub fn path() -> PathBuf {

@@ -306,13 +306,26 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
     let field = |names: &[&str]| names.iter().find_map(|n| payload_json.get(*n)?.as_str().map(str::to_string));
     let session = field(&["session_id", "thread-id", "thread_id", "conversation_id"]);
     let cwd = field(&["cwd"]).map(PathBuf::from);
-    let event = field(&["hook_event_name"]).unwrap_or_default();
+    let mut event = field(&["hook_event_name"]).unwrap_or_default();
     let subagent = matches!(event.as_str(), "SubagentStart" | "SubagentStop").then(|| Subagent {
         id: field(&["agent_id", "subagent_id", "tool_use_id"]).unwrap_or_default(),
         kind: field(&["agent_type", "subagent_type", "agent_name"]).unwrap_or_else(|| "subagent".into()),
         start: event == "SubagentStart",
     });
     let prompt = field(&["prompt"]).map(|p| one_line(&p, 160));
+    if event == "Notification"
+        && let Some(kind) = field(&["notification_type"])
+    {
+        event = format!("Notification:{kind}");
+    }
+    // The agent that ran this hook (still alive, unlike this short process) vouches for it.
+    let pid = {
+        use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+        let me = Pid::from_u32(std::process::id());
+        let mut sys = System::new();
+        sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[me]), true, ProcessRefreshKind::nothing());
+        sys.process(me).and_then(|p| p.parent()).map(|p| p.as_u32()).unwrap_or(0)
+    };
     let said = field(&["last_assistant_message", "last-assistant-message"])
         .or_else(|| field(&["transcript_path"]).and_then(|p| last_assistant_text(std::path::Path::new(&p))))
         .map(|s| s.trim().chars().take(2000).collect::<String>())
@@ -320,7 +333,7 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
     block_on(async move {
         tokio::time::timeout(Duration::from_secs(2), async {
             let (_r, mut w) = ipc::open(false).await?;
-            ipc::send(&mut w, &ClientMsg::Hook { term, agent: agent.to_string(), status, session, cwd, prompt, said, subagent }).await?;
+            ipc::send(&mut w, &ClientMsg::Hook { term, agent: agent.to_string(), status, session, cwd, prompt, said, subagent, event, pid }).await?;
             Ok::<_, anyhow::Error>(())
         })
         .await?

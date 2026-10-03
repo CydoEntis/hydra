@@ -103,6 +103,16 @@ pub struct Term {
     colors: ((u8, u8, u8), (u8, u8, u8)),
     /// ConPTY turned on win32-input-mode (`ESC [ ? 9001 h`).
     pub win32_input: bool,
+    /// "Done" arrived while subagents were still running: hold it until they finish.
+    pub done_held: Option<Instant>,
+    /// The agent's progress indicator (OSC 9;4) went away: an Esc-cancel ends no turn by hook.
+    pub progress_off: Option<Instant>,
+    /// When a hook last said "working" (late duplicate permission pings are ignored).
+    pub last_working_hook: Option<Instant>,
+    /// Processes known to run inside this pane (trusted to report its status).
+    pub trusted: std::collections::HashSet<u32>,
+    /// Finished and not seen before a restart: stays "done" once it's back.
+    pub restore_unseen: bool,
 }
 
 pub struct SpawnSpec<'a> {
@@ -367,6 +377,11 @@ impl Term {
             cwd_reported: false,
             asleep: false,
             win32_input: false,
+            done_held: None,
+            progress_off: None,
+            last_working_hook: None,
+            trusted: std::collections::HashSet::new(),
+            restore_unseen: false,
             colors: {
                 let t = crate::theme::Theme::named(&cfg.theme);
                 let rgb = |c| match c {
@@ -385,6 +400,20 @@ impl Term {
     /// Returns true when the reported working directory changed.
     pub fn output(&mut self, data: &[u8]) -> bool {
         self.process_answering_queries(data);
+        // Agents show progress with OSC 9;4 (0 = none, 1-4 = busy). It going away without a
+        // "turn ended" hook is how an Esc-cancel looks.
+        let txt = String::from_utf8_lossy(data);
+        if let Some(i) = txt.rfind("\x1b]9;4;") {
+            match txt[i + 6..].chars().next() {
+                Some('0') => {
+                    if self.status == Status::Working {
+                        self.progress_off.get_or_insert_with(Instant::now);
+                    }
+                }
+                Some('1'..='4') => self.progress_off = None,
+                _ => {}
+            }
+        }
         let mut cwd_changed = false;
         if let Some(dir) = find_cwd_report(data)
             && dir != self.cwd

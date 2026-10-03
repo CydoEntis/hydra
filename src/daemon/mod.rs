@@ -320,6 +320,7 @@ impl Daemon {
             cmd: term.cmd.clone(),
             agent: term.agent.clone(),
             session: term.agent.as_ref().and(term.session.clone()),
+            unseen: term.status == Status::Done,
         };
         let workspaces = self
             .workspaces
@@ -387,6 +388,7 @@ impl Daemon {
                                 t.cmd = pane.cmd.clone();
                                 t.session = pane.session.clone();
                                 t.agent = pane.agent.clone();
+                                t.restore_unseen = pane.unseen;
                             }
                             map.insert(old, new);
                             restored += 1;
@@ -655,7 +657,27 @@ impl Daemon {
                     self.dirty = true;
                 }
             }
-            ClientMsg::Hook { term, agent, status, session, cwd, prompt, said, subagent } => {
+            ClientMsg::Hook { term, agent, status, session, cwd, prompt, said, subagent, event, pid } => {
+                // Only the pane's own processes may report its status (a desktop app that
+                // inherited the pane's environment can't).
+                if let Some(tp) = self.terms.get(&term).and_then(|t| t.pid)
+                    && pid != 0
+                {
+                    let known = self.terms.get(&term).map(|t| t.trusted.clone()).unwrap_or_default();
+                    match scan::descends_from(pid, tp, &known) {
+                        (Some(true), chain) => {
+                            if let Some(t) = self.terms.get_mut(&term) {
+                                t.trusted.extend(chain);
+                            }
+                        }
+                        // Outside the pane, or a chain that can't be traced back to it (the
+                        // reporter sends its live parent, so a real one always can be).
+                        (_, _) => {
+                            tracing::info!("ignoring a status report for pane {term} from pid {pid} outside it");
+                            return;
+                        }
+                    }
+                }
                 if let Some(t) = self.terms.get_mut(&term) {
                     if let Some(sa) = subagent {
                         if sa.start {
@@ -667,8 +689,9 @@ impl Daemon {
                         }
                         self.dirty = true;
                     }
-                    // A finished turn has no subagents left.
-                    if matches!(status, HookStatus::Done | HookStatus::Gone | HookStatus::Idle) {
+                    // A turn over (or a new session) has no subagents left; a "done" while some
+                    // still run is held instead (see `hook`).
+                    if matches!(status, HookStatus::Gone | HookStatus::Idle) {
                         t.subagents.clear();
                     }
                     if let Some(s) = said {
@@ -689,7 +712,7 @@ impl Daemon {
                         t.refresh_head();
                     }
                 }
-                self.hook(term, agent, status);
+                self.hook(term, agent, status, &event);
             }
             ClientMsg::Command(cmd) => {
                 match self.command(client, cmd) {
@@ -724,14 +747,35 @@ impl Daemon {
         }
     }
 
-    fn hook(&mut self, term: TermId, agent: String, status: HookStatus) {
+    fn hook(&mut self, term: TermId, agent: String, status: HookStatus, event: &str) {
         let focused = self.focused_term() == Some(term) && self.has_viewer();
         let Some(t) = self.terms.get_mut(&term) else { return };
+        let now = Instant::now();
         let new = match status {
             HookStatus::Same => {
+                // A subagent finished: if the turn was waiting on it, it's done now.
+                if t.subagents.is_empty() && t.done_held.take().is_some() {
+                    let s = if focused { Status::Idle } else { Status::Done };
+                    self.set_status(term, s);
+                }
                 self.dirty = true;
                 return;
             }
+            // Claude sometimes repeats a permission ping after you've already answered and it's
+            // moved on: ignore one that comes right after a "working".
+            HookStatus::Blocked
+                if event == "Notification:permission_prompt" && t.last_working_hook.is_some_and(|w| w.elapsed() < Duration::from_secs(5)) =>
+            {
+                return;
+            }
+            // Done while subagents still run: hold it until they finish (or 3 minutes pass).
+            HookStatus::Done if !t.subagents.is_empty() => {
+                t.done_held = Some(now);
+                self.dirty = true;
+                return;
+            }
+            // After a restart, a session that was done and unseen comes back done.
+            HookStatus::Idle if std::mem::take(&mut t.restore_unseen) && !focused => Status::Done,
             HookStatus::Gone => {
                 t.hooked = false;
                 t.agent = None;
@@ -751,6 +795,14 @@ impl Daemon {
         t.hooked = true;
         if !agent.is_empty() {
             t.agent = Some(agent);
+        }
+        if new == Status::Working {
+            t.last_working_hook = Some(now);
+            t.done_held = None;
+            t.progress_off = None;
+        }
+        if new != Status::Working {
+            t.progress_off = None;
         }
         self.set_status(term, new);
         self.dirty = true;
@@ -803,6 +855,14 @@ impl Daemon {
                 if t.status == Status::Done && Some(t.id) == focused {
                     changes.push((t.id, Status::Idle));
                 }
+                // Subagents never reported back: don't hold "done" forever.
+                if t.done_held.is_some_and(|h| h.elapsed() > Duration::from_secs(180)) {
+                    changes.push((t.id, if Some(t.id) == focused { Status::Idle } else { Status::Done }));
+                }
+                // The progress indicator went away and no turn-end came: cancelled (Esc).
+                if t.status == Status::Working && t.done_held.is_none() && t.progress_off.is_some_and(|p| p.elapsed() > Duration::from_secs(2)) {
+                    changes.push((t.id, Status::Idle));
+                }
                 continue;
             }
             let def = self.agents.iter().find(|a| &a.name == name);
@@ -831,6 +891,14 @@ impl Daemon {
             }
         }
         for (id, s) in changes {
+            if s != Status::Working
+                && let Some(t) = self.terms.get_mut(&id)
+            {
+                if t.done_held.take().is_some() {
+                    t.subagents.clear();
+                }
+                t.progress_off = None;
+            }
             self.set_status(id, s);
         }
     }
@@ -1039,6 +1107,11 @@ impl Daemon {
                     self.active_ws = Some(id);
                 }
                 self.last_git = Instant::now() - Duration::from_secs(60);
+            }
+            Command::MarkSeen { term } => {
+                if self.terms.get(&term).is_some_and(|t| t.status == Status::Done) {
+                    self.set_status(term, Status::Idle);
+                }
             }
             Command::FocusPane { term } if self.terms.get(&term).is_some_and(|t| t.asleep) => {
                 self.wake(term);

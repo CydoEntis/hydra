@@ -8,6 +8,29 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+/// Is `pid` inside the process tree under `ancestor`? Walks up the parents.
+/// `Some(true)` with the pids passed (to trust next time), `Some(false)` when the walk reached
+/// the top without meeting it, `None` when it can't tell (a process already exited).
+pub fn descends_from(pid: u32, ancestor: u32, known: &std::collections::HashSet<u32>) -> (Option<bool>, Vec<u32>) {
+    let mut sys = System::new();
+    let mut chain = Vec::new();
+    let mut cur = pid;
+    for _ in 0..32 {
+        if cur == ancestor || known.contains(&cur) {
+            return (Some(true), chain);
+        }
+        chain.push(cur);
+        let p = Pid::from_u32(cur);
+        sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[p]), true, ProcessRefreshKind::nothing());
+        let Some(proc_) = sys.process(p) else { return (None, chain) };
+        match proc_.parent() {
+            Some(parent) if parent.as_u32() != cur && parent.as_u32() != 0 => cur = parent.as_u32(),
+            _ => return (Some(false), chain),
+        }
+    }
+    (None, chain)
+}
 use tokio::sync::mpsc;
 
 #[derive(Default)]
