@@ -76,7 +76,7 @@ pub(super) fn draw_confirm(app: &mut App, f: &mut ratatui::Frame, area: ratatui:
     let bx = r.x + (w.saturating_sub(total)) / 2;
     let yr = Rect { x: bx, y: r.y + 4, width: yes.chars().count() as u16, height: 1 };
     let nr = Rect { x: yr.right() + 2, y: r.y + 4, width: no.chars().count() as u16, height: 1 };
-    let ys = Style::default().bg(t.blocked).fg(t.bg).add_modifier(Modifier::BOLD);
+    let ys = Style::default().bg(t.blocked).fg(t.ink_on(t.blocked)).add_modifier(Modifier::BOLD);
     let ns = if hovered(app, nr) { Style::default().bg(t.hov).fg(t.strong) } else { Style::default().bg(t.btn).fg(t.text) };
     put(buf, yr.x, yr.y, &[seg(yes, ys)], r.right());
     put(buf, nr.x, nr.y, &[seg(no, ns)], r.right());

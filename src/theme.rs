@@ -114,6 +114,25 @@ pub fn mix(a: Color, b: Color, t: f32) -> Color {
 }
 
 impl Theme {
+    /// Text to put on a filled `c`: the theme's background or its strongest text, whichever
+    /// reads better (light themes need dark ink on orange, dark themes light).
+    pub fn ink_on(&self, c: Color) -> Color {
+        // WCAG relative luminance and contrast.
+        let l = |c: Color| match c {
+            Color::Rgb(r, g, b) => {
+                let ch = |v: u8| {
+                    let s = v as f64 / 255.0;
+                    if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+                };
+                0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+            }
+            _ => 0.5,
+        };
+        let contrast = |a: f64, b: f64| (a.max(b) + 0.05) / (a.min(b) + 0.05);
+        let fill = l(c);
+        if contrast(l(self.bg), fill) >= contrast(l(self.strong), fill) { self.bg } else { self.strong }
+    }
+
     /// A theme from its 14 classic colours; the newer roles are derived from them.
     fn classic(c: [&str; 14]) -> Theme {
         let (bg, fg, muted, border) = (hex(c[0]), hex(c[1]), hex(c[2]), hex(c[4]));
@@ -128,10 +147,12 @@ impl Theme {
             selection_bg: hex(c[7]),
             tab_active_bg: hex(c[8]),
             tab_active_fg: hex(c[9]),
-            working: hex(c[10]),
-            blocked: hex(c[11]),
-            done: hex(c[12]),
-            idle: hex(c[13]),
+            // Same meanings as the designed themes: needs-you yellow/orange, error red, done
+            // green; working in plain text.
+            working: mix(muted, fg, 0.5),
+            blocked: hex(c[10]),
+            done: hex(c[13]),
+            idle: muted,
             card: mix(bg, fg, 0.05),
             card2: mix(bg, fg, 0.11),
             btn: mix(bg, fg, 0.14),
@@ -193,7 +214,7 @@ impl Theme {
             "papercolor-dark" => Theme::design(
                 [
                     "#1c1c1c", "#d0d0d0", "#262626", "#303030", "#3a3a3a", "#444444", "#808080", "#b2b2b2",
-                    "#eeeeee", "#00afaf", "#1c1c1c", "#ffaf00", "#5faf00", "#af005f", "#3a3a3a", "#5f5faf",
+                    "#eeeeee", "#00afaf", "#1c1c1c", "#ffaf00", "#5faf00", "#ff5f87", "#3a3a3a", "#5f5faf",
                 ],
                 ["#af87d7", "#5fafd7", "#ff5faf", "#5f8787"],
                 ["#af005f", "#5faf00", "#d7af5f", "#5fafd7", "#af87d7", "#00afaf", "#808080"],
@@ -201,7 +222,7 @@ impl Theme {
             "tango-dark" => Theme::design(
                 [
                     "#2e3436", "#eeeeec", "#252a2b", "#363c3e", "#41474a", "#555753", "#9a9c97", "#d3d7cf",
-                    "#eeeeec", "#729fcf", "#2e3436", "#fcaf3e", "#73d216", "#ef2929", "#4a5052", "#204a87",
+                    "#eeeeec", "#8ab8ec", "#2e3436", "#fcaf3e", "#73d216", "#ff5c5c", "#4a5052", "#204a87",
                 ],
                 ["#ad7fa8", "#729fcf", "#e9b96e", "#34e2e2"],
                 ["#ef2929", "#8ae234", "#fce94f", "#729fcf", "#ad7fa8", "#34e2e2", "#888a85"],
@@ -227,19 +248,19 @@ impl Theme {
                 "#313244", "#89b4fa", "#1e1e2e", "#f9e2af", "#f38ba8", "#89dceb", "#a6e3a1",
             ]),
             "catppuccin-latte" => Theme::classic([
-                "#eff1f5", "#4c4f69", "#8c8fa1", "#1e66f5", "#bcc0cc", "#1e66f5", "#e6e9ef",
-                "#ccd0da", "#1e66f5", "#eff1f5", "#df8e1d", "#d20f39", "#40a02b", "#8c8fa1",
+                "#eff1f5", "#303446", "#6c6f85", "#1e5ad8", "#bcc0cc", "#1e5ad8", "#e6e9ef",
+                "#ccd0da", "#1e5ad8", "#eff1f5", "#a05600", "#d20f39", "#1e66f5", "#2f8a1f",
             ]),
             "gruvbox" => Theme::classic([
                 "#282828", "#ebdbb2", "#928374", "#fabd2f", "#504945", "#fabd2f", "#1d2021",
                 "#3c3836", "#fabd2f", "#282828", "#fe8019", "#fb4934", "#83a598", "#b8bb26",
             ]),
             "nord" => Theme::classic([
-                "#2e3440", "#eceff4", "#616e88", "#88c0d0", "#434c5e", "#88c0d0", "#272c36",
-                "#3b4252", "#88c0d0", "#2e3440", "#ebcb8b", "#bf616a", "#81a1c1", "#a3be8c",
+                "#2e3440", "#eceff4", "#8390a8", "#88c0d0", "#434c5e", "#88c0d0", "#272c36",
+                "#3b4252", "#88c0d0", "#2e3440", "#ebcb8b", "#e0707a", "#81a1c1", "#a3be8c",
             ]),
             "dracula" => Theme::classic([
-                "#282a36", "#f8f8f2", "#6272a4", "#bd93f9", "#44475a", "#bd93f9", "#21222c",
+                "#282a36", "#f8f8f2", "#7a8ac0", "#bd93f9", "#44475a", "#bd93f9", "#21222c",
                 "#44475a", "#bd93f9", "#282a36", "#f1fa8c", "#ff5555", "#8be9fd", "#50fa7b",
             ]),
             "mono" => Theme {
@@ -329,5 +350,89 @@ impl Theme {
             Idle => self.idle,
             None => self.muted,
         }
+    }
+}
+
+#[cfg(test)]
+mod audit {
+    use super::Theme;
+    use ratatui::style::Color;
+
+    fn lum(c: Color) -> Option<f64> {
+        let Color::Rgb(r, g, b) = c else { return None };
+        let ch = |v: u8| {
+            let s = v as f64 / 255.0;
+            if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+        };
+        Some(0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b))
+    }
+
+    pub fn contrast(a: Color, b: Color) -> f64 {
+        match (lum(a), lum(b)) {
+            (Some(x), Some(y)) => (x.max(y) + 0.05) / (x.min(y) + 0.05),
+            _ => 21.0,
+        }
+    }
+
+    fn mix(a: Color, b: Color, t: f32) -> Color {
+        super::mix(a, b, t)
+    }
+
+    /// Every theme: text readable on every surface it's drawn on, and the colours that mean
+    /// different things look different.
+    #[test]
+    fn every_theme_reads_well() {
+        let names = ["hydra", "papercolor-dark", "tango-dark", "monokai", "tokyo-night", "catppuccin-mocha", "catppuccin-latte", "gruvbox", "nord", "dracula"];
+        let mut bad = Vec::new();
+        for n in names {
+            let t = Theme::named(n);
+            let active = mix(t.sidebar_bg, t.accent, 0.16);
+            let hover = mix(t.sidebar_bg, t.text, 0.10);
+            let checks: Vec<(&str, Color, Color, f64)> = vec![
+                ("text on bg", t.text, t.bg, 4.5),
+                ("strong on bg", t.strong, t.bg, 7.0),
+                ("muted on bg", t.muted, t.bg, 3.0),
+                ("muted on sidebar", t.muted, t.sidebar_bg, 3.0),
+                ("text on card", t.text, t.card, 4.5),
+                ("text on card2", t.text, t.card2, 4.0),
+                ("strong on btn", t.strong, t.btn, 4.5),
+                ("accent on btn (keys)", t.accent, t.btn, 3.0),
+                ("ink on accent", t.acc_ink, t.accent, 4.5),
+                ("strong on open row", t.strong, active, 7.0),
+                ("muted on open row", t.muted, active, 2.6),
+                ("strong on hover", t.strong, hover, 7.0),
+                ("strong on hov (menus)", t.strong, t.hov, 4.5),
+                ("blocked on sidebar", t.blocked, t.sidebar_bg, 3.0),
+                ("done on sidebar", t.done, t.sidebar_bg, 3.0),
+                ("err on card", t.err, t.card, 3.0),
+                ("ink on blocked (confirm)", t.ink_on(t.blocked), t.blocked, 4.5),
+            ];
+            for (what, fg, bg, min) in checks {
+                let c = contrast(fg, bg);
+                if c < min {
+                    bad.push(format!("{n:18} {what:24} {c:.2} (wants {min})"));
+                }
+            }
+            // Different meanings, different colours.
+            for (what, a, b) in [("accent vs done", t.accent, t.done), ("accent vs blocked", t.accent, t.blocked), ("done vs blocked", t.done, t.blocked), ("blocked vs err", t.blocked, t.err)] {
+                if a == b || contrast(a, b) < 1.15 && hue_near(a, b) {
+                    bad.push(format!("{n:18} {what:24} too alike"));
+                }
+            }
+            // Open and hover rows must differ from the sidebar and each other.
+            if contrast(active, t.sidebar_bg) < 1.12 || contrast(hover, t.sidebar_bg) < 1.08 {
+                bad.push(format!("{n:18} open/hover rows barely show ({:.2} / {:.2})", contrast(active, t.sidebar_bg), contrast(hover, t.sidebar_bg)));
+            }
+        }
+        for b in &bad {
+            eprintln!("{b}");
+        }
+        assert!(bad.is_empty(), "{} theme problems", bad.len());
+    }
+
+    fn hue_near(a: Color, b: Color) -> bool {
+        let (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) = (a, b) else { return false };
+        let d = |x: u8, y: u8| (x as i32 - y as i32).abs();
+        d(r1, r2) + d(g1, g2) + d(b1, b2) < 90
     }
 }

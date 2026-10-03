@@ -89,13 +89,14 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 
 | keys (after the leader) | action |
 |---|---|
-| `n` / `p` | **+ New**: type the task, pick the agent, model, project and worktree; full screen / beside |
+| `n` | a new **shell** right away, where the session you're on is |
+| `p` / `o` | open a **project** |
+| `t` | **+ New**: type the task, pick the agent, model, project and worktree; full screen / beside |
 | `.` | **presets**: saved launches ("commit and push", "review {task}"), by number |
 | `↑` `↓` | walk the sidebar; Enter opens, bare keys work until Esc |
 | `j` | **Jump**: what needs you, what finished, PRs with failing checks or changes asked |
 | `T` / `r` / `1` `2` `3` | message an agent / reply to the focused one / answer its prompt |
 | `Space` on a sidebar row | a follow-up box beside that agent; Enter sends, `↓ Space` for the next |
-| `o` | open a project (type a path, `cd ..`, fuzzy; Tab completes) |
 | `f` / `d` / `P` | **Files** / **Changes** / the branch's **pull request** |
 | `s` | **Ship**: commit, push, open (or update) the pull request, after one Enter |
 | `I` | **Ideas**: jot one down; later, Enter starts an agent on it in its own worktree |

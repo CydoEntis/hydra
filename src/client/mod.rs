@@ -1871,6 +1871,12 @@ impl App {
             Action::Presets => self.hy_presets(),
             Action::Branches => self.open_branches(None),
             Action::Memory => self.mode = Mode::Memory { sel: 0 },
+            // The classic layout: a shell beside the focused pane.
+            Action::ShellHere => {
+                if let Some(term) = focused {
+                    self.cmd(Command::Split { term, dir: Dir::Right, cmd: None, cwd: None });
+                }
+            }
             Action::History => self.mode = Mode::History { sel: 0 },
             Action::PullRequest => {
                 if let Some(dir) = self.target_path()
@@ -4476,7 +4482,7 @@ mod design_tests {
         let lines: Vec<&str> = text.lines().collect();
         assert!(lines[0].starts_with(" >_ hydra"), "top bar: {}", lines[0]);
         assert!(lines[0].contains("▌shop-api  ›  claude"), "crumb: {}", lines[0]);
-        assert!(lines[0].trim_end().ends_with("+ Pane n"), "+ Pane button: {}", lines[0]);
+        assert!(lines[0].trim_end().ends_with("+ Pane t"), "+ Pane button: {}", lines[0]);
         assert!(!text.contains("GROUPS") && !text.contains("WORKSPACES"), "no heading");
         assert!(text.contains("▌● shop-api"), "the pane, named, with its most urgent agent");
         assert!(text.contains("claude +1"), "and how many agents it holds");
@@ -4611,7 +4617,7 @@ mod hydra_tests {
         assert!(lines[0].starts_with(" >_ hydra"), "logo: {}", lines[0]);
         let bottom = lines.iter().rev().find(|l| !l.trim().is_empty()).unwrap();
         assert!(bottom.contains("shop-api  ›  ⎇ main  ›  claude  ● needs you  ·  Fix flaky checkout test"), "crumb at the bottom: {bottom}");
-        assert!(lines[2].contains("+ New n") && lines[2].contains("Jump ●1"), "+ New and Jump at the top of the sidebar: {}", lines[2]);
+        assert!(lines[2].contains("+ New t") && lines[2].contains("Jump ●1"), "+ New and Jump at the top of the sidebar: {}", lines[2]);
         // Projects and their sessions, nothing in between.
         assert!(text.contains("▾ ▌shop-api") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
         assert!(!text.contains("main folder"), "no 'main folder' wording");

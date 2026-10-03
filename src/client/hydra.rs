@@ -888,7 +888,7 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     let jb = button(t, &jlabel, &jk, BtnKind::Normal, false);
     let jr = Rect { x: bx + 1, y: r.y + 1, width: segs_width(&jb), height: 1 };
     let jb: Vec<Seg> = if needs > 0 {
-        jb.into_iter().map(|(x, st)| (x, st.bg(t.blocked).fg(t.bg))).collect()
+        jb.into_iter().map(|(x, st)| (x, st.bg(t.blocked).fg(t.ink_on(t.blocked)))).collect()
     } else {
         button(t, &jlabel, &jk, BtnKind::Normal, hovered(app, jr))
     };
@@ -2782,6 +2782,11 @@ impl App {
         match a {
             Action::Settings => self.hy_settings(),
             Action::NewPane => self.hy_open_new_pane(false),
+            Action::ShellHere => {
+                let dir = self.hy_target_dir();
+                self.hy.cursor = None;
+                self.hy_new_session(dir, None, false);
+            }
             Action::Jump | Action::Picker => self.mode = Mode::Jump { sel: 0 },
             Action::OpenProject => self.hy_open_finder(),
             Action::Talk | Action::Reply => {
