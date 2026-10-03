@@ -29,7 +29,7 @@ use unicode_width::UnicodeWidthStr;
 // ---- state ---------------------------------------------------------------------------------
 
 /// What the user chose that the daemon doesn't track: projects they opened, the colour
-/// order, folded worktrees. Saved to `hydra-ui.json` in the data folder.
+/// order, folded rows. Saved to `hydra-ui.json` in the data folder.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub(super) struct Saved {
@@ -37,14 +37,16 @@ pub(super) struct Saved {
     pub known: Vec<PathBuf>,
     /// Project keys in the order they were first seen; a project's colour is its index.
     pub order: Vec<String>,
-    /// Folded worktrees (by path key).
+    /// Folded sidebar rows ("p:<project key>").
     pub closed: Vec<String>,
+    /// Projects whose BRANCHES list is unfolded.
+    pub open_branches: Vec<String>,
 }
 
 #[derive(Debug, Default)]
 pub(super) struct Hy {
     pub saved: Saved,
-    /// The project shown in the sidebar (by key).
+    /// The project of what you're on (the default for + New).
     pub proj: Option<String>,
     /// Two sessions side by side: (left, right). One of them is the focused one.
     pub pair: Option<(TermId, TermId)>,
@@ -56,10 +58,18 @@ pub(super) struct Hy {
     pub pending_split: Option<(TermId, Instant)>,
     /// The focus last time the state came in.
     pub last_focus: Option<TermId>,
-    /// Drawn this frame: sidebar sessions in order, project keys, worktree keys.
+    /// Recent local branches per project (by key), newest first; fetched in the background.
+    pub branches: std::collections::HashMap<String, Vec<String>>,
+    pub branch_at: std::collections::HashMap<String, Instant>,
+    /// Sidebar scroll, and whether to bring the focused row into view on the next draw.
+    pub side_scroll: u16,
+    pub follow: bool,
+    pub side_rect: Rect,
+    /// Drawn this frame: sidebar sessions in order, project keys, worktree and branch rows.
     pub visible: Vec<TermId>,
     pub proj_keys: Vec<String>,
     pub wt_keys: Vec<(String, PathBuf)>,
+    pub branch_keys: Vec<(PathBuf, String)>,
 }
 
 fn saved_path() -> PathBuf {
@@ -106,11 +116,11 @@ pub(super) struct Finder {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct NewPaneHy {
-    /// Project index, worktree index (== count means "+ new worktree"), run index, row.
+    /// Project index (== count means "other folder…"), run index, row, open beside.
     pub p: usize,
-    pub w: usize,
     pub a: usize,
     pub row: u8,
+    pub beside: bool,
 }
 
 // ---- model ---------------------------------------------------------------------------------
@@ -132,7 +142,10 @@ pub(super) struct Session {
 pub(super) struct Wt {
     pub key: String,
     pub path: PathBuf,
+    /// The worktree's folder name (or "main folder").
     pub name: String,
+    /// The branch checked out there.
+    pub branch: String,
     pub main: bool,
     pub sessions: Vec<Session>,
 }
@@ -145,6 +158,10 @@ pub(super) struct Proj {
     pub color: Color,
     pub wts: Vec<Wt>,
     pub fresh: bool,
+    /// A git repo (worktrees are possible).
+    pub git: bool,
+    /// Recent local branches not checked out anywhere.
+    pub branches: Vec<String>,
 }
 
 impl Proj {
@@ -154,6 +171,9 @@ impl Proj {
 }
 
 /// Attention order: needs you, done, working, idle.
+/// What an agent's row says before it has been given anything to do.
+pub(super) const WAITING: &str = "waiting for you";
+
 pub(super) fn rank(s: Status) -> u8 {
     match s {
         Status::Blocked => 0,
@@ -213,14 +233,16 @@ pub(super) fn options(parser: Option<&vt100::Parser>) -> Vec<String> {
 }
 
 impl App {
-    /// The design's sessions: every terminal, by project and worktree.
+    /// Every terminal, by project (repo) and worktree.
     pub(super) fn hy_model(&self) -> Vec<Proj> {
         let mut projs: Vec<Proj> = Vec::new();
         let sort = self.cfg.ui.attention_sort;
         let order = &self.hy.saved.order;
-        let add_proj = |projs: &mut Vec<Proj>, path: &Path| -> usize {
+        let fallback: Vec<Color> = self.cfg.ui.workspace_colors.iter().filter_map(|c| crate::theme::parse_color(c)).collect();
+        let add_proj = |projs: &mut Vec<Proj>, path: &Path, git: bool| -> usize {
             let key = path_key(path);
             if let Some(i) = projs.iter().position(|p| p.key == key) {
+                projs[i].git |= git;
                 return i;
             }
             let ci = order.iter().position(|k| *k == key).unwrap_or(order.len() + projs.len());
@@ -228,18 +250,21 @@ impl App {
                 key: key.clone(),
                 path: path.to_path_buf(),
                 name: folder_name(path),
-                color: self.theme.project(ci, &self.cfg.ui.workspace_colors.iter().filter_map(|c| crate::theme::parse_color(c)).collect::<Vec<_>>()),
+                color: self.theme.project(ci, &fallback),
                 wts: Vec::new(),
                 fresh: self.hy.fresh.contains(&key),
+                git,
+                branches: Vec::new(),
             });
             projs.len() - 1
         };
-        let add_wt = |p: &mut Proj, path: &Path, name: String, main: bool| -> usize {
+        let add_wt = |p: &mut Proj, path: &Path, branch: String, main: bool| -> usize {
             let key = path_key(path);
             if let Some(i) = p.wts.iter().position(|w| w.key == key) {
                 return i;
             }
-            p.wts.push(Wt { key, path: path.to_path_buf(), name, main, sessions: Vec::new() });
+            let name = if main { "main folder".to_string() } else { folder_name(path) };
+            p.wts.push(Wt { key, path: path.to_path_buf(), name, branch, main, sessions: Vec::new() });
             p.wts.len() - 1
         };
 
@@ -247,18 +272,18 @@ impl App {
             let leaves: Vec<TermId> = w.tabs.iter().flat_map(|t| t.layout.leaves()).collect();
             for id in &leaves {
                 let Some(t) = self.snap.terms.get(id) else { continue };
-                let (root, top, wname, main) = match (&t.root, &t.top) {
+                let (root, top, branch, main, git) = match (&t.root, &t.top) {
                     (Some(r), Some(tp)) => {
                         let main = path_key(r) == path_key(tp);
-                        (r.clone(), tp.clone(), t.branch.clone().unwrap_or_else(|| folder_name(tp)), main)
+                        (r.clone(), tp.clone(), t.branch.clone().unwrap_or_default(), main, true)
                     }
                     _ => {
                         let cwd = if t.cwd.as_os_str().is_empty() { w.cwd.clone() } else { t.cwd.clone() };
-                        (cwd.clone(), cwd, "folder".to_string(), true)
+                        (cwd.clone(), cwd, String::new(), true, false)
                     }
                 };
-                let pi = add_proj(&mut projs, &root);
-                let wi = add_wt(&mut projs[pi], &top, wname, main);
+                let pi = add_proj(&mut projs, &root, git);
+                let wi = add_wt(&mut projs[pi], &top, branch, main);
                 let title = session_title(t, if leaves.len() == 1 { &w.name } else { "" }, &top);
                 let question = (t.status == Status::Blocked).then(|| self.parsers.get(id).and_then(question)).flatten();
                 projs[pi].wts[wi].sessions.push(Session {
@@ -288,11 +313,11 @@ impl App {
         for k in &self.hy.saved.known {
             let head = crate::gitfs::head(k);
             let root = head.as_ref().map(|h| h.main_root.clone()).unwrap_or_else(|| k.clone());
-            let pi = add_proj(&mut projs, &root);
+            let pi = add_proj(&mut projs, &root, head.is_some());
             if projs[pi].wts.is_empty() {
                 match head {
                     Some(h) => add_wt(&mut projs[pi], &h.top, h.branch, true),
-                    None => add_wt(&mut projs[pi], k, "folder".into(), true),
+                    None => add_wt(&mut projs[pi], k, String::new(), true),
                 };
             }
         }
@@ -304,15 +329,19 @@ impl App {
             }
             p.wts.sort_by_key(|w| {
                 let worst = w.sessions.iter().map(|s| rank(s.status)).min().unwrap_or(4);
-                (if sort { worst } else { 0 }, !w.main, w.name.clone())
+                (!w.main, if sort { worst } else { 0 }, w.name.clone())
             });
+            if let Some(list) = self.hy.branches.get(&p.key) {
+                let out: HashSet<&str> = p.wts.iter().map(|w| w.branch.as_str()).collect();
+                p.branches = list.iter().filter(|b| !out.contains(b.as_str())).take(8).cloned().collect();
+            }
         }
         projs.sort_by_key(|p| order.iter().position(|k| *k == p.key).unwrap_or(usize::MAX));
         projs
     }
 
-    /// Keep the remembered bits in step with a new state: project order, the selected
-    /// project, the split pair.
+    /// Keep the remembered bits in step with a new state: project order, the current
+    /// project, the split pair, the branch lists.
     pub(super) fn hy_sync(&mut self) {
         let focus = self.focused();
         let model = self.hy_model();
@@ -328,6 +357,7 @@ impl App {
         }
         let proj_of = |t: TermId| model.iter().find(|p| p.sessions().any(|s| s.term == t)).map(|p| p.key.clone());
         if focus != self.hy.last_focus {
+            self.hy.follow = true;
             if let Some(f) = focus {
                 if let Some(k) = proj_of(f) {
                     self.hy.fresh.remove(&k);
@@ -359,6 +389,29 @@ impl App {
         if self.hy.proj.as_ref().is_none_or(|k| !model.iter().any(|p| &p.key == k)) {
             self.hy.proj = focus.and_then(proj_of).or_else(|| model.first().map(|p| p.key.clone()));
         }
+        // Recent branches, at most once a minute per repo, off the UI thread.
+        if !cfg!(test) {
+            for p in model.iter().filter(|p| p.git) {
+                if self.hy.branch_at.get(&p.key).is_some_and(|t| t.elapsed().as_secs() < 60) {
+                    continue;
+                }
+                self.hy.branch_at.insert(p.key.clone(), Instant::now());
+                let (tx, key, dir) = (self.bg.clone(), p.key.clone(), p.path.clone());
+                std::thread::spawn(move || {
+                    let out = std::process::Command::new("git")
+                        .arg("-C")
+                        .arg(&dir)
+                        .args(["for-each-ref", "--sort=-committerdate", "--count=20", "--format=%(refname:short)", "refs/heads"])
+                        .output();
+                    if let Ok(o) = out
+                        && o.status.success()
+                    {
+                        let list = String::from_utf8_lossy(&o.stdout).lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect();
+                        let _ = tx.send(super::Bg::Branches(key, list));
+                    }
+                });
+            }
+        }
     }
 }
 
@@ -370,7 +423,7 @@ fn session_title(t: &TermInfo, name: &str, top: &Path) -> String {
     }
     if t.agent.is_some() {
         let s = t.summary.trim();
-        return if s.is_empty() { "new session".into() } else { s.to_string() };
+        return if s.is_empty() { WAITING.into() } else { s.to_string() };
     }
     if t.is_shell() {
         return match t.cwd.strip_prefix(top) {
@@ -386,12 +439,18 @@ fn session_title(t: &TermInfo, name: &str, top: &Path) -> String {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum HyHit {
     Splash,
-    Proj(usize),
+    /// Fold / unfold a project.
+    ToggleProj(usize),
+    /// The + on a project row: new, in that project.
+    NewIn(usize),
     OpenFolder,
-    ToggleWt(usize),
+    /// A main folder or worktree row (index into `wt_keys`).
+    Wt(usize),
     Session(TermId),
     Talk(TermId),
-    NewSession(usize),
+    ToggleBranches(usize),
+    /// A branch row (index into `branch_keys`): open it in a new worktree.
+    Branch(usize),
     Settings,
     Jump,
     NewPane,
@@ -404,8 +463,8 @@ pub(super) enum HyHit {
     FinderPick(usize),
     JumpTo(TermId),
     NpProj(usize),
-    NpWt(usize),
     NpRun(usize),
+    NpBeside(usize),
     NpGo,
     SetTab(usize),
     SetRow(usize),
@@ -491,7 +550,7 @@ fn draw_top(app: &mut App, buf: &mut Buffer, area: Rect, crumb_x: u16, model: &[
     let needs = model.iter().flat_map(|p| p.sessions()).filter(|s| s.status == Status::Blocked).count();
     // Right: Jump (amber when something needs you) and + Pane.
     let pane_key = k(app, &Action::NewPane);
-    let pb = button(t, "+ Pane", &pane_key, BtnKind::Primary, false);
+    let pb = button(t, "+ New", &pane_key, BtnKind::Primary, false);
     let px = area.right().saturating_sub(segs_width(&pb));
     let jk = k(app, &Action::Jump);
     let (jbg, jfg, kfg) = if needs > 0 { (t.blocked, t.bg, t.bg) } else { (t.btn, t.strong, t.accent) };
@@ -502,7 +561,7 @@ fn draw_top(app: &mut App, buf: &mut Buffer, area: Rect, crumb_x: u16, model: &[
     let jx = px.saturating_sub(1 + segs_width(&jb));
     put(buf, jx, y, &jb, px);
     hit(app, Rect { x: jx, y, width: segs_width(&jb), height: 1 }, HyHit::Jump);
-    btn(app, buf, px, y, "+ Pane", &pane_key, BtnKind::Primary, HyHit::NewPane, area.right());
+    btn(app, buf, px, y, "+ New", &pane_key, BtnKind::Primary, HyHit::NewPane, area.right());
     // Crumb: ▌project › worktree › session
     if let Some((p, w, s)) = app.focused().and_then(|f| find(model, f)) {
         put(
@@ -513,7 +572,7 @@ fn draw_top(app: &mut App, buf: &mut Buffer, area: Rect, crumb_x: u16, model: &[
                 seg("▌", Style::default().fg(p.color)),
                 seg(p.name.clone(), Style::default().fg(t.strong).add_modifier(Modifier::BOLD)),
                 seg("  ›  ", Style::default().fg(t.muted)),
-                seg(w.name.clone(), Style::default().fg(t.text)),
+                seg(if w.main { w.branch.clone() } else { w.name.clone() }, Style::default().fg(t.text)),
                 seg("  ›  ", Style::default().fg(t.muted)),
                 seg(s.title.clone(), Style::default().fg(t.text)),
             ],
@@ -551,159 +610,318 @@ fn hline(buf: &mut Buffer, x: u16, y: u16, w: u16, t: &Theme, bg: Color) {
     }
 }
 
+/// A line of the sidebar tree.
+#[derive(Debug, Clone)]
+enum Line {
+    Proj(usize),
+    /// The project's main folder (pi, wi).
+    Main(usize, usize),
+    Label(&'static str),
+    /// A linked worktree (pi, wi); with one agent in it, the row is that agent.
+    Wt(usize, usize),
+    /// A session (pi, wi, si) at an indent.
+    Sess(usize, usize, usize, u16),
+    /// A dim line under a row: a question, a prompt, a subagent.
+    Note(String, Color, u16),
+    /// BRANCHES (pi, count, open).
+    Branches(usize, usize, bool),
+    Branch(usize, String),
+    OpenProject,
+    Gap,
+}
+
+fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec<Line> {
+    let mut out = Vec::new();
+    let notes = |s: &Session, indent: u16, out: &mut Vec<Line>| {
+        if let Some(q) = &s.question {
+            out.push(Line::Note(q.clone(), blend(t.blocked, t.sidebar_bg, 0.35), indent));
+        }
+        for sub in &s.subagents {
+            out.push(Line::Note(format!("↳ {sub}"), t.muted, indent));
+        }
+    };
+    for (pi, p) in model.iter().enumerate() {
+        out.push(Line::Proj(pi));
+        if app.hy.saved.closed.contains(&format!("p:{}", p.key)) {
+            continue;
+        }
+        if !p.git {
+            let mut any = false;
+            for (wi, w) in p.wts.iter().enumerate() {
+                for (si, s) in w.sessions.iter().enumerate() {
+                    any = true;
+                    out.push(Line::Sess(pi, wi, si, 3));
+                    notes(s, 5, &mut out);
+                }
+            }
+            if !any {
+                out.push(Line::Note("nothing running".into(), t.muted, 3));
+            }
+            out.push(Line::Gap);
+            continue;
+        }
+        if let Some(wi) = p.wts.iter().position(|w| w.main) {
+            out.push(Line::Main(pi, wi));
+            for (si, s) in p.wts[wi].sessions.iter().enumerate() {
+                out.push(Line::Sess(pi, wi, si, 5));
+                notes(s, 7, &mut out);
+            }
+        }
+        let linked: Vec<usize> = (0..p.wts.len()).filter(|&i| !p.wts[i].main).collect();
+        if !linked.is_empty() {
+            out.push(Line::Label("WORKTREES"));
+            for wi in linked {
+                let w = &p.wts[wi];
+                out.push(Line::Wt(pi, wi));
+                if w.sessions.len() == 1 {
+                    let s = &w.sessions[0];
+                    if s.question.is_none() && s.is_agent && s.title != WAITING {
+                        out.push(Line::Note(s.title.clone(), t.muted, 7));
+                    }
+                    notes(s, 7, &mut out);
+                } else {
+                    for (si, s) in w.sessions.iter().enumerate() {
+                        out.push(Line::Sess(pi, wi, si, 7));
+                        notes(s, 9, &mut out);
+                    }
+                }
+            }
+        }
+        if !p.branches.is_empty() {
+            let open = app.hy.saved.open_branches.contains(&p.key);
+            out.push(Line::Branches(pi, p.branches.len(), open));
+            if open {
+                for b in &p.branches {
+                    out.push(Line::Branch(pi, b.clone()));
+                }
+            }
+        }
+        out.push(Line::Gap);
+    }
+    out.push(Line::OpenProject);
+    out
+}
+
+/// The session a sidebar line stands for, if any.
+fn line_term(model: &[Proj], l: &Line) -> Option<TermId> {
+    match l {
+        Line::Sess(pi, wi, si, _) => Some(model[*pi].wts[*wi].sessions[*si].term),
+        Line::Wt(pi, wi) if model[*pi].wts[*wi].sessions.len() == 1 => Some(model[*pi].wts[*wi].sessions[0].term),
+        _ => None,
+    }
+}
+
 fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
     let surf = t.sidebar_bg;
     fill(buf, r, surf);
-    let (x0, w) = (r.x, r.width);
-    let right = r.right().saturating_sub(1);
-    put(buf, x0 + 2, r.y, &[seg("PROJECTS", Style::default().fg(t.muted).bg(surf).add_modifier(Modifier::BOLD))], r.right());
-    let mut y = r.y + 1;
-    app.hy.proj_keys.clear();
-    for (i, p) in model.iter().enumerate() {
-        if y + 8 >= r.bottom() {
-            break;
-        }
-        let cur = app.hy.proj.as_deref() == Some(p.key.as_str());
-        let row = Rect { x: x0, y, width: w, height: 1 };
-        let bg = if cur { t.btn } else if hovered(app, row) { t.hov } else { surf };
-        fill(buf, row, bg);
-        let s = Style::default().bg(bg);
-        let mut left = vec![seg("▌", s.fg(p.color)), seg(p.name.clone(), if cur { s.fg(t.strong).add_modifier(Modifier::BOLD) } else { s.fg(t.strong) })];
-        if p.fresh {
-            left.push(seg(" ", s));
-            left.push(seg(" NEW ", Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)));
-        }
-        let c: Vec<Seg> = counts(app, t, p.sessions(), None).into_iter().map(|(x, st)| (x, st.bg(bg))).collect();
-        let cw = segs_width(&c);
-        put(buf, x0 + 1, y, &left, right.saturating_sub(cw + 1));
-        put(buf, right.saturating_sub(cw), y, &c, right);
-        app.hy.proj_keys.push(p.key.clone());
-        hit(app, row, HyHit::Proj(i));
-        y += 1;
-    }
-    let ok = k(app, &Action::OpenProject);
-    let row = Rect { x: x0, y, width: w, height: 1 };
-    let bg = if hovered(app, row) { t.hov } else { surf };
-    fill(buf, row, bg);
-    put(buf, x0 + 2, y, &[seg("+ open a folder", Style::default().fg(t.muted).bg(bg)), seg(format!("  {ok}"), Style::default().fg(t.accent).bg(bg).add_modifier(Modifier::BOLD))], r.right());
-    hit(app, row, HyHit::OpenFolder);
-    y += 2;
-    hline(buf, x0 + 1, y, w.saturating_sub(2), t, surf);
-    y += 1;
-
-    app.hy.visible.clear();
-    app.hy.wt_keys.clear();
-    let bottom = r.bottom().saturating_sub(4);
-    let Some(p) = model.iter().find(|p| app.hy.proj.as_deref() == Some(p.key.as_str())) else { return };
-    put(
-        buf,
-        x0 + 2,
-        y,
-        &[seg("WORKTREES", Style::default().fg(t.muted).bg(surf).add_modifier(Modifier::BOLD)), seg(format!("  {}", p.name), Style::default().fg(p.color).bg(surf))],
-        r.right(),
-    );
-    y += 2;
+    app.hy.side_rect = r;
+    let lines = side_lines(app, model, t);
     let focus = app.focused();
     let split = app.hy.pair.map(|(a, b)| if Some(a) == focus { b } else { a });
-    let nk = k(app, &Action::NewSession);
-    let tk = k(app, &Action::Talk);
-    for wt in &p.wts {
-        if y >= bottom {
-            break;
-        }
-        let open = !app.hy.saved.closed.contains(&wt.key);
-        let has_focus = wt.sessions.iter().any(|s| Some(s.term) == focus);
-        let wi = app.hy.wt_keys.len();
-        app.hy.wt_keys.push((wt.key.clone(), wt.path.clone()));
-        let row = Rect { x: x0, y, width: w, height: 1 };
-        let bg = if hovered(app, row) { t.hov } else { surf };
-        fill(buf, row, bg);
-        let c: Vec<Seg> = counts(app, t, wt.sessions.iter(), None).into_iter().map(|(x, st)| (x, st.bg(bg))).collect();
-        let cw = segs_width(&c);
-        put(
-            buf,
-            x0 + 1,
-            y,
-            &[
-                seg(if open { "▾ " } else { "▸ " }, Style::default().fg(t.muted).bg(bg)),
-                seg(wt.name.clone(), Style::default().fg(if has_focus { t.accent } else { t.strong }).bg(bg).add_modifier(Modifier::BOLD)),
-            ],
-            right.saturating_sub(cw + 1),
-        );
-        put(buf, right.saturating_sub(cw), y, &c, right);
-        hit(app, row, HyHit::ToggleWt(wi));
-        y += 1;
-        if !open {
-            y += 1;
-            continue;
-        }
-        if wt.sessions.is_empty() && y < bottom {
-            put(buf, x0 + 5, y, &[seg("no sessions yet", Style::default().fg(t.muted).bg(surf).add_modifier(Modifier::ITALIC))], r.right());
-            y += 1;
-        }
-        for s in &wt.sessions {
-            if y >= bottom {
-                break;
+    let list_h = r.height.saturating_sub(3) as usize;
+    // Keep the focused (or cursor) row in view when it changes; otherwise the wheel rules.
+    let mut scroll = app.hy.side_scroll as usize;
+    if app.hy.follow {
+        let want = app.hy.cursor.or(focus).and_then(|term| lines.iter().position(|l| line_term(model, l) == Some(term)));
+        if let Some(i) = want {
+            if i < scroll {
+                scroll = i.saturating_sub(1);
+            } else if i >= scroll + list_h {
+                scroll = i + 2 - list_h.min(i + 2);
             }
-            let prim = Some(s.term) == focus;
-            let in_split = Some(s.term) == split;
-            let row = Rect { x: x0, y, width: w, height: 1 };
-            let sel = !prim && (app.hy.cursor == Some(s.term) || hovered(app, row));
-            let bg = if prim { t.accent } else if in_split { t.card2 } else if sel { t.hov } else { surf };
-            let ink = prim.then_some(t.acc_ink);
-            fill(buf, row, bg);
-            let st = Style::default().bg(bg);
-            let right_segs = if sel {
-                vec![seg(format!(" {tk} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)), seg(format!(" {}", s.agent), st.fg(t.muted))]
-            } else {
-                let when = if s.is_agent { format!(" {}", age(s.since)) } else { String::new() };
-                vec![seg(format!("{}{when}", s.agent), st.fg(ink.unwrap_or(t.muted)))]
-            };
-            let rw = segs_width(&right_segs);
+        }
+        app.hy.follow = false;
+    }
+    scroll = scroll.min(lines.len().saturating_sub(list_h));
+    app.hy.side_scroll = scroll as u16;
+
+    app.hy.visible = lines.iter().filter_map(|l| line_term(model, l)).collect();
+    app.hy.proj_keys = model.iter().map(|p| p.key.clone()).collect();
+    app.hy.wt_keys.clear();
+    app.hy.branch_keys.clear();
+    let tk = k(app, &Action::Talk);
+    let (x0, w) = (r.x, r.width);
+    let right = r.right().saturating_sub(1);
+
+    // The look of a row that is a session: focused, in the split, under the cursor.
+    let session_row = |app: &mut App, buf: &mut Buffer, y: u16, x: u16, label: Vec<Seg>, s: &Session| {
+        let row = Rect { x: x0, y, width: w, height: 1 };
+        let prim = Some(s.term) == focus;
+        let in_split = Some(s.term) == split;
+        let sel = !prim && (app.hy.cursor == Some(s.term) || hovered(app, row));
+        let bg = if prim { t.accent } else if in_split { t.card2 } else if sel { t.hov } else { surf };
+        let ink = prim.then_some(t.acc_ink);
+        fill(buf, row, bg);
+        let st = Style::default().bg(bg);
+        let right_segs = if sel {
+            vec![seg(format!(" {tk} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)), seg(format!(" {}", s.agent), st.fg(t.muted))]
+        } else {
             let gl = if s.is_agent || s.status != Status::None { glyph(app, s.status) } else { app.cfg.icons.shell.clone() };
+            let when = if s.is_agent { format!(" {}", age(s.since)) } else { String::new() };
             let mut gs = st.fg(ink.unwrap_or(if s.is_agent { t.status(s.status) } else { t.muted }));
             if s.status == Status::Blocked {
                 gs = gs.add_modifier(Modifier::BOLD);
             }
-            let title_fg = ink.unwrap_or(t.text);
-            let mut ts = st.fg(title_fg);
-            if prim {
-                ts = ts.add_modifier(Modifier::BOLD);
-            }
-            let room = w.saturating_sub(8 + rw) as usize;
-            put(buf, x0 + 3, y, &[seg(format!("{gl} "), gs), seg(truncate(&s.title, room), ts)], right.saturating_sub(rw + 1));
-            put(buf, right.saturating_sub(rw), y, &right_segs, right);
-            hit(app, row, HyHit::Session(s.term));
-            if sel {
-                hit(app, Rect { x: right.saturating_sub(rw), y, width: 3, height: 1 }, HyHit::Talk(s.term));
-            }
-            app.hy.visible.push(s.term);
-            y += 1;
-            // A session that needs you shows its question under it.
-            if let Some(q) = &s.question
-                && y < bottom
-            {
-                put(buf, x0 + 5, y, &[seg(truncate(q, w.saturating_sub(7) as usize), Style::default().fg(blend(t.blocked, surf, 0.35)).bg(surf))], right);
-                y += 1;
-            }
-            // And the subagents it's running.
-            for sub in &s.subagents {
-                if y >= bottom {
-                    break;
+            vec![seg(format!("{gl} "), gs), seg(format!("{}{when}", s.agent), st.fg(ink.unwrap_or(t.muted)))]
+        };
+        let rw = segs_width(&right_segs);
+        let label: Vec<Seg> = label
+            .into_iter()
+            .map(|(x, s2)| {
+                let mut s2 = s2.bg(bg);
+                if let Some(i) = ink {
+                    s2 = s2.fg(i);
                 }
-                put(buf, x0 + 5, y, &[seg(format!("↳ {}", truncate(sub, w.saturating_sub(9) as usize)), Style::default().fg(t.muted).bg(surf))], right);
-                y += 1;
+                if prim {
+                    s2 = s2.add_modifier(Modifier::BOLD);
+                }
+                (x, s2)
+            })
+            .collect();
+        put(buf, x, y, &label, right.saturating_sub(rw + 1));
+        put(buf, right.saturating_sub(rw), y, &right_segs, right + 1);
+        hit(app, row, HyHit::Session(s.term));
+        if sel {
+            hit(app, Rect { x: right.saturating_sub(rw), y, width: 3, height: 1 }, HyHit::Talk(s.term));
+        }
+    };
+
+    for (i, line) in lines.iter().enumerate().skip(scroll).take(list_h) {
+        let y = r.y + (i - scroll) as u16;
+        let row = Rect { x: x0, y, width: w, height: 1 };
+        let plain = Style::default().bg(surf);
+        match line {
+            Line::Proj(pi) => {
+                let p = &model[*pi];
+                let open = !app.hy.saved.closed.contains(&format!("p:{}", p.key));
+                let hov = hovered(app, row);
+                let bg = if hov { t.hov } else { surf };
+                fill(buf, row, bg);
+                let s = Style::default().bg(bg);
+                let mut left = vec![
+                    seg(if open { "▾ " } else { "▸ " }, s.fg(t.muted)),
+                    seg("▌", s.fg(p.color)),
+                    seg(p.name.clone(), s.fg(t.strong).add_modifier(Modifier::BOLD)),
+                ];
+                if p.fresh {
+                    left.push(seg(" ", s));
+                    left.push(seg(" NEW ", Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)));
+                }
+                let mut c: Vec<Seg> = counts(app, t, p.sessions(), None).into_iter().map(|(x, st)| (x, st.bg(bg))).collect();
+                let plus = hov.then(|| seg(" + ", Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)));
+                if let Some(pl) = plus.clone() {
+                    c.push(pl);
+                }
+                let cw = segs_width(&c);
+                put(buf, x0 + 1, y, &left, right.saturating_sub(cw + 1));
+                put(buf, right.saturating_sub(cw), y, &c, right + 1);
+                hit(app, row, HyHit::ToggleProj(*pi));
+                if plus.is_some() {
+                    hit(app, Rect { x: right.saturating_sub(3), y, width: 3, height: 1 }, HyHit::NewIn(*pi));
+                }
             }
+            Line::Main(pi, wi) => {
+                let wt = &model[*pi].wts[*wi];
+                let idx = app.hy.wt_keys.len();
+                app.hy.wt_keys.push((wt.key.clone(), wt.path.clone()));
+                let bg = if hovered(app, row) { t.hov } else { surf };
+                fill(buf, row, bg);
+                let s = Style::default().bg(bg);
+                put(
+                    buf,
+                    x0 + 3,
+                    y,
+                    &[seg("◉ ", s.fg(t.text)), seg("main folder", s.fg(t.muted)), seg(" · ", s.fg(t.muted)), seg(wt.branch.clone(), s.fg(t.text))],
+                    right,
+                );
+                hit(app, row, HyHit::Wt(idx));
+            }
+            Line::Label(text) => {
+                put(buf, x0 + 3, y, &[seg(*text, plain.fg(t.muted).add_modifier(Modifier::BOLD))], right);
+            }
+            Line::Wt(pi, wi) => {
+                let wt = &model[*pi].wts[*wi];
+                let idx = app.hy.wt_keys.len();
+                app.hy.wt_keys.push((wt.key.clone(), wt.path.clone()));
+                let mut label = vec![seg("⑂ ", Style::default().fg(t.muted)), seg(wt.name.clone(), Style::default().fg(t.strong))];
+                if wt.branch != wt.name && !wt.branch.is_empty() {
+                    label.push(seg(format!(" · {}", wt.branch), Style::default().fg(t.muted)));
+                }
+                if wt.sessions.len() == 1 {
+                    session_row(app, buf, y, x0 + 3, label, &wt.sessions[0]);
+                } else {
+                    let bg = if hovered(app, row) { t.hov } else { surf };
+                    fill(buf, row, bg);
+                    let label: Vec<Seg> = label.into_iter().map(|(x, s)| (x, s.bg(bg))).collect();
+                    let tail: Vec<Seg> = if wt.sessions.is_empty() {
+                        let ag = app.hy_agent();
+                        vec![seg(if hovered(app, row) { format!("+ {ag}") } else { "no agent".into() }, Style::default().bg(bg).fg(if hovered(app, row) { t.accent } else { t.muted }))]
+                    } else {
+                        counts(app, t, wt.sessions.iter(), None).into_iter().map(|(x, st)| (x, st.bg(bg))).collect()
+                    };
+                    let tw = segs_width(&tail);
+                    put(buf, x0 + 3, y, &label, right.saturating_sub(tw + 1));
+                    put(buf, right.saturating_sub(tw), y, &tail, right + 1);
+                    hit(app, row, HyHit::Wt(idx));
+                }
+            }
+            Line::Sess(pi, wi, si, indent) => {
+                let s = &model[*pi].wts[*wi].sessions[*si];
+                let label = vec![seg(truncate(&s.title, w.saturating_sub(indent + 12) as usize), Style::default().fg(t.text))];
+                session_row(app, buf, y, x0 + indent, label, s);
+            }
+            Line::Note(text, color, indent) => {
+                put(buf, x0 + indent, y, &[seg(truncate(text, w.saturating_sub(indent + 2) as usize), plain.fg(*color))], right);
+            }
+            Line::Branches(pi, n, open) => {
+                let bg = if hovered(app, row) { t.hov } else { surf };
+                fill(buf, row, bg);
+                let s = Style::default().bg(bg);
+                put(
+                    buf,
+                    x0 + 3,
+                    y,
+                    &[seg("BRANCHES ", s.fg(t.muted).add_modifier(Modifier::BOLD)), seg(format!("{} {n}", if *open { "▾" } else { "▸" }), s.fg(t.muted))],
+                    right,
+                );
+                hit(app, row, HyHit::ToggleBranches(*pi));
+            }
+            Line::Branch(pi, name) => {
+                let idx = app.hy.branch_keys.len();
+                app.hy.branch_keys.push((model[*pi].path.clone(), name.clone()));
+                let hov = hovered(app, row);
+                let bg = if hov { t.hov } else { surf };
+                fill(buf, row, bg);
+                let s = Style::default().bg(bg);
+                let tail = if hov { vec![seg("open in worktree ▸", s.fg(t.accent))] } else { vec![] };
+                let tw = segs_width(&tail);
+                put(buf, x0 + 5, y, &[seg("⎇ ", s.fg(t.muted)), seg(name.clone(), s.fg(t.text))], right.saturating_sub(tw + 1));
+                put(buf, right.saturating_sub(tw), y, &tail, right + 1);
+                hit(app, row, HyHit::Branch(idx));
+            }
+            Line::OpenProject => {
+                let bg = if hovered(app, row) { t.hov } else { surf };
+                fill(buf, row, bg);
+                let ok = k(app, &Action::OpenProject);
+                put(
+                    buf,
+                    x0 + 2,
+                    y,
+                    &[seg("+ open a project", Style::default().fg(t.muted).bg(bg)), seg(format!("  {ok}"), Style::default().fg(t.accent).bg(bg).add_modifier(Modifier::BOLD))],
+                    right,
+                );
+                hit(app, row, HyHit::OpenFolder);
+            }
+            Line::Gap => {}
         }
-        if y < bottom {
-            let row = Rect { x: x0, y, width: w, height: 1 };
-            let bg = if hovered(app, row) { t.hov } else { surf };
-            fill(buf, row, bg);
-            put(buf, x0 + 5, y, &[seg("+ session", Style::default().fg(t.muted).bg(bg)), seg(format!("  {nk}"), Style::default().fg(t.accent).bg(bg).add_modifier(Modifier::BOLD))], r.right());
-            hit(app, row, HyHit::NewSession(wi));
-            y += 1;
-        }
-        y += 1;
+    }
+    // More above / below.
+    let plain = Style::default().bg(surf);
+    if scroll > 0 {
+        put(buf, right, r.y, &[seg("▲", plain.fg(t.muted))], right + 1);
+    }
+    if scroll + list_h < lines.len() {
+        put(buf, right, r.y + list_h as u16 - 1, &[seg("▼", plain.fg(t.muted))], right + 1);
     }
     let by = r.bottom().saturating_sub(3);
     hline(buf, x0 + 1, by, w.saturating_sub(2), t, surf);
@@ -713,7 +931,8 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
 
 fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme) {
     let Some(focus) = app.focused() else {
-        put(f.buffer_mut(), area.x + 4, area.y + 3, &[seg(format!("No session open. Press {} n in a worktree to start one.", app.keymap.prefix.to_string().replace("C-", "Ctrl+")), Style::default().fg(t.muted))], area.right());
+        let nk = k(app, &Action::NewPane);
+        put(f.buffer_mut(), area.x + 4, area.y + 3, &[seg(format!("Nothing open. Press {} {nk} to start an agent or a shell.", app.keymap.prefix.to_string().replace("C-", "Ctrl+")), Style::default().fg(t.muted))], area.right());
         return;
     };
     let pair = app.hy.pair.filter(|(a, b)| *a == focus || *b == focus);
@@ -744,7 +963,9 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
 fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bool, split: bool, model: &[Proj], t: &Theme) {
     let Some(info) = app.snap.terms.get(&term).cloned() else { return };
     let found = find(model, term);
-    let (title, wt, agent) = found.map(|(_, w, s)| (s.title.clone(), w.name.clone(), s.agent.clone())).unwrap_or_default();
+    let (title, wt, agent) = found
+        .map(|(_, w, s)| (s.title.clone(), if w.main { w.branch.clone() } else { w.name.clone() }, s.agent.clone()))
+        .unwrap_or_default();
     let st = info.status;
     // Title bar: agent, session, worktree · state, ✕ when split.
     let bg = if focused { t.accent } else { t.sidebar_bg };
@@ -1227,83 +1448,64 @@ pub(super) fn draw_new_pane(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
     let model = app.hy_model();
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let Some(p) = model.get(np.p) else {
-        let r = panel(app, buf, area, 64, 8, "New pane", &[], t);
-        put(buf, r.x + 3, r.y + 3, &[seg("Open a project first (o).", Style::default().fg(t.muted).bg(t.card))], r.right());
-        return;
-    };
-    let nwt = p.wts.len();
-    let r = panel(app, buf, area, 64, 12 + nwt as u16 + 1, "New pane", &[], t);
+    let r = panel(app, buf, area, 72, 15, "New", &[], t);
     let lab = |buf: &mut Buffer, y: u16, text: &str, row: u8| {
         put(buf, r.x + 3, y, &[seg(text, Style::default().fg(if np.row == row { t.accent } else { t.muted }).bg(t.card).add_modifier(Modifier::BOLD))], r.right());
     };
-    // PROJECT chips
-    lab(buf, r.y + 2, "PROJECT", 0);
-    let mut x = r.x + 14;
-    for (i, pp) in model.iter().enumerate() {
-        let on = i == np.p;
-        let txt = format!(" {} ", pp.name);
-        let st = if on { Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD) } else { Style::default().bg(t.btn).fg(t.text) };
-        if x + txt.width() as u16 >= r.right() {
-            break;
+    // A row of chips; the selected one is filled. Long rows scroll to keep it in view.
+    let chips = |app: &mut App, buf: &mut Buffer, y: u16, items: &[String], cur: usize, mk: fn(usize) -> HyHit| {
+        let mut start = 0;
+        let room = (r.right() - 2).saturating_sub(r.x + 14) as usize;
+        while start < cur && items[start..=cur].iter().map(|s| s.width() + 3).sum::<usize>() > room {
+            start += 1;
         }
-        put(buf, x, r.y + 2, &[seg(txt.clone(), st)], r.right());
-        hit(app, Rect { x, y: r.y + 2, width: txt.width() as u16, height: 1 }, HyHit::NpProj(i));
-        x += txt.width() as u16 + 1;
-    }
-    // WORKTREE rows
-    lab(buf, r.y + 4, "WORKTREE", 1);
-    for i in 0..=nwt {
-        let y = r.y + 4 + i as u16;
-        let sel = i == np.w;
-        let row = Rect { x: r.x + 13, y, width: r.width - 14, height: 1 };
-        let bg = if sel || hovered(app, row) { t.hov } else { t.card };
-        if bg == t.hov {
-            fill(buf, row, t.hov);
+        let mut x = r.x + 14;
+        if start > 0 {
+            put(buf, x - 2, y, &[seg("‹", Style::default().fg(t.muted).bg(t.card))], r.right());
         }
-        if sel {
-            put(buf, r.x + 13, y, &[seg(">", Style::default().fg(t.accent).bg(bg).add_modifier(Modifier::BOLD))], r.right());
-        }
-        let st = Style::default().bg(bg);
-        match p.wts.get(i) {
-            Some(w) => {
-                let mut ns = st.fg(t.strong);
-                if sel {
-                    ns = ns.add_modifier(Modifier::BOLD);
-                }
-                put(buf, r.x + 15, y, &[seg(w.name.clone(), ns)], r.right());
-                let c: Vec<Seg> = counts(app, t, w.sessions.iter(), None).into_iter().map(|(x, s)| (x, s.bg(bg))).collect();
-                put(buf, r.right().saturating_sub(2 + segs_width(&c)), y, &c, r.right());
+        for (i, it) in items.iter().enumerate().skip(start) {
+            let txt = format!(" {it} ");
+            if x + txt.width() as u16 > r.right() - 2 {
+                put(buf, r.right() - 2, y, &[seg("›", Style::default().fg(t.muted).bg(t.card))], r.right());
+                break;
             }
-            None => {
-                put(
-                    buf,
-                    r.x + 15,
-                    y,
-                    &[seg("+ new worktree", st.fg(t.accent).add_modifier(Modifier::BOLD)), seg("   own branch, named for you", st.fg(t.muted))],
-                    r.right(),
-                );
-            }
+            let on = i == cur;
+            let cr = Rect { x, y, width: txt.width() as u16, height: 1 };
+            let st = if on {
+                Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)
+            } else if hovered(app, cr) {
+                Style::default().bg(t.hov).fg(t.strong)
+            } else {
+                Style::default().bg(t.btn).fg(t.text)
+            };
+            put(buf, x, y, &[seg(txt.clone(), st)], r.right());
+            hit(app, cr, mk(i));
+            x += txt.width() as u16 + 1;
         }
-        hit(app, row, HyHit::NpWt(i));
-    }
-    // RUN chips
-    let ay = r.y + 5 + nwt as u16 + 1;
-    lab(buf, ay, "RUN", 2);
-    let mut x = r.x + 14;
-    for (i, a) in np_agents(app).iter().enumerate() {
-        let on = i == np.a;
-        let txt = format!(" {a} ");
-        let st = if on { Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD) } else { Style::default().bg(t.btn).fg(t.text) };
-        put(buf, x, ay, &[seg(txt.clone(), st)], r.right());
-        hit(app, Rect { x, y: ay, width: txt.width() as u16, height: 1 }, HyHit::NpRun(i));
-        x += txt.width() as u16 + 1;
-    }
-    let same = app.focused().and_then(|fo| find(&model, fo)).is_some_and(|(fp, ..)| fp.key == p.key);
-    let note = if same { "Opens beside the focused pane.".to_string() } else { format!("Switches to {} and opens there.", p.name) };
-    put(buf, r.x + 3, ay + 2, &[seg(note, Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::ITALIC))], r.right());
-    let gx = btn(app, buf, r.x + 3, ay + 4, "Open", "Enter", BtnKind::Primary, HyHit::NpGo, r.right());
-    put(buf, gx + 3, ay + 4, &hints(t, &[("Tab", "next row"), ("←→ ↑↓", "choose"), ("Esc", "close")]), r.right());
+    };
+    let agents = np_agents(app);
+    lab(buf, r.y + 2, "RUN", 0);
+    chips(app, buf, r.y + 2, &agents, np.a, HyHit::NpRun);
+    let mut projs: Vec<String> = model.iter().map(|p| p.name.clone()).collect();
+    projs.push("other folder…".into());
+    lab(buf, r.y + 4, "PROJECT", 1);
+    chips(app, buf, r.y + 4, &projs, np.p, HyHit::NpProj);
+    lab(buf, r.y + 6, "OPEN", 2);
+    chips(app, buf, r.y + 6, &["full screen".into(), "beside this".into()], np.beside as usize, HyHit::NpBeside);
+
+    // What will happen, in words.
+    let agent = agents.get(np.a).cloned().unwrap_or_default();
+    let what = match model.get(np.p) {
+        None => "Pick a folder; it becomes a project.".to_string(),
+        Some(p) if agent == "shell" => format!("A shell in {}'s main folder.", p.name),
+        Some(p) if !p.git => format!("{} isn't a git repo, so {agent} runs in the folder.", p.name),
+        Some(p) if app.cfg.worktree.per_agent => format!("{agent} gets its own new worktree in {}, named for you.", p.name),
+        Some(p) => format!("{agent} runs in {}'s main folder.", p.name),
+    };
+    let c = Style::default().bg(t.card);
+    put(buf, r.x + 3, r.y + 8, &[seg(what, c.fg(t.text))], r.right() - 2);
+    let gx = btn(app, buf, r.x + 3, r.y + 11, "Open", "Enter", BtnKind::Primary, HyHit::NpGo, r.right());
+    put(buf, gx + 3, r.y + 11, &hints(t, &[("Tab", "next row"), ("←→", "choose"), ("b", "beside"), ("Esc", "close")]), r.right());
 }
 
 // Talk ----------------------------------------------------------------------------------------
@@ -1744,16 +1946,19 @@ impl App {
         self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd });
     }
 
-    /// A new worktree of a project with a generated name, running `cmd` there.
-    fn hy_new_worktree(&mut self, proj: &Proj, cmd: Option<String>, beside: bool) {
-        let taken: HashSet<String> = proj.wts.iter().map(|w| w.name.clone()).collect();
+    /// A new worktree of a project running `cmd`: on `branch` if given (an existing one),
+    /// else on a new branch with a generated name.
+    fn hy_new_worktree(&mut self, proj: &Proj, cmd: Option<String>, beside: bool, branch: Option<String>) {
+        let taken: HashSet<String> = proj.wts.iter().flat_map(|w| [w.name.clone(), w.branch.clone()]).chain(proj.branches.iter().cloned()).collect();
         let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as usize).unwrap_or(0);
-        let branch = (0..WT_NAMES.len())
-            .map(|i| WT_NAMES[(n + i) % WT_NAMES.len()].to_string())
-            .find(|b| !taken.contains(b))
-            .unwrap_or_else(|| format!("{}-{}", WT_NAMES[n % WT_NAMES.len()], n % 1000));
+        let branch = branch.unwrap_or_else(|| {
+            (0..WT_NAMES.len())
+                .map(|i| WT_NAMES[(n + i) % WT_NAMES.len()].to_string())
+                .find(|b| !taken.contains(b))
+                .unwrap_or_else(|| format!("{}-{}", WT_NAMES[n % WT_NAMES.len()], n % 1000))
+        });
         let Some(ws) = self.active_ws().map(|w| w.id).or_else(|| self.snap.workspaces.first().map(|w| w.id)) else {
-            self.notify("start a session first".into(), true);
+            self.notify("start something first".into(), true);
             return;
         };
         if beside && let Some(f) = self.focused() {
@@ -1806,14 +2011,12 @@ impl App {
         self.mode = Mode::Finder(Box::new(Finder::new(&start)));
     }
 
-    fn hy_open_new_pane(&mut self) {
+    /// The + New chooser, for the current project (or the sidebar cursor's).
+    fn hy_open_new_pane(&mut self, beside: bool) {
         let model = self.hy_model();
-        let p = model.iter().position(|p| self.hy.proj.as_deref() == Some(p.key.as_str())).unwrap_or(0);
-        let w = self
-            .focused()
-            .and_then(|f| model.get(p).and_then(|pp| pp.wts.iter().position(|w| w.sessions.iter().any(|s| s.term == f))))
-            .unwrap_or(0);
-        self.mode = Mode::HyPane(NewPaneHy { p, w, a: 0, row: 0 });
+        let key = self.hy.cursor.and_then(|c| model.iter().find(|p| p.sessions().any(|s| s.term == c)).map(|p| p.key.clone())).or(self.hy.proj.clone());
+        let p = model.iter().position(|p| Some(&p.key) == key.as_ref()).unwrap_or(0);
+        self.mode = Mode::HyPane(NewPaneHy { p, a: 0, row: 0, beside });
     }
 
     fn hy_settings(&mut self) {
@@ -1835,6 +2038,7 @@ impl App {
             (Some(i), _) => (i + 1).min(vis.len() - 1),
         };
         self.hy.cursor = Some(vis[next]);
+        self.hy.follow = true;
         self.mode = Mode::Side;
     }
 
@@ -1843,7 +2047,7 @@ impl App {
         let focused = self.focused();
         match a {
             Action::Settings => self.hy_settings(),
-            Action::NewPane => self.hy_open_new_pane(),
+            Action::NewPane => self.hy_open_new_pane(false),
             Action::Jump | Action::Picker => self.mode = Mode::Jump { sel: 0 },
             Action::OpenProject => self.hy_open_finder(),
             Action::Talk | Action::Reply => {
@@ -1868,16 +2072,7 @@ impl App {
                 };
                 self.hy_new_session(cwd, cmd, true);
             }
-            Action::NewSession => {
-                let model = self.hy_model();
-                let target = self.hy.cursor.or(focused);
-                let path = target
-                    .and_then(|t| find(&model, t).map(|(_, w, _)| w.path.clone()))
-                    .or_else(|| model.iter().find(|p| self.hy.proj.as_deref() == Some(p.key.as_str())).and_then(|p| p.wts.first().map(|w| w.path.clone())))
-                    .unwrap_or_else(|| self.here_dir());
-                let agent = self.hy_agent();
-                self.hy_new_session(path, Some(agent), false);
-            }
+            Action::NewSession => self.hy_open_new_pane(true),
             Action::CloseSplit => {
                 if self.hy.pair.take().is_none() {
                     self.notify("no split open".into(), false);
@@ -1997,49 +2192,52 @@ impl App {
         self.mode = Mode::Finder(Box::new(fd));
     }
 
+    /// Start what the chooser says: an agent gets its own worktree in a git project, a
+    /// shell (or an agent outside git) runs in the project's folder.
     fn hy_pane_go(&mut self, np: &NewPaneHy) {
         let model = self.hy_model();
         let Some(p) = model.get(np.p).cloned() else {
-            self.mode = Mode::Normal;
+            self.hy_open_finder();
             return;
         };
         let agents = np_agents(self);
         let agent = agents.get(np.a).cloned().unwrap_or_else(|| "shell".into());
-        let cmd = (agent != "shell").then_some(agent);
-        let same = self.focused().and_then(|f| find(&model, f)).is_some_and(|(fp, ..)| fp.key == p.key);
-        match p.wts.get(np.w) {
-            Some(w) => self.hy_new_session(w.path.clone(), cmd, same),
-            None => self.hy_new_worktree(&p, cmd, same),
+        let main = p.wts.iter().find(|w| w.main).map(|w| w.path.clone()).unwrap_or_else(|| p.path.clone());
+        if agent == "shell" {
+            self.hy_new_session(main, None, np.beside);
+        } else if p.git && self.cfg.worktree.per_agent {
+            self.hy_new_worktree(&p, Some(agent), np.beside, None);
+        } else {
+            self.hy_new_session(main, Some(agent), np.beside);
         }
     }
 
     pub(super) fn on_hy_pane_key(&mut self, mut np: NewPaneHy, k: &KeyEvent) {
-        let model = self.hy_model();
-        let nwt = model.get(np.p).map(|p| p.wts.len()).unwrap_or(0) + 1;
+        let nproj = self.hy_model().len() + 1;
         let nag = np_agents(self).len();
-        let nproj = model.len().max(1);
-        let (dx, dy): (i32, i32) = match k.code {
-            KeyCode::Left => (-1, 0),
-            KeyCode::Right => (1, 0),
-            KeyCode::Up => (0, -1),
-            KeyCode::Down => (0, 1),
-            _ => (0, 0),
+        let d: i32 = match k.code {
+            KeyCode::Left | KeyCode::Up => -1,
+            KeyCode::Right | KeyCode::Down => 1,
+            _ => 0,
         };
-        let cyc = |v: usize, d: i32, n: usize| (v as i32 + d).rem_euclid(n as i32) as usize;
+        let cyc = |v: usize, d: i32, n: usize| (v as i32 + d).rem_euclid(n.max(1) as i32) as usize;
         match k.code {
-            KeyCode::Esc | KeyCode::Char('p') => {
+            KeyCode::Esc => {
                 self.mode = Mode::Normal;
                 return;
             }
-            KeyCode::Enter => return self.hy_pane_go(&np),
+            KeyCode::Enter => {
+                np.beside |= k.modifiers.contains(KeyModifiers::SHIFT);
+                return self.hy_pane_go(&np);
+            }
             KeyCode::Tab => np.row = (np.row + 1) % 3,
             KeyCode::BackTab => np.row = (np.row + 2) % 3,
-            _ if np.row == 1 && dy != 0 => np.w = cyc(np.w, dy, nwt),
-            _ if np.row == 0 && (dx != 0 || dy != 0) => {
-                np.p = cyc(np.p, dx + dy, nproj);
-                np.w = 0;
-            }
-            _ if np.row == 2 && (dx != 0 || dy != 0) => np.a = cyc(np.a, dx + dy, nag),
+            KeyCode::Char('b') => np.beside = !np.beside,
+            _ if d != 0 => match np.row {
+                0 => np.a = cyc(np.a, d, nag),
+                1 => np.p = cyc(np.p, d, nproj),
+                _ => np.beside = !np.beside,
+            },
             _ => {}
         }
         self.mode = Mode::HyPane(np);
@@ -2076,21 +2274,8 @@ impl App {
     pub(super) fn on_hy_hit(&mut self, h: HyHit, double: bool) {
         match h {
             HyHit::Splash => self.splash = true,
-            HyHit::Proj(i) => {
-                let Some(key) = self.hy.proj_keys.get(i).cloned() else { return };
-                self.hy.proj = Some(key.clone());
-                let model = self.hy_model();
-                let first = model
-                    .iter()
-                    .find(|p| p.key == key)
-                    .and_then(|p| p.sessions().min_by_key(|s| (rank(s.status), s.term)).map(|s| s.term));
-                if let Some(t) = first {
-                    self.hy_focus(t);
-                }
-            }
-            HyHit::OpenFolder => self.hy_open_finder(),
-            HyHit::ToggleWt(i) => {
-                if let Some((key, _)) = self.hy.wt_keys.get(i).cloned() {
+            HyHit::ToggleProj(i) => {
+                if let Some(key) = self.hy.proj_keys.get(i).map(|k| format!("p:{k}")) {
                     if let Some(pos) = self.hy.saved.closed.iter().position(|k| *k == key) {
                         self.hy.saved.closed.remove(pos);
                     } else {
@@ -2099,17 +2284,50 @@ impl App {
                     self.hy.save();
                 }
             }
-            HyHit::Session(t) => self.hy_focus(t),
-            HyHit::Talk(t) => self.mode = Mode::Talk { term: t, input: String::new() },
-            HyHit::NewSession(i) => {
-                if let Some((_, path)) = self.hy.wt_keys.get(i).cloned() {
-                    let agent = self.hy_agent();
-                    self.hy_new_session(path, Some(agent), false);
+            HyHit::NewIn(i) => self.mode = Mode::HyPane(NewPaneHy { p: i, a: 0, row: 0, beside: false }),
+            HyHit::Wt(i) => {
+                let Some((key, path)) = self.hy.wt_keys.get(i).cloned() else { return };
+                let model = self.hy_model();
+                let wt = model.iter().flat_map(|p| p.wts.iter()).find(|w| w.key == key).cloned();
+                match wt {
+                    Some(w) if !w.sessions.is_empty() => {
+                        let best = w.sessions.iter().min_by_key(|s| (rank(s.status), s.term)).map(|s| s.term);
+                        if let Some(t) = best {
+                            self.hy_focus(t);
+                        }
+                    }
+                    // Nothing running: a shell in the main folder, your agent in a worktree.
+                    Some(w) if w.main => self.hy_new_session(path, None, false),
+                    _ => {
+                        let agent = self.hy_agent();
+                        self.hy_new_session(path, Some(agent), false);
+                    }
                 }
             }
+            HyHit::ToggleBranches(i) => {
+                if let Some(key) = self.hy.proj_keys.get(i).cloned() {
+                    if let Some(pos) = self.hy.saved.open_branches.iter().position(|k| *k == key) {
+                        self.hy.saved.open_branches.remove(pos);
+                    } else {
+                        self.hy.saved.open_branches.push(key);
+                    }
+                    self.hy.save();
+                }
+            }
+            HyHit::Branch(i) => {
+                let Some((ppath, name)) = self.hy.branch_keys.get(i).cloned() else { return };
+                let model = self.hy_model();
+                if let Some(p) = model.iter().find(|p| path_key(&p.path) == path_key(&ppath)).cloned() {
+                    let agent = self.hy_agent();
+                    self.hy_new_worktree(&p, Some(agent), false, Some(name));
+                }
+            }
+            HyHit::OpenFolder => self.hy_open_finder(),
+            HyHit::Session(t) => self.hy_focus(t),
+            HyHit::Talk(t) => self.mode = Mode::Talk { term: t, input: String::new() },
             HyHit::Settings => self.hy_settings(),
             HyHit::Jump => self.mode = Mode::Jump { sel: 0 },
-            HyHit::NewPane => self.hy_open_new_pane(),
+            HyHit::NewPane => self.hy_open_new_pane(false),
             HyHit::Keys => self.mode = Mode::Help { scroll: 0 },
             HyHit::CloseSplit(t) => {
                 if let Some((a, b)) = self.hy.pair.take()
@@ -2129,20 +2347,19 @@ impl App {
                 }
             }
             HyHit::JumpTo(t) => self.hy_focus(t),
-            HyHit::NpProj(i) | HyHit::NpWt(i) | HyHit::NpRun(i) => {
+            HyHit::NpProj(i) | HyHit::NpRun(i) | HyHit::NpBeside(i) => {
                 if let Mode::HyPane(np) = &mut self.mode {
                     match h {
-                        HyHit::NpProj(_) => {
-                            np.p = i;
-                            np.w = 0;
+                        HyHit::NpRun(_) => {
+                            np.a = i;
                             np.row = 0;
                         }
-                        HyHit::NpWt(_) => {
-                            np.w = i;
+                        HyHit::NpProj(_) => {
+                            np.p = i;
                             np.row = 1;
                         }
                         _ => {
-                            np.a = i;
+                            np.beside = i == 1;
                             np.row = 2;
                         }
                     }

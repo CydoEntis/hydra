@@ -124,6 +124,8 @@ pub(super) enum Bg {
     TreeRecent(PathBuf, Vec<files::FileEntry>),
     /// A finished action: its message, and whether the open review should reload.
     Done(Result<String, String>, bool),
+    /// A project's recent local branches (by project key).
+    Branches(String, Vec<String>),
 }
 
 /// The pull request checks for a branch, if it has a pull request: "✓ checks 14/14" or
@@ -1135,6 +1137,11 @@ impl App {
             }
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 let up = m.kind == MouseEventKind::ScrollUp;
+                if self.hy.side_rect.contains(pos) {
+                    self.hy.side_scroll = if up { self.hy.side_scroll.saturating_sub(3) } else { self.hy.side_scroll + 3 };
+                    self.dirty = true;
+                    return;
+                }
                 let Some((term, _)) = self.pane_frames.iter().find(|(_, r)| r.contains(pos)).copied() else {
                     return;
                 };
@@ -2455,6 +2462,11 @@ impl App {
     }
 
     fn on_bg(&mut self, b: Bg) {
+        if let Bg::Branches(key, list) = b {
+            self.hy.branches.insert(key, list);
+            self.dirty = true;
+            return;
+        }
         match (b, &mut self.mode) {
             (Bg::Recent(root, list), Mode::Files(v)) if v.root == root => {
                 v.recent = Some(list);
@@ -3322,7 +3334,7 @@ mod design_tests {
         let lines: Vec<&str> = text.lines().collect();
         assert!(lines[0].starts_with(" >_ hydra"), "top bar: {}", lines[0]);
         assert!(lines[0].contains("▌shop-api  ›  claude"), "crumb: {}", lines[0]);
-        assert!(lines[0].trim_end().ends_with("+ Pane p"), "+ Pane button: {}", lines[0]);
+        assert!(lines[0].trim_end().ends_with("+ Pane n"), "+ Pane button: {}", lines[0]);
         assert!(!text.contains("GROUPS") && !text.contains("WORKSPACES"), "no heading");
         assert!(text.contains("▌● shop-api"), "the pane, named, with its most urgent agent");
         assert!(text.contains("claude +1"), "and how many agents it holds");
@@ -3454,25 +3466,27 @@ mod hydra_tests {
         let lines: Vec<&str> = text.lines().collect();
         assert!(lines[0].starts_with(" >_ hydra"), "top bar: {}", lines[0]);
         assert!(lines[0].contains("shop-api  ›  main  ›  Fix flaky checkout test"), "crumb: {}", lines[0]);
-        assert!(lines[0].contains("Jump ●1") && lines[0].contains("+ Pane p"), "jump and + pane: {}", lines[0]);
-        assert!(text.contains("PROJECTS") && text.contains("WORKTREES  shop-api"));
-        assert!(text.contains("+ open a folder"));
-        // Attention sort: the worktree with the session that needs you comes first.
-        let main = text.find("▾ main").unwrap();
-        let rate = text.find("▾ rate-limit").unwrap();
-        assert!(main < rate, "needs-you worktree first");
-        assert!(text.contains("● Fix flaky checkout") && text.contains("claude 3m"));
-        assert!(text.contains("↳ Explore"), "subagents under their session");
-        assert!(text.contains("› shop-api") && !text.contains("shell 2"), "shells: named by folder, no age");
-        assert!(text.contains("Run npm test -- checkout?"), "the question under the session");
-        assert!(text.contains("orders-migration") && text.contains("no sessions yet"), "worktrees without sessions");
+        assert!(lines[0].contains("Jump ●1") && lines[0].contains("+ New n"), "jump and + new: {}", lines[0]);
+        // One tree: project → main folder → worktrees (→ branches).
+        assert!(text.contains("▾ ▌shop-api") && text.contains("◉ main folder · main") && text.contains("WORKTREES"));
+        assert!(text.contains("+ open a project"));
+        let main = text.find("◉ main folder").unwrap();
+        let rate = text.find("⑂ rate").unwrap();
+        assert!(main < rate, "the main folder first");
+        assert!(text.contains("Fix flaky checkout") && text.contains("● claude 3m"));
+        assert!(text.contains("Run npm test -- checkout?"), "the question under the agent");
+        assert!(text.contains("↳ Explore"), "subagents under their agent");
+        assert!(text.contains("⑂ rate · rate-limit") && text.contains("⠋ codex 2m") && text.contains("Rate limit /login"), "one agent per worktree: one row, prompt under it");
+        assert!(text.contains("⑂ orders") && text.contains("no agent"), "worktrees with nothing running");
+        assert!(text.contains("› shell") && !text.contains("shell 2"), "shells: no age");
+        assert!(!text.contains("session"), "no 'session' wording on screen");
         assert!(text.contains("● claude is waiting") && text.contains(" Yes 1 ") && text.contains(" Always 2 ") && text.contains(" No 3 "));
         assert!(text.contains("click or press T to message claude"));
         assert!(lines[44].contains("● 1 need you") && lines[44].contains("across 1 project"), "status: {}", lines[44]);
         // Overlays are centred over a dimmed screen.
         for (mode, needle) in [
             (Mode::Jump { sel: 0 }, "NEEDS YOU"),
-            (Mode::HyPane(hydra::NewPaneHy { p: 0, w: 0, a: 0, row: 0 }), "+ new worktree"),
+            (Mode::HyPane(hydra::NewPaneHy { p: 0, a: 0, row: 0, beside: false }), "claude gets its own new worktree in shop-api"),
             (Mode::Help { scroll: 0 }, "PANES & CODE"),
             (Mode::Talk { term: 1, input: String::new() }, "Message claude"),
         ] {
