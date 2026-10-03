@@ -265,6 +265,8 @@ pub enum Action {
     Find(u8),
     /// Pick a saved launch (presets).
     Presets,
+    /// Switch the branch of the checkout you're in.
+    Branches,
     /// Move the sidebar cursor (-1 up, 1 down); bare keys then work on the sidebar.
     SideMove(i8),
     Detach,
@@ -359,6 +361,7 @@ impl Action {
             Action::Map => "map of the project".into(),
             Action::PasteImage => "paste the clipboard image".into(),
             Action::Presets => "run a preset".into(),
+            Action::Branches => "switch branch".into(),
             Action::Find(0) => "find a file".into(),
             Action::Find(_) => "search the code".into(),
             Action::SideMove(d) if *d < 0 => "sidebar up".into(),
@@ -442,6 +445,7 @@ impl Action {
             Action::Map => "map".into(),
             Action::PasteImage => "paste-image".into(),
             Action::Presets => "presets".into(),
+            Action::Branches => "switch-branch".into(),
             Action::Find(0) => "find-file".into(),
             Action::Find(_) => "search-code".into(),
             Action::SideMove(d) if *d < 0 => "side-up".into(),
@@ -551,6 +555,7 @@ impl FromStr for Action {
             "map" => Action::Map,
             "paste-image" => Action::PasteImage,
             "presets" => Action::Presets,
+            "switch-branch" => Action::Branches,
             "find-file" => Action::Find(0),
             "search-code" => Action::Find(1),
             "side-up" => Action::SideMove(-1),
@@ -616,6 +621,7 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("V", "paste-image"),
     ("F", "find-file"),
     (".", "presets"),
+    ("g", "switch-branch"),
     ("G", "search-code"),
     ("ctrl+v", "paste-image"),
     ("f", "files"),

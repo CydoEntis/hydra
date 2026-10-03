@@ -17,7 +17,7 @@ Ticked when built, tested and pushed (dev branch).
 - [x] Each agent row shows its last prompt and the live model; auto-title on the first prompt; names sync with Claude's /rename.
 
 ## Batch C: code and environment
-- [ ] Branch switcher for the repo folder (fuzzy, local and remote) that handles uncommitted changes (stash / bring along / commit / discard).
+- [x] Branch switcher for the repo folder (fuzzy, local and remote) that handles uncommitted changes (stash / bring along / commit / discard).
 - [ ] Review marks in Changes: mark a file reviewed; it sinks; marks clear when the file changes.
 - [ ] Dev server per worktree (`.hydra.toml` run command): Run / Stop / Restart, ready marker, logs; worktree create/delete hooks (e.g. pick a port).
 - [ ] Prewarm: a booted agent waiting so + New starts instantly.

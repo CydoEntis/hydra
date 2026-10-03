@@ -40,6 +40,7 @@ pub enum Act {
     Duplicate(TermId),
     /// Preset i, for this agent.
     Preset(usize, Option<TermId>),
+    SwitchBranch(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -129,6 +130,7 @@ impl App {
             ("+ Shell here".to_string(), Act::StartShell(w.path.clone())),
             ("Files".to_string(), Act::Files(w.path.clone())),
             ("Changes".to_string(), Act::Changes(w.path.clone())),
+            ("Switch branch…".to_string(), Act::SwitchBranch(w.path.clone())),
             ("Ship (commit, push, PR)".to_string(), Act::Ship(w.path.clone())),
         ];
         if !all.is_empty() {
@@ -190,6 +192,7 @@ impl App {
             Act::Talk(t) => self.hy_talk(t, false),
             Act::Duplicate(t) => self.hy_duplicate(t),
             Act::Preset(i, on) => self.hy_run_preset(i, on, None),
+            Act::SwitchBranch(p) => self.open_branches(Some(p)),
             Act::Rename(t) => {
                 if let Some((w, _)) = self.snap.locate(t) {
                     self.mode = Mode::Prompt { kind: PromptKind::RenameWorkspace(w.id), input: w.name.clone() };

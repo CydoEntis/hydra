@@ -5,6 +5,7 @@ mod copy;
 mod design;
 mod files;
 mod find;
+mod branch;
 mod hydra;
 mod inbox;
 mod menu;
@@ -84,6 +85,8 @@ enum Mode {
     HyMenu(Box<menu::HyMenu>),
     /// Find a file / search the code.
     Find(Box<find::FindView>),
+    /// Switch branch.
+    Branch(Box<branch::BranchView>),
 }
 
 /// The ship confirm: the branch and what shipping it will do.
@@ -162,6 +165,10 @@ pub(super) enum Bg {
     Synced(bool),
     /// Every file under a folder (Find).
     FindFiles(PathBuf, Vec<String>),
+    /// A checkout's branches: (folder, current, branches, files with changes).
+    Branches(PathBuf, String, Vec<branch::Branch>, usize),
+    /// A branch switch finished.
+    Switched(Result<String, String>),
     /// A code search's results: (folder, which search, hits).
     Grep(PathBuf, u64, Result<Vec<find::GrepHit>, String>),
 }
@@ -844,6 +851,7 @@ impl App {
             Mode::Talk { input, .. } => input.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
             Mode::Ideas(v) => v.input.push_str(s.lines().next().unwrap_or("")),
             Mode::Find(v) => v.query.push_str(s.lines().next().unwrap_or("")),
+            Mode::Branch(v) => v.query.push_str(s.lines().next().unwrap_or("").trim()),
             Mode::Tickets(v) => v.query.push_str(s.lines().next().unwrap_or("")),
             Mode::RaceNew(v) => v.text.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
             Mode::Finder(fd) => {
@@ -909,6 +917,7 @@ impl App {
             Mode::Race(v) => self.on_race_key(*v, &k),
             Mode::HyMenu(m) => self.on_hy_menu_key(*m, &k),
             Mode::Find(v) => self.on_find_key(*v, &k),
+            Mode::Branch(v) => self.on_branch_key(*v, &k),
             Mode::Ship(ask) => {
                 self.mode = Mode::Normal;
                 if k.code == KeyCode::Enter {
@@ -1744,6 +1753,7 @@ impl App {
             Action::PasteImage => self.paste_image(),
             Action::Find(tab) => self.open_find(tab),
             Action::Presets => self.hy_presets(),
+            Action::Branches => self.open_branches(None),
             Action::PullRequest => {
                 if let Some(dir) = self.target_path()
                     && let Some(h) = crate::gitfs::head(&dir)
@@ -3200,6 +3210,26 @@ impl App {
                 {
                     *slot = Some(text);
                 }
+                self.dirty = true;
+                return;
+            }
+            Bg::Branches(dir, current, list, dirty) => {
+                if let Mode::Branch(v) = &mut self.mode
+                    && v.dir == dir
+                {
+                    v.current = current;
+                    v.list = Some(list);
+                    v.dirty = dirty;
+                }
+                self.dirty = true;
+                return;
+            }
+            Bg::Switched(r) => {
+                match r {
+                    Ok(m) => self.notify(m, false),
+                    Err(e) => self.notify(format!("couldn't switch: {e}"), true),
+                }
+                self.hy_fresh();
                 self.dirty = true;
                 return;
             }

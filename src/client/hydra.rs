@@ -578,6 +578,8 @@ pub(super) enum HyHit {
     ScrollBar(TermId),
     FindTab(u8),
     FindRow(usize),
+    BranchRow(usize),
+    BranchChoice(usize),
 }
 
 pub(super) fn hit(app: &mut App, r: Rect, h: HyHit) {
@@ -3092,6 +3094,22 @@ impl App {
             }
             HyHit::RaceOpen(id) => self.open_race(id),
             HyHit::MenuPick(i) => self.menu_pick(i),
+            HyHit::BranchRow(i) => {
+                if let Mode::Branch(v) = &mut self.mode {
+                    let again = v.sel == i;
+                    v.sel = i;
+                    if again || double {
+                        let v = (**v).clone();
+                        self.on_branch_key(v, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    }
+                }
+            }
+            HyHit::BranchChoice(i) => {
+                if let Mode::Branch(v) = &self.mode {
+                    let v = (**v).clone();
+                    self.branch_choose(v, i);
+                }
+            }
             HyHit::FindTab(i) => {
                 if let Mode::Find(v) = &self.mode
                     && v.tab != i
