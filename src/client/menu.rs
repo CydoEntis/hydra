@@ -337,7 +337,7 @@ impl App {
                 self.hy_new_session(p, Some(agent), false);
             }
             Act::StartShell(p) => self.hy_new_session(p, None, false),
-            Act::Files(p) => self.open_files(p),
+            Act::Files(p) => self.open_find_in(p, 0),
             Act::Changes(p) => self.open_changes(p),
             Act::Ship(p) => self.ask_ship(p),
             Act::RemoveWorktree(p) => {

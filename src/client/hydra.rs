@@ -702,6 +702,36 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
     let panes = Rect { x: panes.x + 1, y: panes.y + 1, width: panes.width.saturating_sub(2), height: panes.height.saturating_sub(1) };
     draw_main(app, f, panes, &model, t);
     draw_status(app, f.buffer_mut(), Rect { y: area.bottom().saturating_sub(1), height: 1, ..area }, &model, t);
+    // Diffs and pull requests open over everything, like a tool window; Esc closes.
+    if let Some(view @ (super::View::Changes(_) | super::View::Pr(_))) = app.view.take() {
+        let buf = f.buffer_mut();
+        dim_all(buf, area, t);
+        let m = Rect { x: area.x + 3, y: area.y + 1, width: area.width.saturating_sub(6), height: area.height.saturating_sub(3) };
+        fill(buf, m, t.bg);
+        let edge = Style::default().fg(t.line).bg(t.bg);
+        for x in m.left()..m.right() {
+            buf[(x, m.bottom().saturating_sub(1))].set_symbol("─").set_style(edge);
+        }
+        for y in m.top()..m.bottom() {
+            buf[(m.x, y)].set_symbol("│").set_style(edge);
+            buf[(m.right() - 1, y)].set_symbol("│").set_style(edge);
+        }
+        buf[(m.x, m.bottom() - 1)].set_symbol("└").set_style(edge);
+        buf[(m.right() - 1, m.bottom() - 1)].set_symbol("┘").set_style(edge);
+        hit(app, area, HyHit::Noop);
+        let inner = Rect { x: m.x + 1, y: m.y, width: m.width.saturating_sub(2), height: m.height.saturating_sub(1) };
+        match view {
+            super::View::Changes(v) => {
+                super::design::draw_changes(app, buf, inner, t, &v);
+                app.view = Some(super::View::Changes(v));
+            }
+            super::View::Pr(v) => {
+                draw_pr(app, buf, inner, t, &v);
+                app.view = Some(super::View::Pr(v));
+            }
+            other => app.view = Some(other),
+        }
+    }
     panes
 }
 
@@ -1137,17 +1167,14 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
     if let Some(view) = app.view.take() {
         let buf = f.buffer_mut();
         match view {
-            super::View::Changes(v) => {
-                super::design::draw_changes(app, buf, area, t, &v);
-                app.view = Some(super::View::Changes(v));
+            // Drawn on top of everything (see draw).
+            v @ (super::View::Changes(_) | super::View::Pr(_)) => {
+                app.view = Some(v);
+                let _ = buf;
             }
             super::View::Files(v) => {
                 super::design::draw_files(app, buf, area, t, &v);
                 app.view = Some(super::View::Files(v));
-            }
-            super::View::Pr(v) => {
-                draw_pr(app, buf, area, t, &v);
-                app.view = Some(super::View::Pr(v));
             }
             super::View::Map(v) => {
                 draw_map(app, buf, area, t, &v);
@@ -1155,7 +1182,7 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
             }
             other => app.view = Some(other),
         }
-        if app.view.is_some() {
+        if app.view.as_ref().is_some_and(|v| !matches!(v, super::View::Changes(_) | super::View::Pr(_))) {
             return;
         }
     }
@@ -2894,7 +2921,7 @@ impl App {
                 self.hy.cursor = None;
                 self.mode = Mode::Normal;
                 match a {
-                    Action::Files => self.open_files(dir),
+                    Action::Files => self.open_find_in(dir, 0),
                     Action::Changes => self.open_changes(dir),
                     _ => match crate::gitfs::head(&dir) {
                         Some(h) => self.open_pr(h.top, h.branch),

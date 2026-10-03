@@ -134,6 +134,12 @@ pub fn parse_grep(out: &str) -> Vec<GrepHit> {
 impl App {
     pub(super) fn open_find(&mut self, tab: u8) {
         let dir = self.find_dir();
+        self.open_find_in(dir, tab);
+    }
+
+    /// The finder for a folder: the checkout it's in (or the folder itself outside git).
+    pub(super) fn open_find_in(&mut self, dir: PathBuf, tab: u8) {
+        let dir = crate::gitfs::head(&dir).map(|h| h.top).unwrap_or(dir);
         let v = FindView::new(dir.clone(), tab);
         self.mode = Mode::Find(Box::new(v));
         self.spawn_bg(move || Bg::FindFiles(dir.clone(), list_files(&dir)));
