@@ -119,6 +119,10 @@ pub struct Term {
     pub transcript: Option<PathBuf>,
     /// A worktree this agent moves into when its turn ends.
     pub pending_move: Option<PathBuf>,
+    /// The name given in the agent (/rename), its first prompt, and its model.
+    pub name: String,
+    pub first_prompt: String,
+    pub model: String,
 }
 
 pub struct SpawnSpec<'a> {
@@ -391,6 +395,9 @@ impl Term {
             pending_input: None,
             transcript: None,
             pending_move: None,
+            name: String::new(),
+            first_prompt: String::new(),
+            model: String::new(),
             colors: {
                 let t = crate::theme::Theme::named(&cfg.theme);
                 let rgb = |c| match c {

@@ -13,8 +13,8 @@ Ticked when built, tested and pushed (dev branch).
 ## Batch B: launching and steering
 - [x] Task box: one box for the task with pickers for project, worktree (or new), agent, model/effort; keeps a draft; Duplicate from an existing agent.
 - [x] Agent presets: saved launches (agent, model, effort, prompt prefix/suffix, ask-for-task or not), e.g. "commit and push" in one key; usable from tickets and PRs.
-- [ ] Prompt and wait: `hydra agent prompt <id> "text" --wait` (and an MCP tool) that waits for a real new turn to finish; `hydra wait-output --regex`.
-- [ ] Each agent row shows its last prompt and the live model; auto-title on the first prompt; names sync with Claude's /rename.
+- [x] Prompt and wait: `hydra send --wait` (and the MCP `hydra_send` wait / `hydra_wait`) waits for a real new turn to finish; `hydra wait --regex`.
+- [x] Each agent row shows its last prompt and the live model; auto-title on the first prompt; names sync with Claude's /rename.
 
 ## Batch C: code and environment
 - [ ] Branch switcher for the repo folder (fuzzy, local and remote) that handles uncommitted changes (stash / bring along / commit / discard).

@@ -3994,6 +3994,8 @@ mod design_tests {
 
     fn term(id: TermId, agent: Option<&str>, status: Status, cwd: &str) -> TermInfo {
         TermInfo {
+            name: String::new(),
+            model: String::new(),
             id,
             cols: 80,
             rows: 20,
@@ -4628,6 +4630,23 @@ mod hydra_tests {
         assert!(matches!(&app.mode, Mode::HyPane(np) if np.place == Some(0)), "a preset with {{task}} asks for it in + New");
         let o = draw(&mut app, 160, 45);
         assert!(o.contains("★ review") && o.contains("sonnet (from the preset)"));
+    }
+
+    #[test]
+    fn agent_rows_show_name_model_and_latest_prompt() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let id = *app.snap.terms.iter().find(|(_, t)| t.agent.as_deref() == Some("claude")).unwrap().0;
+        let t = app.snap.terms.get_mut(&id).unwrap();
+        t.name = "Fix the login flow".into();
+        t.summary = "now add a test for it".into();
+        t.model = "opus 4.5".into();
+        t.status = Status::Working;
+        app.hy_fresh();
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("claude opus 4.5"), "the model beside the agent");
+        assert!(o.contains("Fix the login flow"), "its name stays");
+        assert!(o.contains("› now add a test for it"), "the latest prompt under it");
     }
 
     #[test]

@@ -52,6 +52,11 @@ pub struct SavedPane {
     /// Finished and not looked at yet.
     #[serde(default)]
     pub unseen: bool,
+    /// What it was called (its /rename, else its first prompt) and its model.
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub model: String,
 }
 
 pub fn path() -> PathBuf {

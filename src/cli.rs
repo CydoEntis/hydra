@@ -105,6 +105,63 @@ pub fn read(pane: Option<TermId>) -> Result<()> {
     }
 }
 
+/// The model the agent last answered with and the name given to the conversation, from the
+/// end of a Claude transcript (JSON lines).
+pub fn transcript_facts(path: &std::path::Path) -> (Option<String>, Option<String>) {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut f) = std::fs::File::open(path) else { return (None, None) };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let _ = f.seek(SeekFrom::Start(len.saturating_sub(512 * 1024)));
+    let mut buf = Vec::new();
+    let _ = f.read_to_end(&mut buf);
+    transcript_facts_in(&String::from_utf8_lossy(&buf))
+}
+
+/// The name: what you called it (/rename) wins over the title Claude made up.
+pub fn transcript_facts_in(text: &str) -> (Option<String>, Option<String>) {
+    let (mut model, mut name, mut ai) = (None, None, None);
+    for line in text.lines().rev() {
+        if model.is_some() && name.is_some() {
+            break;
+        }
+        let maybe_model = model.is_none() && line.contains("\"model\"");
+        let maybe_name = name.is_none() && line.contains("\"customTitle\"");
+        let maybe_ai = ai.is_none() && line.contains("\"aiTitle\"");
+        if !maybe_model && !maybe_name && !maybe_ai {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        let title = |k: &str| v.get(k).and_then(Value::as_str).filter(|t| !t.trim().is_empty()).map(|t| one_line(t, 80));
+        if maybe_name {
+            name = title("customTitle");
+        }
+        if maybe_ai {
+            ai = title("aiTitle");
+        }
+        if maybe_model
+            && v.get("type").and_then(Value::as_str) == Some("assistant")
+            && let Some(m) = v.pointer("/message/model").and_then(Value::as_str).filter(|m| !m.starts_with('<'))
+        {
+            model = Some(short_model(m));
+        }
+    }
+    (model, name.or(ai))
+}
+
+/// "claude-opus-4-5-20251101" → "opus 4.5"; other names as they are.
+pub fn short_model(m: &str) -> String {
+    let Some(rest) = m.strip_prefix("claude-") else { return m.to_string() };
+    let parts: Vec<&str> = rest.split('-').filter(|p| p.len() < 8).collect();
+    let family: Vec<&str> = parts.iter().copied().filter(|p| !p.chars().all(|c| c.is_ascii_digit())).collect();
+    let version: Vec<&str> = parts.iter().copied().filter(|p| p.chars().all(|c| c.is_ascii_digit())).collect();
+    let mut out = family.join(" ");
+    if !version.is_empty() {
+        out.push(' ');
+        out.push_str(&version.join("."));
+    }
+    if out.is_empty() { m.to_string() } else { out }
+}
+
 /// What a wait ended on.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Waited {
@@ -418,6 +475,7 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
     });
     let prompt = field(&["prompt"]).map(|p| one_line(&p, 160));
     let transcript = field(&["transcript_path"]).map(PathBuf::from);
+    let (model, name) = transcript.as_deref().map(transcript_facts).unwrap_or_default();
     if event == "Notification"
         && let Some(kind) = field(&["notification_type"])
     {
@@ -438,7 +496,7 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
     block_on(async move {
         tokio::time::timeout(Duration::from_secs(2), async {
             let (_r, mut w) = ipc::open(false).await?;
-            ipc::send(&mut w, &ClientMsg::Hook { term, agent: agent.to_string(), status, session, cwd, prompt, said, subagent, event, pid, transcript }).await?;
+            ipc::send(&mut w, &ClientMsg::Hook { term, agent: agent.to_string(), status, session, cwd, prompt, said, subagent, event, pid, transcript, model, name }).await?;
             Ok::<_, anyhow::Error>(())
         })
         .await?
@@ -540,6 +598,22 @@ pub fn integrate(agent: &str, uninstall: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn model_and_name_from_a_transcript() {
+        assert_eq!(super::short_model("claude-opus-4-5-20251101"), "opus 4.5");
+        assert_eq!(super::short_model("claude-fable-5-1"), "fable 5.1");
+        assert_eq!(super::short_model("gpt-5.5"), "gpt-5.5");
+        let t = [
+            r#"{"type":"assistant","message":{"model":"claude-sonnet-5-5","content":[]}}"#,
+            r#"{"type":"ai-title","aiTitle":"Fix the login flow","sessionId":"s"}"#,
+            r#"{"type":"user","message":{"content":"say \"model\" and \"customTitle\""}}"#,
+        ]
+        .join("\n");
+        assert_eq!(super::transcript_facts_in(&t), (Some("sonnet 5.5".into()), Some("Fix the login flow".into())));
+        let t = format!("{t}\n{}", r#"{"type":"custom-title","customTitle":"auth rewrite","sessionId":"s"}"#);
+        assert_eq!(super::transcript_facts_in(&t).1.as_deref(), Some("auth rewrite"), "your /rename wins");
+    }
+
     use super::*;
 
     #[test]

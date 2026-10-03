@@ -198,6 +198,9 @@ pub(super) struct Session {
     pub asleep: bool,
     /// Subagents it's running right now.
     pub subagents: Vec<String>,
+    /// The latest prompt, when it's not the title already.
+    pub latest: String,
+    pub model: String,
 }
 
 #[derive(Debug, Clone)]
@@ -381,6 +384,8 @@ impl App {
                     is_agent: t.agent.is_some(),
                     asleep: t.asleep,
                     subagents: t.subagents.clone(),
+                    latest: if t.agent.is_some() && !t.name.trim().is_empty() && t.name.trim() != t.summary.trim() { t.summary.trim().to_string() } else { String::new() },
+                    model: t.model.clone(),
                 });
             }
             // The repo's other worktrees, even with nothing running in them.
@@ -494,7 +499,9 @@ fn session_title(t: &TermInfo, name: &str, top: &Path) -> String {
         return name.to_string();
     }
     if t.agent.is_some() {
-        let s = t.summary.trim();
+        // Its name (from /rename, else the first thing it was asked) stays put; the latest
+        // prompt shows under it.
+        let s = if t.name.trim().is_empty() { t.summary.trim() } else { t.name.trim() };
         return if s.is_empty() { WAITING.into() } else { s.to_string() };
     }
     if t.is_shell() {
@@ -743,7 +750,10 @@ fn session_lines(s: &Session, t: &Theme, out: &mut Vec<Line>) {
     if let Some(q) = &s.question {
         out.push(Line::Note(q.clone(), blend(t.blocked, t.sidebar_bg, 0.25), s.term));
     } else if s.is_agent && s.title != WAITING {
-        out.push(Line::Note(s.title.clone(), notes_c, s.term));
+        out.push(Line::Note(s.title.clone(), t.text, s.term));
+        if !s.latest.is_empty() {
+            out.push(Line::Note(format!("› {}", s.latest), notes_c, s.term));
+        }
     }
     for sub in &s.subagents {
         out.push(Line::Note(format!("↳ {sub}"), notes_c, s.term));
@@ -968,6 +978,9 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 }
                 // Agent and state on the left; age (or the talk chip) on the right.
                 let mut left = vec![seg(format!("{gl} "), gs), seg(s.agent.clone(), st.fg(ink.unwrap_or(t.strong)).add_modifier(Modifier::BOLD))];
+                if !s.model.is_empty() && w > 34 {
+                    left.push(seg(format!(" {}", s.model), st.fg(ink.unwrap_or(t.muted))));
+                }
                 if s.asleep {
                     left.push(seg("  asleep", st.fg(ink.unwrap_or(t.muted))));
                 } else if s.is_agent {

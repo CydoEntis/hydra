@@ -371,6 +371,8 @@ impl Daemon {
             agent: term.agent.clone(),
             session: term.agent.as_ref().and(term.session.clone()),
             unseen: term.status == Status::Done,
+            name: if term.name.is_empty() { term.first_prompt.clone() } else { term.name.clone() },
+            model: term.model.clone(),
         };
         let workspaces = self
             .workspaces
@@ -439,6 +441,8 @@ impl Daemon {
                                 t.session = pane.session.clone();
                                 t.agent = pane.agent.clone();
                                 t.restore_unseen = pane.unseen;
+                                t.first_prompt = pane.name.clone();
+                                t.model = pane.model.clone();
                             }
                             map.insert(old, new);
                             restored += 1;
@@ -741,7 +745,7 @@ impl Daemon {
                     self.dirty = true;
                 }
             }
-            ClientMsg::Hook { term, agent, status, session, cwd, prompt, said, subagent, event, pid, transcript } => {
+            ClientMsg::Hook { term, agent, status, session, cwd, prompt, said, subagent, event, pid, transcript, model, name } => {
                 // Only the pane's own processes may report its status (a desktop app that
                 // inherited the pane's environment can't).
                 if let Some(tp) = self.terms.get(&term).and_then(|t| t.pid)
@@ -785,7 +789,16 @@ impl Daemon {
                         t.transcript = Some(tr);
                     }
                     if let Some(p) = prompt.filter(|p| !p.trim().is_empty()) {
+                        if t.first_prompt.is_empty() {
+                            t.first_prompt = p.clone();
+                        }
                         t.summary = p;
+                    }
+                    if let Some(m) = model {
+                        t.model = m;
+                    }
+                    if let Some(n) = name {
+                        t.name = n;
                     }
                     // Ids end up in a shell command on restore: keep them boring.
                     if let Some(id) = session.filter(|s| {
@@ -1029,6 +1042,8 @@ impl Daemon {
                     status: t.status,
                     cwd: t.cwd.clone(),
                     summary: t.summary.clone(),
+                    name: if t.name.is_empty() { t.first_prompt.clone() } else { t.name.clone() },
+                    model: t.model.clone(),
                     said: t.said.clone(),
                     branch: t.head.as_ref().map(|h| h.branch.clone()),
                     linked: t.head.as_ref().is_some_and(|h| h.linked),

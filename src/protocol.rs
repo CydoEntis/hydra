@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 16;
+pub const PROTOCOL_VERSION: u32 = 17;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -41,6 +41,10 @@ pub enum ClientMsg {
         pid: u32,
         /// The agent's conversation file (Claude's transcript), for moving it elsewhere.
         transcript: Option<PathBuf>,
+        /// The model it's answering with right now (from the transcript).
+        model: Option<String>,
+        /// The name you gave the conversation in the agent (Claude's /rename).
+        name: Option<String>,
     },
     Query(Query),
 }
@@ -261,6 +265,10 @@ pub struct TermInfo {
     pub cwd: PathBuf,
     /// What the agent is on: the last prompt it was given (one line), if known.
     pub summary: String,
+    /// What to call it: the name you gave it in the agent (/rename), else its first prompt.
+    pub name: String,
+    /// The model it's using, short ("opus 4.5"), if known.
+    pub model: String,
     /// The agent's last message, if hooks reported it.
     pub said: String,
     /// The git branch the pane is on, if it's in a repo.
