@@ -43,6 +43,8 @@ pub enum Ev {
     /// A worktree removed (or kept) after its last pane closed.
     WorktreeAutoRemoved { client: ClientId, path: PathBuf, result: Result<(), String> },
     WorktreeList { client: ClientId, result: Result<Vec<WorktreeEntry>, String> },
+    /// A worktree hook ran: what to tell people.
+    HookRan(String),
     /// A worktree made for an agent to move into: (client, pane, branch, result).
     MoveReady { client: ClientId, term: TermId, branch: String, result: Result<(PathBuf, String), String> },
 }
@@ -149,6 +151,8 @@ struct Daemon {
     last_saved: String,
     /// Worktrees hydra created; closing the last thing in one removes it.
     made_worktrees: Vec<PathBuf>,
+    /// Extra environment for the next pane spawned (a dev server's PORT).
+    next_env: Vec<(String, String)>,
     last_sleep_check: Instant,
     /// The last automatic workspace move, for undo.
     auto_undo: Option<AutoUndo>,
@@ -218,6 +222,7 @@ pub fn run() -> Result<()> {
             last_save: Instant::now(),
             last_saved: String::new(),
             made_worktrees: Vec::new(),
+            next_env: Vec::new(),
             last_sleep_check: Instant::now(),
             natural_exits: Vec::new(),
             auto_undo: None,
@@ -653,6 +658,7 @@ impl Daemon {
                     if let Some(h) = crate::gitfs::head(p) {
                         trust_like_repo(&h.main_root, p);
                     }
+                    self.worktree_hook(p, true);
                 }
                 match opened {
                     Ok(path) => {
@@ -669,6 +675,7 @@ impl Daemon {
                 }
                 self.dirty = true;
             }
+            Ev::HookRan(msg) => self.broadcast(|_| true, ServerMsg::Notice(msg)),
             Ev::WorktreeList { client, result } => match result {
                 Ok(list) => self.send(client, ServerMsg::Reply(Reply::Worktrees(list))),
                 Err(e) => self.send(client, ServerMsg::Error(e)),
@@ -682,6 +689,7 @@ impl Daemon {
                         if let Some(repo) = repo {
                             trust_like_repo(&repo, &path);
                         }
+                        self.worktree_hook(&path, true);
                         if let Some(t) = self.terms.get_mut(&term) {
                             t.pending_move = Some(path.clone());
                         }
@@ -949,7 +957,66 @@ impl Daemon {
     }
 
     /// Heuristic statuses for agents without hooks, and "seen" bookkeeping for everyone.
+    /// A worktree hook (`on_create` / `on_remove` in the repo's .hydra.toml) as a job to run.
+    fn hook_job(&self, dir: &std::path::Path, create: bool) -> Option<impl FnOnce() -> String + Send + 'static> {
+        let proj = crate::project::load(dir);
+        let cmd = if create { proj.hooks.on_create } else { proj.hooks.on_remove };
+        if cmd.trim().is_empty() {
+            return None;
+        }
+        let shell = self.cfg.shell_command();
+        let dir = dir.to_path_buf();
+        let base = proj.dev.and_then(|d| d.port);
+        Some(move || {
+            let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let mut vars = vec![("HYDRA_WORKTREE", dir.display().to_string())];
+            if let Some(h) = crate::gitfs::head(&dir) {
+                vars.push(("HYDRA_BRANCH", h.branch.clone()));
+                vars.push(("HYDRA_REPO", h.main_root.display().to_string()));
+            }
+            if let Some(b) = base {
+                vars.push(("PORT", crate::project::port_for(&dir, b).to_string()));
+            }
+            let what = if create { "on_create" } else { "on_remove" };
+            match crate::project::run_hook(&shell, &dir, &cmd, &vars) {
+                Ok(()) => format!("{name}: {what} hook done ({cmd})"),
+                Err(e) => format!("{name}: {what} hook failed: {e}"),
+            }
+        })
+    }
+
+    /// Run a worktree hook in the background and say how it went.
+    fn worktree_hook(&self, dir: &std::path::Path, create: bool) {
+        if let Some(job) = self.hook_job(dir, create) {
+            let tx = self.tx.clone();
+            tokio::task::spawn_blocking(move || {
+                let _ = tx.blocking_send(Ev::HookRan(job()));
+            });
+        }
+    }
+
     fn update_statuses(&mut self) {
+        // Dev servers: up once their output shows the ready pattern (and which port, if it
+        // prints a localhost URL).
+        for t in self.terms.values_mut() {
+            if let Some((d, re)) = &mut t.dev
+                && !d.ready
+            {
+                let text = {
+                    let screen = t.parser.screen();
+                    screen.contents()
+                };
+                if re.as_ref().is_some_and(|r| r.is_match(&text)) {
+                    d.ready = true;
+                    if d.port.is_none()
+                        && let Some(p) = regex::Regex::new(r"(?:localhost|127\.0\.0\.1):(\d{2,5})").ok().and_then(|r| r.captures(&text)).and_then(|c| c[1].parse().ok())
+                    {
+                        d.port = Some(p);
+                    }
+                    self.dirty = true;
+                }
+            }
+        }
         // Messages typed to a sleeping agent: deliver once it's ready (its hooks say idle) or
         // after a few seconds.
         for t in self.terms.values_mut() {
@@ -1044,6 +1111,7 @@ impl Daemon {
                     summary: t.summary.clone(),
                     name: if t.name.is_empty() { t.first_prompt.clone() } else { t.name.clone() },
                     model: t.model.clone(),
+                    dev: t.dev.as_ref().map(|(d, _)| d.clone()),
                     said: t.said.clone(),
                     branch: t.head.as_ref().map(|h| h.branch.clone()),
                     linked: t.head.as_ref().is_some_and(|h| h.linked),
@@ -1094,7 +1162,8 @@ impl Daemon {
         let taught = cmd.map(|c| self.teach(c));
         let cmd = taught.as_deref();
         let id = self.next();
-        let t = Term::spawn(&self.cfg, SpawnSpec { id, cmd, cwd, cols, rows }, self.tx.clone())?;
+        let env = std::mem::take(&mut self.next_env);
+        let t = Term::spawn(&self.cfg, SpawnSpec { id, cmd, cwd, cols, rows, env: &env }, self.tx.clone())?;
         self.terms.insert(id, t);
         self.had_terms = true;
         Ok(id)
@@ -1256,6 +1325,65 @@ impl Daemon {
                 }
                 self.last_git = Instant::now() - Duration::from_secs(60);
             }
+            Command::Dev { dir, action } => {
+                let key = |p: &std::path::Path| p.to_string_lossy().replace('\\', "/").trim_end_matches('/').to_lowercase();
+                let running: Vec<TermId> = self.terms.values().filter(|t| t.dev.as_ref().is_some_and(|(d, _)| key(&d.dir) == key(&dir))).map(|t| t.id).collect();
+                if matches!(action, DevAction::Stop | DevAction::Restart) {
+                    if running.is_empty() && action == DevAction::Stop {
+                        anyhow::bail!("no dev server is running in {}", dir.display());
+                    }
+                    for t in running.iter().copied() {
+                        self.close_term(t);
+                    }
+                } else if !running.is_empty() {
+                    anyhow::bail!("its dev server is already running");
+                }
+                if action == DevAction::Stop {
+                    self.dirty = true;
+                    return Ok(true);
+                }
+                let proj = crate::project::load(&dir);
+                let dev = proj.dev.filter(|d| !d.run.trim().is_empty()).ok_or_else(|| {
+                    anyhow::anyhow!("no dev server set up: add [dev] run = \"...\" to {} in the repo", crate::project::FILE)
+                })?;
+                let port = dev.port.map(|base| crate::project::port_for(&dir, base));
+                self.next_env = port.map(|p| vec![("PORT".to_string(), p.to_string())]).unwrap_or_default();
+                // Its own tab in the checkout's workspace, so it never takes screen space.
+                let ws = self
+                    .workspaces
+                    .iter()
+                    .find(|w| w.tabs.iter().flat_map(|t| t.layout.leaves()).any(|id| self.terms.get(&id).and_then(|t| t.head.as_ref()).is_some_and(|h| key(&h.top) == key(&dir))))
+                    .map(|w| w.id);
+                let (cols, rows) = self.guess_size();
+                let term = self.spawn(Some(&dev.run), &dir, cols, rows)?;
+                let ready_re = Some(dev.ready.trim()).filter(|r| !r.is_empty()).and_then(|r| regex::RegexBuilder::new(r).case_insensitive(true).build().ok());
+                if let Some(t) = self.terms.get_mut(&term) {
+                    t.dev = Some((DevInfo { dir: dir.clone(), port, ready: ready_re.is_none() }, ready_re));
+                }
+                let id = self.next();
+                let tab = TabInfo { id, name: "dev".into(), layout: Node::Leaf(term), focus: term };
+                match ws.and_then(|ws| self.workspaces.iter_mut().find(|w| w.id == ws)) {
+                    Some(w) => w.tabs.push(tab),
+                    None => {
+                        let ws = self.next();
+                        let (color, _) = (self.workspaces.len() as u8, ());
+                        self.workspaces.push(WorkspaceInfo {
+                            id: ws,
+                            name: format!("dev · {}", dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+                            cwd: dir.clone(),
+                            tabs: vec![tab],
+                            active_tab: id,
+                            git: None,
+                            worktree: false,
+                            color,
+                            is_new: false,
+                            group: None,
+                        });
+                    }
+                }
+                self.dirty = true;
+                return Ok(true);
+            }
             Command::MoveToWorktree { term, branch } => {
                 let t = self.terms.get(&term).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?;
                 if t.agent.is_none() {
@@ -1332,7 +1460,11 @@ impl Daemon {
                 }
                 let tx = self.tx.clone();
                 self.pending_ops += 1;
+                let hook = self.hook_job(&path, false);
                 tokio::task::spawn_blocking(move || {
+                    if let Some(h) = hook {
+                        let _ = h();
+                    }
                     let result = git::remove_worktree(&path, force, delete_branch).map_err(|e| format!("{e:#}"));
                     let _ = tx.blocking_send(Ev::WorktreeRemoved { client, path, result });
                 });

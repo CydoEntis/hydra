@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 17;
+pub const PROTOCOL_VERSION: u32 = 18;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -66,6 +66,8 @@ pub enum Command {
     FocusPane { term: TermId },
     /// You've seen a finished agent (the cursor rested on it): done → idle.
     MarkSeen { term: TermId },
+    /// A checkout's dev server (from its `.hydra.toml`): start, stop or restart it.
+    Dev { dir: PathBuf, action: DevAction },
     /// The agent in `term` moves into a new worktree of its repo: made now, and when its turn
     /// ends it restarts there, resumed (the agent runs `hydra worktree --move`).
     MoveToWorktree { term: TermId, branch: Option<String> },
@@ -242,6 +244,22 @@ pub struct GitInfo {
     pub ahead: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum DevAction {
+    Start,
+    Stop,
+    Restart,
+}
+
+/// A pane running a checkout's dev server.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DevInfo {
+    pub dir: PathBuf,
+    pub port: Option<u16>,
+    /// Its output said it's up (the `ready` pattern), or there's no pattern.
+    pub ready: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabInfo {
     pub id: TabId,
@@ -269,6 +287,8 @@ pub struct TermInfo {
     pub name: String,
     /// The model it's using, short ("opus 4.5"), if known.
     pub model: String,
+    /// It's a checkout's dev server.
+    pub dev: Option<DevInfo>,
     /// The agent's last message, if hooks reported it.
     pub said: String,
     /// The git branch the pane is on, if it's in a repo.

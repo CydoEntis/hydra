@@ -119,6 +119,8 @@ pub struct Term {
     pub transcript: Option<PathBuf>,
     /// A worktree this agent moves into when its turn ends.
     pub pending_move: Option<PathBuf>,
+    /// Running a checkout's dev server: its info and what "ready" looks like.
+    pub dev: Option<(crate::protocol::DevInfo, Option<regex::Regex>)>,
     /// The name given in the agent (/rename), its first prompt, and its model.
     pub name: String,
     pub first_prompt: String,
@@ -131,6 +133,8 @@ pub struct SpawnSpec<'a> {
     pub cwd: &'a Path,
     pub cols: u16,
     pub rows: u16,
+    /// More environment for this one (a dev server's PORT).
+    pub env: &'a [(String, String)],
 }
 
 #[derive(Debug, PartialEq)]
@@ -321,7 +325,7 @@ impl Term {
         if let Ok(sock) = std::env::var("HYDRA_SOCKET") {
             cmd.env("HYDRA_SOCKET", sock);
         }
-        for (k, v) in &cfg.env {
+        for (k, v) in cfg.env.iter().chain(spec.env.iter().map(|(k, v)| (k, v))) {
             cmd.env(k, v);
         }
 
@@ -395,6 +399,7 @@ impl Term {
             pending_input: None,
             transcript: None,
             pending_move: None,
+            dev: None,
             name: String::new(),
             first_prompt: String::new(),
             model: String::new(),

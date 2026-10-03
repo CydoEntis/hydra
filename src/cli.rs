@@ -66,7 +66,7 @@ pub fn ls(as_json: bool) -> Result<()> {
                     "tabs": w.tabs.iter().map(|t| json!({
                         "id": t.id, "name": t.name, "active": t.id == w.active_tab, "focus": t.focus,
                         "panes": t.layout.leaves().iter().filter_map(|id| snap.terms.get(id)).map(|p| json!({
-                            "id": p.id, "process": p.process, "title": p.title, "agent": p.agent, "asleep": p.asleep, "win32_input": p.win32_input,
+                            "id": p.id, "process": p.process, "title": p.title, "agent": p.agent, "asleep": p.asleep, "win32_input": p.win32_input, "dev": p.dev, "model": p.model, "name": p.name,
                             "status": p.status.label(), "cols": p.cols, "rows": p.rows, "cwd": p.cwd,
                         })).collect::<Vec<_>>(),
                     })).collect::<Vec<_>>(),
@@ -322,6 +322,22 @@ fn resolve_ws(ws: Option<WsId>) -> Result<WsId> {
 pub fn worktree(branch: String, base: Option<String>, ws: Option<WsId>, cmd: Vec<String>) -> Result<()> {
     let ws = resolve_ws(ws)?;
     command(Command::NewWorktree { ws, branch, base, cmd: join_command(cmd), split: None, from: None })
+}
+
+/// `hydra dev [start|stop|restart]`: this checkout's dev server.
+pub fn dev(action: &str, dir: Option<PathBuf>) -> Result<()> {
+    let action = match action {
+        "start" | "run" => DevAction::Start,
+        "stop" => DevAction::Stop,
+        "restart" => DevAction::Restart,
+        other => bail!("{other}? use start, stop or restart"),
+    };
+    let dir = match dir {
+        Some(d) => d,
+        None => std::env::current_dir()?,
+    };
+    let dir = crate::gitfs::head(&dir).map(|h| h.top).unwrap_or(dir);
+    command(Command::Dev { dir, action })
 }
 
 /// Run by an agent inside a pane: make a worktree and move this agent into it.

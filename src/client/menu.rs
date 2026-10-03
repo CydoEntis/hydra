@@ -41,6 +41,7 @@ pub enum Act {
     /// Preset i, for this agent.
     Preset(usize, Option<TermId>),
     SwitchBranch(PathBuf),
+    Dev(PathBuf, crate::protocol::DevAction),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -133,6 +134,18 @@ impl App {
             ("Switch branch…".to_string(), Act::SwitchBranch(w.path.clone())),
             ("Ship (commit, push, PR)".to_string(), Act::Ship(w.path.clone())),
         ];
+        // The dev server, when the repo says how to run one.
+        if crate::project::load(&w.path).dev.is_some_and(|d| !d.run.trim().is_empty()) {
+            use crate::protocol::DevAction;
+            match w.sessions.iter().find(|s| s.dev.is_some()) {
+                Some(s) => items.extend([
+                    ("Dev server: show its output".to_string(), Act::Focus(s.term)),
+                    ("Dev server: restart".to_string(), Act::Dev(w.path.clone(), DevAction::Restart)),
+                    ("Dev server: stop".to_string(), Act::Dev(w.path.clone(), DevAction::Stop)),
+                ]),
+                None => items.push(("▶ Run dev server".to_string(), Act::Dev(w.path.clone(), DevAction::Start))),
+            }
+        }
         if !all.is_empty() {
             items.push((format!("End everything here ({})", all.len()), Act::End(all)));
         }
@@ -193,6 +206,7 @@ impl App {
             Act::Duplicate(t) => self.hy_duplicate(t),
             Act::Preset(i, on) => self.hy_run_preset(i, on, None),
             Act::SwitchBranch(p) => self.open_branches(Some(p)),
+            Act::Dev(dir, action) => self.cmd(Command::Dev { dir, action }),
             Act::Rename(t) => {
                 if let Some((w, _)) = self.snap.locate(t) {
                     self.mode = Mode::Prompt { kind: PromptKind::RenameWorkspace(w.id), input: w.name.clone() };

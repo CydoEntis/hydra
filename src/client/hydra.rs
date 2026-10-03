@@ -203,6 +203,8 @@ pub(super) struct Session {
     /// The latest prompt, when it's not the title already.
     pub latest: String,
     pub model: String,
+    /// A dev server, not an agent or a shell.
+    pub dev: Option<crate::protocol::DevInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -386,6 +388,7 @@ impl App {
                     is_agent: t.agent.is_some(),
                     asleep: t.asleep,
                     subagents: t.subagents.clone(),
+                    dev: t.dev.clone(),
                     latest: if t.agent.is_some() && !t.name.trim().is_empty() && t.name.trim() != t.summary.trim() { t.summary.trim().to_string() } else { String::new() },
                     model: t.model.clone(),
                 });
@@ -976,13 +979,23 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 } else {
                     (app.cfg.icons.shell.clone(), t.muted)
                 };
+                let (gl, gc) = match &s.dev {
+                    Some(d) => ("▶".to_string(), if d.ready { t.done } else { t.muted }),
+                    None => (gl, gc),
+                };
                 let mut gs = st.fg(ink.unwrap_or(gc));
                 if s.status == Status::Blocked {
                     gs = gs.add_modifier(Modifier::BOLD);
                 }
                 // Agent and state on the left; age (or the talk chip) on the right.
                 let mut left = vec![seg(format!("{gl} "), gs), seg(s.agent.clone(), st.fg(ink.unwrap_or(t.strong)).add_modifier(Modifier::BOLD))];
-                if !s.model.is_empty() && w > 34 {
+                if let Some(d) = &s.dev {
+                    let port = d.port.map(|p| format!(" :{p}")).unwrap_or_default();
+                    let state = if d.ready { "ready" } else { "starting…" };
+                    left.truncate(1);
+                    left.push(seg(format!("dev{port}"), st.fg(ink.unwrap_or(t.strong)).add_modifier(Modifier::BOLD)));
+                    left.push(seg(format!("  {state}"), st.fg(ink.unwrap_or(if d.ready { t.done } else { t.muted }))));
+                } else if !s.model.is_empty() && w > 34 {
                     left.push(seg(format!(" {}", s.model), st.fg(ink.unwrap_or(t.muted))));
                 }
                 if s.asleep {

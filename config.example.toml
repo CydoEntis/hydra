@@ -146,6 +146,15 @@ sources = ["github", "linear", "plane"]
 # worktree = true
 # run = ["claude", "npm run dev", "lazygit"]
 
+# Per-repo settings go in the repo, in a .hydra.toml file (commit it to share them):
+#   [dev]
+#   run = "npm run dev"              # right-click a folder > Run dev server, or `hydra dev`
+#   ready = "ready in|listening on"  # it shows "ready" once its output matches
+#   port = 3000                      # each worktree gets its own ($PORT): 3000, 3001, ...
+#   [hooks]
+#   on_create = "npm install"        # runs in each new worktree ($HYDRA_BRANCH, $PORT, ...)
+#   on_remove = ""                   # runs before a worktree is removed
+
 # Presets: saved launches, run with Ctrl+Space . then their number. `{task}` is what you
 # type; with no `{task}` a preset runs in one key. where = send (tell the agent you're on)
 # | beside (a new one in its folder) | worktree (a new one in a new worktree).

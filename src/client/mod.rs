@@ -4062,6 +4062,7 @@ mod design_tests {
         TermInfo {
             name: String::new(),
             model: String::new(),
+            dev: None,
             id,
             cols: 80,
             rows: 20,
