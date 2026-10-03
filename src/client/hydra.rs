@@ -921,8 +921,8 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
 
     // Two shades: the one that's open (a touch of accent) and the one under the mouse or
     // cursor (a touch lighter), so you can tell them apart and the status colours still read.
-    let active = super::render::blend(t.accent, surf, 0.16);
-    let hover = super::render::blend(t.text, surf, 0.10);
+    let active = super::render::blend(surf, t.accent, 0.16);
+    let hover = super::render::blend(surf, t.text, 0.10);
     // A session's highlight: focused (filled), in the split, under the cursor or mouse.
     let look = |app: &App, term: TermId, row: Rect| -> (Color, Option<Color>, bool) {
         let prim = Some(term) == focus;
@@ -953,7 +953,7 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 let p = &model[*pi];
                 let open = !app.hy.saved.closed.contains(&format!("p:{}", p.key));
                 let hov = hovered(app, row);
-                let bg = if hov { super::render::blend(t.text, surf, 0.10) } else { surf };
+                let bg = if hov { super::render::blend(surf, t.text, 0.10) } else { surf };
                 fill(buf, row, bg);
                 let s = Style::default().bg(bg);
                 let mut left = vec![
@@ -1089,7 +1089,7 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
             // Nothing running: one click starts a shell there.
             Line::Empty(pi) => {
                 let hov = hovered(app, row);
-                let bg = if hov { super::render::blend(t.text, surf, 0.10) } else { surf };
+                let bg = if hov { super::render::blend(surf, t.text, 0.10) } else { surf };
                 fill(buf, row, bg);
                 let st = Style::default().bg(bg);
                 put(buf, x0 + 5, y, &[seg("nothing running", st.fg(t.muted)), seg("  + shell", st.fg(if hov { t.accent } else { t.muted }))], r.right());
@@ -1287,6 +1287,12 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
     app.pane_frames.push((term, r));
     if split {
         hit(app, Rect { x: r.right().saturating_sub(2), y: r.y, width: 2, height: 1 }, HyHit::CloseSplit(term));
+    } else if r.y > 0 {
+        // On its own there's no title bar: the ✕ sits in the row of air above it.
+        let xr = Rect { x: r.right().saturating_sub(2), y: r.y - 1, width: 2, height: 1 };
+        let st = if hovered(app, xr) { Style::default().fg(t.err).bg(t.hov) } else { Style::default().fg(t.muted).bg(t.bg) };
+        put(f.buffer_mut(), xr.x, xr.y, &[seg("✕ ", st)], xr.right());
+        hit(app, xr, HyHit::CloseSplit(term));
     }
 
     let ask = st == Status::Blocked && info.agent.is_some();
@@ -1427,7 +1433,7 @@ fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &The
 
 // ---- overlays ------------------------------------------------------------------------------
 
-/// Dim everything already drawn: fg 60% toward its bg, then fg and bg 45% toward black.
+/// Dim everything already drawn, gently: still readable behind a popup.
 pub(super) fn dim_all(buf: &mut Buffer, area: Rect, t: &Theme) {
     let black = Color::Rgb(0, 0, 0);
     for y in area.top()..area.bottom() {
@@ -1435,8 +1441,8 @@ pub(super) fn dim_all(buf: &mut Buffer, area: Rect, t: &Theme) {
             let c = &mut buf[(x, y)];
             let bg = if c.bg == Color::Reset { t.bg } else { c.bg };
             let fg = if c.fg == Color::Reset { t.fg } else { c.fg };
-            c.fg = blend(blend(fg, bg, 0.6), black, 0.45);
-            c.bg = blend(bg, black, 0.45);
+            c.fg = blend(blend(fg, bg, 0.35), black, 0.2);
+            c.bg = blend(bg, black, 0.2);
         }
     }
 }
@@ -3302,9 +3308,8 @@ impl App {
             HyHit::Jump => self.mode = Mode::Jump { sel: 0 },
             HyHit::NewPane => self.hy_open_new_pane(false),
             HyHit::Keys => self.mode = Mode::Help { scroll: 0 },
-            HyHit::CloseSplit(t) => {
-                self.hy_unshow(t);
-            }
+            // The ✕ on a pane: close it (after asking).
+            HyHit::CloseSplit(t) => self.menu_act(super::menu::Act::End(vec![t])),
             HyHit::Divider(i) => self.hy.drag = Some(Drag::Divider(i)),
             HyHit::ShellIn(pi) => {
                 if let Some(p) = self.hy_model().get(pi) {
