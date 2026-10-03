@@ -115,6 +115,10 @@ pub struct Term {
     pub restore_unseen: bool,
     /// Typed while it was asleep: delivered once it's back up (or after a few seconds).
     pub pending_input: Option<(Vec<u8>, Instant)>,
+    /// The agent's conversation file (from hooks).
+    pub transcript: Option<PathBuf>,
+    /// A worktree this agent moves into when its turn ends.
+    pub pending_move: Option<PathBuf>,
 }
 
 pub struct SpawnSpec<'a> {
@@ -385,6 +389,8 @@ impl Term {
             trusted: std::collections::HashSet::new(),
             restore_unseen: false,
             pending_input: None,
+            transcript: None,
+            pending_move: None,
             colors: {
                 let t = crate::theme::Theme::named(&cfg.theme);
                 let rgb = |c| match c {

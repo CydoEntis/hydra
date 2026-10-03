@@ -96,7 +96,13 @@ enum Cmd {
     },
     /// Create a git worktree for a branch and open it as a workspace.
     Worktree {
+        /// Branch for the worktree (with --move, optional: named for you).
+        #[arg(default_value = "")]
         branch: String,
+        /// Move the agent running this command into the new worktree: it restarts there,
+        /// resumed, when its turn ends. For agents to run themselves.
+        #[arg(long = "move")]
+        move_here: bool,
         /// Start a new branch from this ref (default: current HEAD).
         #[arg(long)]
         base: Option<String>,
@@ -187,7 +193,8 @@ fn main() {
                 Ok(())
             }
         },
-        Some(Cmd::Worktree { branch, base, ws, command }) => cli::worktree(branch, base, ws, command),
+        Some(Cmd::Worktree { branch, move_here: true, .. }) => cli::move_to_worktree(branch),
+        Some(Cmd::Worktree { branch, base, ws, command, .. }) => cli::worktree(branch, base, ws, command),
         Some(Cmd::WorktreeRemove { ws, force }) => cli::worktree_remove(ws, force),
         Some(Cmd::KillServer { forget }) => cli::kill_server(forget),
         Some(Cmd::Mcp) => mcp::run(),

@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 15;
+pub const PROTOCOL_VERSION: u32 = 16;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -39,6 +39,8 @@ pub enum ClientMsg {
         event: String,
         /// The reporting process; only reports from inside the pane's own process tree count.
         pid: u32,
+        /// The agent's conversation file (Claude's transcript), for moving it elsewhere.
+        transcript: Option<PathBuf>,
     },
     Query(Query),
 }
@@ -60,6 +62,9 @@ pub enum Command {
     FocusPane { term: TermId },
     /// You've seen a finished agent (the cursor rested on it): done → idle.
     MarkSeen { term: TermId },
+    /// The agent in `term` moves into a new worktree of its repo: made now, and when its turn
+    /// ends it restarts there, resumed (the agent runs `hydra worktree --move`).
+    MoveToWorktree { term: TermId, branch: Option<String> },
     /// Grow (positive) or shrink the pane along `dir`'s axis by `delta` (fraction of parent).
     ResizePane { term: TermId, dir: Dir, delta: f32 },
     /// `git worktree add` next to the workspace's repo, then open it as a new workspace.

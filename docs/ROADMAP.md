@@ -8,7 +8,7 @@ Ticked when built, tested and pushed (dev branch).
 - [x] Smarter status: no "done" while subagents still run (with a drain timeout); Esc-cancel noticed (OSC 9;4 progress); late duplicate permission prompts ignored; status reports only trusted from the pane's own process tree.
 - [x] Speed: output in panes you can't see doesn't redraw the screen; measure and keep frame times low.
 - [x] Find file (fuzzy) and search code (git grep) popups that open at the line or put the path in the agent's prompt.
-- [ ] Agents move themselves into a worktree: `hydra worktree --move <name>` from inside a pane; when the turn ends the agent restarts, resumed, in the new worktree.
+- [x] Agents move themselves into a worktree: `hydra worktree --move <name>` from inside a pane; when the turn ends the agent restarts, resumed, in the new worktree.
 
 ## Batch B: launching and steering
 - [ ] Task box: one box for the task with pickers for project, worktree (or new), agent, model/effort; keeps a draft; Duplicate from an existing agent.

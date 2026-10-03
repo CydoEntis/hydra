@@ -16,6 +16,8 @@ pub const EXAMPLE: &str = include_str!("../config.example.toml");
 pub struct Config {
     /// Key that arms command mode, tmux style.
     pub prefix: String,
+    /// Teach Claude (when hydra starts it) to move itself into a worktree when asked.
+    pub teach_agents: bool,
     /// Where tickets come from (Ctrl+Space i).
     pub tickets: Tickets,
     /// What agents may do through `hydra mcp`.
@@ -291,6 +293,7 @@ impl Default for Config {
             editor: String::new(),
             sleep_after: "never".into(),
             tickets: Tickets::default(),
+            teach_agents: true,
             mcp: Mcp::default(),
             recipes: Vec::new(),
             theme: "hydra".into(),

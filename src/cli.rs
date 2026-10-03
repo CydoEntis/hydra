@@ -185,6 +185,28 @@ pub fn worktree(branch: String, base: Option<String>, ws: Option<WsId>, cmd: Vec
     command(Command::NewWorktree { ws, branch, base, cmd: join_command(cmd), split: None, from: None })
 }
 
+/// Run by an agent inside a pane: make a worktree and move this agent into it.
+pub fn move_to_worktree(branch: String) -> Result<()> {
+    let term: TermId = std::env::var("HYDRA_TERM_ID")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| anyhow!("run this from inside a hydra pane (an agent running in hydra)"))?;
+    let branch = Some(branch.trim().to_string()).filter(|b| !b.is_empty());
+    block_on(async move {
+        let (mut r, mut w) = ipc::open(false).await.context("no hydra server running")?;
+        ipc::send(&mut w, &ClientMsg::Command(Command::MoveToWorktree { term, branch })).await?;
+        loop {
+            match ipc::recv_server(&mut r).await? {
+                Some(ServerMsg::Notice(n)) => println!("{n}"),
+                Some(ServerMsg::Reply(_)) => return Ok(()),
+                Some(ServerMsg::Error(e)) => bail!(e),
+                Some(_) => continue,
+                None => bail!("server closed the connection"),
+            }
+        }
+    })
+}
+
 pub fn worktree_remove(ws: Option<WsId>, force: bool) -> Result<()> {
     command(Command::RemoveWorktree { ws: resolve_ws(ws)?, force, delete_branch: false })
 }
@@ -313,6 +335,7 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
         start: event == "SubagentStart",
     });
     let prompt = field(&["prompt"]).map(|p| one_line(&p, 160));
+    let transcript = field(&["transcript_path"]).map(PathBuf::from);
     if event == "Notification"
         && let Some(kind) = field(&["notification_type"])
     {
@@ -333,7 +356,7 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
     block_on(async move {
         tokio::time::timeout(Duration::from_secs(2), async {
             let (_r, mut w) = ipc::open(false).await?;
-            ipc::send(&mut w, &ClientMsg::Hook { term, agent: agent.to_string(), status, session, cwd, prompt, said, subagent, event, pid }).await?;
+            ipc::send(&mut w, &ClientMsg::Hook { term, agent: agent.to_string(), status, session, cwd, prompt, said, subagent, event, pid, transcript }).await?;
             Ok::<_, anyhow::Error>(())
         })
         .await?

@@ -43,6 +43,8 @@ pub enum Ev {
     /// A worktree removed (or kept) after its last pane closed.
     WorktreeAutoRemoved { client: ClientId, path: PathBuf, result: Result<(), String> },
     WorktreeList { client: ClientId, result: Result<Vec<WorktreeEntry>, String> },
+    /// A worktree made for an agent to move into: (client, pane, branch, result).
+    MoveReady { client: ClientId, term: TermId, branch: String, result: Result<(PathBuf, String), String> },
 }
 
 /// How to put back what an automatic workspace changed.
@@ -66,6 +68,54 @@ fn repo_of(dir: &std::path::Path) -> Option<PathBuf> {
     let gitdir = PathBuf::from(text.trim().strip_prefix("gitdir:")?.trim());
     let main_git = gitdir.ancestors().find(|a| a.file_name().is_some_and(|n| n == ".git"))?;
     main_git.parent().map(|p| p.to_path_buf())
+}
+
+/// Claude asks "do you trust this folder?" for every new folder, and every new worktree is
+/// one. A worktree of a repo you already trust is trusted the same way (never otherwise).
+fn trust_like_repo(repo: &std::path::Path, worktree: &std::path::Path) {
+    if let Some(home) = directories::BaseDirs::new() {
+        trust_in(&home.home_dir().join(".claude.json"), repo, worktree);
+    }
+}
+
+fn trust_in(file: &std::path::Path, repo: &std::path::Path, worktree: &std::path::Path) {
+    let file = file.to_path_buf();
+    let Ok(text) = std::fs::read_to_string(&file) else { return };
+    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&text) else { return };
+    let key = |p: &std::path::Path| p.to_string_lossy().replace('\\', "/").trim_end_matches('/').to_string();
+    let projects = v.get("projects");
+    let trusted = |k: &str| projects.and_then(|p| p.get(k)).and_then(|e| e.get("hasTrustDialogAccepted")).and_then(|b| b.as_bool()) == Some(true);
+    let (rk, wk) = (key(repo), key(worktree));
+    // Claude's keys may differ in the drive letter's case.
+    let repo_ok = trusted(&rk) || projects.and_then(|p| p.as_object()).is_some_and(|m| m.iter().any(|(k, e)| k.eq_ignore_ascii_case(&rk) && e.get("hasTrustDialogAccepted").and_then(|b| b.as_bool()) == Some(true)));
+    if !repo_ok || trusted(&wk) {
+        return;
+    }
+    let Some(map) = v.get_mut("projects").and_then(|p| p.as_object_mut()) else { return };
+    let entry = map.entry(wk).or_insert_with(|| serde_json::json!({}));
+    if let Some(o) = entry.as_object_mut() {
+        o.insert("hasTrustDialogAccepted".into(), serde_json::Value::Bool(true));
+    }
+    // Write beside and swap, so a reader never sees half a file.
+    let tmp = file.with_extension("json.hydra-tmp");
+    if let Ok(s) = serde_json::to_string_pretty(&v)
+        && std::fs::write(&tmp, s).is_ok()
+    {
+        let _ = std::fs::rename(&tmp, &file);
+    }
+}
+
+/// Claude files conversations under `~/.claude/projects/<folder slug>/<session>.jsonl`, the
+/// slug being the folder with every non-alphanumeric character as `-`. Put a copy where a
+/// resume in `dest` will look.
+fn copy_claude_transcript(src: &std::path::Path, session: &str, dest: &std::path::Path) {
+    let Some(projects) = src.parent().and_then(|p| p.parent()) else { return };
+    let slug: String = dest.to_string_lossy().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
+    let dir = projects.join(slug);
+    let to = dir.join(format!("{session}.jsonl"));
+    if !to.exists() && std::fs::create_dir_all(&dir).is_ok() {
+        let _ = std::fs::copy(src, &to);
+    }
 }
 
 fn same_path(a: &std::path::Path, b: &std::path::Path) -> bool {
@@ -596,6 +646,9 @@ impl Daemon {
                 });
                 if let Ok(p) = &opened {
                     self.made_worktrees.push(p.clone());
+                    if let Some(h) = crate::gitfs::head(p) {
+                        trust_like_repo(&h.main_root, p);
+                    }
                 }
                 match opened {
                     Ok(path) => {
@@ -616,6 +669,32 @@ impl Daemon {
                 Ok(list) => self.send(client, ServerMsg::Reply(Reply::Worktrees(list))),
                 Err(e) => self.send(client, ServerMsg::Error(e)),
             },
+            Ev::MoveReady { client, term, branch, result } => {
+                self.pending_ops -= 1;
+                match result {
+                    Ok((path, _)) => {
+                        self.made_worktrees.push(path.clone());
+                        let repo = self.terms.get(&term).and_then(|t| t.head.as_ref().map(|h| h.main_root.clone()));
+                        if let Some(repo) = repo {
+                            trust_like_repo(&repo, &path);
+                        }
+                        if let Some(t) = self.terms.get_mut(&term) {
+                            t.pending_move = Some(path.clone());
+                        }
+                        self.last_git = Instant::now() - Duration::from_secs(60);
+                        self.send(
+                            client,
+                            ServerMsg::Notice(format!(
+                                "Worktree `{branch}` is ready at {}. Finish this turn; hydra then restarts you there, in this same conversation, and every later edit happens in that folder.",
+                                path.display()
+                            )),
+                        );
+                        self.send(client, ServerMsg::Reply(Reply::Ok));
+                    }
+                    Err(e) => self.send(client, ServerMsg::Error(e)),
+                }
+                self.dirty = true;
+            }
             Ev::WorktreeAutoRemoved { client, path, result } => {
                 self.pending_ops -= 1;
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -648,7 +727,7 @@ impl Daemon {
                     if let Some(new) = self.wake(term)
                         && let Some(t) = self.terms.get_mut(&new)
                     {
-                        t.pending_input = Some((data, Instant::now()));
+                        t.pending_input = Some((data, Instant::now() + Duration::from_secs(8)));
                     }
                 } else if let Some(t) = self.terms.get_mut(&term) {
                     t.input(&data);
@@ -662,7 +741,7 @@ impl Daemon {
                     self.dirty = true;
                 }
             }
-            ClientMsg::Hook { term, agent, status, session, cwd, prompt, said, subagent, event, pid } => {
+            ClientMsg::Hook { term, agent, status, session, cwd, prompt, said, subagent, event, pid, transcript } => {
                 // Only the pane's own processes may report its status (a desktop app that
                 // inherited the pane's environment can't).
                 if let Some(tp) = self.terms.get(&term).and_then(|t| t.pid)
@@ -701,6 +780,9 @@ impl Daemon {
                     }
                     if let Some(s) = said {
                         t.said = s;
+                    }
+                    if let Some(tr) = transcript.filter(|p| p.is_file()) {
+                        t.transcript = Some(tr);
                     }
                     if let Some(p) = prompt.filter(|p| !p.trim().is_empty()) {
                         t.summary = p;
@@ -754,6 +836,12 @@ impl Daemon {
 
     fn hook(&mut self, term: TermId, agent: String, status: HookStatus, event: &str) {
         let focused = self.focused_term() == Some(term) && self.has_viewer();
+        if matches!(status, HookStatus::Done | HookStatus::Idle)
+            && let Some(dest) = self.terms.get_mut(&term).and_then(|t| t.pending_move.take())
+        {
+            self.relocate(term, &dest);
+            return;
+        }
         let Some(t) = self.terms.get_mut(&term) else { return };
         let now = Instant::now();
         let new = match status {
@@ -853,11 +941,17 @@ impl Daemon {
         // after a few seconds.
         for t in self.terms.values_mut() {
             let ready = matches!(t.status, Status::Idle | Status::Done) && t.hooked;
-            if let Some((data, at)) = t.pending_input.take() {
-                if ready || at.elapsed() > Duration::from_secs(8) {
-                    t.input(&data);
+            if let Some((data, by)) = t.pending_input.take() {
+                if ready || Instant::now() >= by {
+                    // Text, then Enter a beat later, so it lands as a message, not a paste.
+                    if data.len() > 1 && data.ends_with(b"\r") {
+                        t.input(&data[..data.len() - 1]);
+                        t.pending_input = Some((b"\r".to_vec(), Instant::now()));
+                    } else {
+                        t.input(&data);
+                    }
                 } else {
-                    t.pending_input = Some((data, at));
+                    t.pending_input = Some((data, by));
                 }
             }
         }
@@ -961,7 +1055,29 @@ impl Daemon {
         id
     }
 
+    /// Claude, started by hydra, learns how to move itself into a worktree (and may run
+    /// just that command without asking).
+    fn teach(&self, cmd: &str) -> String {
+        let mut words = cmd.split_whitespace();
+        let first = words.next().unwrap_or("");
+        let is_claude = std::path::Path::new(first).file_stem().is_some_and(|s| s.eq_ignore_ascii_case("claude"));
+        if !self.cfg.teach_agents || !is_claude || cmd.contains("--append-system-prompt") {
+            return cmd.to_string();
+        }
+        let note = "You are running inside Hydra, a terminal where one person runs many coding agents. If the user asks you to do the work in a worktree (or on a separate branch so you don't touch their checkout), run `hydra worktree --move <short-branch-name>` with the Bash tool before editing anything, then end your turn: Hydra creates the worktree and restarts you there in this same conversation.";
+        let rest = cmd[first.len()..].trim_start();
+        format!(
+            "{first} --append-system-prompt {} --allowedTools {} {rest}",
+            self.cfg.quote_for_shell(note),
+            self.cfg.quote_for_shell("Bash(hydra worktree:*)")
+        )
+        .trim_end()
+        .to_string()
+    }
+
     fn spawn(&mut self, cmd: Option<&str>, cwd: &std::path::Path, cols: u16, rows: u16) -> Result<TermId> {
+        let taught = cmd.map(|c| self.teach(c));
+        let cmd = taught.as_deref();
         let id = self.next();
         let t = Term::spawn(&self.cfg, SpawnSpec { id, cmd, cwd, cols, rows }, self.tx.clone())?;
         self.terms.insert(id, t);
@@ -1124,6 +1240,29 @@ impl Daemon {
                     self.active_ws = Some(id);
                 }
                 self.last_git = Instant::now() - Duration::from_secs(60);
+            }
+            Command::MoveToWorktree { term, branch } => {
+                let t = self.terms.get(&term).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?;
+                if t.agent.is_none() {
+                    anyhow::bail!("only an agent can move into a worktree");
+                }
+                if self.resume_cmd(t).is_none() {
+                    anyhow::bail!("this agent can't be resumed elsewhere (no session id yet; try after its first turn)");
+                }
+                let dir = t.head.as_ref().map(|h| h.main_root.clone()).unwrap_or_else(|| t.cwd.clone());
+                let branch = branch.unwrap_or_else(|| {
+                    let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+                    format!("{}-{:04x}", t.agent.clone().unwrap_or_else(|| "agent".into()), n & 0xffff)
+                });
+                let template = self.cfg.worktree.dir.clone();
+                let tx = self.tx.clone();
+                self.pending_ops += 1;
+                let b = branch.clone();
+                tokio::task::spawn_blocking(move || {
+                    let result = git::create_worktree(&dir, &b, None, &template).map_err(|e| format!("{e:#}"));
+                    let _ = tx.blocking_send(Ev::MoveReady { client, term, branch: b, result });
+                });
+                return Ok(false);
             }
             Command::MarkSeen { term } => {
                 if self.terms.get(&term).is_some_and(|t| t.status == Status::Done) {
@@ -1461,6 +1600,58 @@ impl Daemon {
         Some(new)
     }
 
+    /// Restart an agent in another folder, in the same conversation: its transcript is put
+    /// where the agent looks for that folder (Claude files them by folder), then it resumes
+    /// in place of the old pane and is told where it now is.
+    fn relocate(&mut self, old: TermId, dest: &std::path::Path) {
+        let Some(t) = self.terms.get(&old) else { return };
+        if let (Some(src), Some(session)) = (&t.transcript, &t.session) {
+            copy_claude_transcript(src, session, dest);
+        }
+        let cmd = self.resume_cmd(t);
+        let (cols, rows) = (t.cols, t.rows);
+        let (agent, session, orig) = (t.agent.clone(), t.session.clone(), t.cmd.clone());
+        if let Some(t) = self.terms.get_mut(&old) {
+            t.kill_tree();
+        }
+        let new = match self.spawn(cmd.as_deref(), dest, cols, rows) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!("moving {old} to {}: {e:#}", dest.display());
+                return;
+            }
+        };
+        if let Some(n) = self.terms.get_mut(&new) {
+            n.agent = agent;
+            n.session = session;
+            n.cmd = orig;
+            let note = format!(
+                "You've been moved into the git worktree at {}. Your conversation continues here; make every further change in this folder. Carry on with the task.",
+                dest.display()
+            );
+            // Only once it's up (its hooks say so), never into a startup question.
+            n.pending_input = Some((format!("{note}\r").into_bytes(), Instant::now() + Duration::from_secs(45)));
+        }
+        for w in &mut self.workspaces {
+            for tab in &mut w.tabs {
+                if tab.layout.contains(old) {
+                    if let Some(l) = tab.layout.map_leaves(&mut |id| Some(if id == old { new } else { id })) {
+                        tab.layout = l;
+                    }
+                    if tab.focus == old {
+                        tab.focus = new;
+                    }
+                }
+            }
+            if w.tabs.iter().any(|tab| tab.layout.contains(new)) {
+                w.cwd = dest.to_path_buf();
+            }
+        }
+        self.remove_term(old);
+        self.last_git = Instant::now() - Duration::from_secs(60);
+        self.dirty = true;
+    }
+
     /// The linked worktrees these terminals are in.
     fn worktrees_of(&self, terms: &[TermId]) -> Vec<PathBuf> {
         terms
@@ -1567,4 +1758,22 @@ fn home() -> PathBuf {
     directories::BaseDirs::new()
         .map(|d| d.home_dir().to_path_buf())
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn worktrees_of_trusted_repos_are_trusted() {
+        let dir = std::env::temp_dir().join(format!("hydra-trust-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("claude.json");
+        std::fs::write(&f, r#"{"projects":{"c:/code/app":{"hasTrustDialogAccepted":true}},"other":1}"#).unwrap();
+        super::trust_in(&f, std::path::Path::new("C:/code/app"), std::path::Path::new("C:/code/app-worktrees/x"));
+        super::trust_in(&f, std::path::Path::new("C:/code/nope"), std::path::Path::new("C:/code/nope-wt"));
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
+        assert_eq!(v["projects"]["C:/code/app-worktrees/x"]["hasTrustDialogAccepted"], true);
+        assert!(v["projects"].get("C:/code/nope-wt").is_none(), "never trusts what you didn't");
+        assert_eq!(v["other"], 1, "the rest of the file is kept");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
