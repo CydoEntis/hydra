@@ -183,6 +183,8 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "worktree.per_agent", label: "Own worktree per agent", kind: Kind::Bool, cat: Cat::Agents, help: "Quick-prompt agents in a git repo get their own branch and folder." },
     Setting { path: "quick.place", label: "Quick prompt opens in", kind: Kind::Choice(&["worktree", "right", "down", "tab", "here"]), cat: Cat::Agents, help: "Where an agent starts when you give it a task with the quick prompt." },
     Setting { path: "worktree.command", label: "Start in new worktrees", kind: Kind::Text, cat: Cat::Agents, help: "A command to run in every new worktree (e.g. claude). Empty: a shell." },
+    Setting { path: "mcp.approve", label: "Agents may approve prompts", kind: Kind::Choice(&["never", "safe", "always"]), cat: Cat::Agents, help: "Through hydra mcp. safe: only prompts for commands on [mcp] safe (tests, lint, git status…). Saying no is always allowed." },
+    Setting { path: "mcp.scope", label: "Agents can reach", kind: Kind::Choice(&["project", "all"]), cat: Cat::Agents, help: "project: only sessions in the calling agent's own repo. Set up with: hydra integrate mcp" },
     Setting { path: "detection.working_window_ms", label: "Working window (ms)", kind: Kind::Int { step: 250, min: 250, max: 10_000 }, cat: Cat::Agents, help: "For agents without hooks: output this recent counts as working." },
 ];
 

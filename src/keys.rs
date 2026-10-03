@@ -257,6 +257,8 @@ pub enum Action {
     Ideas,
     /// Give one task to several agents, each in its own worktree, and compare.
     Race,
+    /// The project as a map: its folders and worktrees as boxes, coloured by status.
+    Map,
     /// Move the sidebar cursor (-1 up, 1 down); bare keys then work on the sidebar.
     SideMove(i8),
     Detach,
@@ -348,6 +350,7 @@ impl Action {
             Action::Ship => "ship: commit, push, open the PR".into(),
             Action::Ideas => "ideas: jot one, start an agent on one".into(),
             Action::Race => "race agents on one task".into(),
+            Action::Map => "map of the project".into(),
             Action::SideMove(d) if *d < 0 => "sidebar up".into(),
             Action::SideMove(_) => "sidebar down".into(),
             Action::Detach => "detach".into(),
@@ -426,6 +429,7 @@ impl Action {
             Action::Ship => "ship".into(),
             Action::Ideas => "ideas".into(),
             Action::Race => "race".into(),
+            Action::Map => "map".into(),
             Action::SideMove(d) if *d < 0 => "side-up".into(),
             Action::SideMove(_) => "side-down".into(),
             Action::Talk => "talk".into(),
@@ -530,6 +534,7 @@ impl FromStr for Action {
             "ship" => Action::Ship,
             "ideas" => Action::Ideas,
             "race" => Action::Race,
+            "map" => Action::Map,
             "side-up" => Action::SideMove(-1),
             "side-down" => Action::SideMove(1),
             "talk" => Action::Talk,
@@ -587,6 +592,7 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("s", "ship"),
     ("I", "ideas"),
     ("c", "race"),
+    ("M", "map"),
     ("f", "files"),
     ("v", "tasks"),
     ("i", "inbox"),

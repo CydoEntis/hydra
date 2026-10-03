@@ -99,6 +99,7 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 | `I` | **Ideas**: jot one down; later, Enter starts an agent on it in its own worktree |
 | `i` | **Tickets** from GitHub issues, Linear and Plane; Enter starts an agent on one |
 | `c` | **Race**: one task, two or three agents, each in a worktree; compare and keep the best |
+| `M` | **Map**: the project's folders and worktrees as connected boxes, coloured by status |
 | `x` / `X` | close the split / end the focused one |
 | `%` `\|` `"` `-` | a shell beside this one |
 | `←` `→` | the other half of a split |
@@ -150,6 +151,26 @@ run = ["claude", "npm run dev", "lazygit"] # the first is the main one
 ```
 
 They show up in + New as `⚙ feature`.
+
+## Agents that steer agents (MCP)
+
+```sh
+hydra integrate mcp     # registers `hydra mcp` with Claude Code (prints the Codex snippet too)
+```
+
+Any agent can then use hydra's tools: `hydra_list` (sessions, status, the question each is
+asking), `hydra_read` (a screen), `hydra_send` (type a message), `hydra_answer` (a numbered
+prompt), `hydra_start` (a new agent in its own worktree; your screen stays where it was) and
+`hydra_interrupt`. There is no merge, push or delete.
+
+You decide how far that goes (Settings → Agents, or `[mcp]`):
+
+```toml
+[mcp]
+approve = "never"    # never | safe | always: may agents answer "yes" to other agents' prompts?
+safe = ["npm test", "cargo test", "git status"]   # with "safe": only prompts that mention these
+scope = "project"    # project: only sessions in the calling agent's repo | all
+```
 
 ## Sync between machines
 

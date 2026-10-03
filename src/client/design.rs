@@ -190,6 +190,7 @@ impl App {
             Some(super::View::Files(_)) => "files".to_string(),
             Some(super::View::Settings(_)) => "settings".to_string(),
             Some(super::View::Pr(_)) => "pull request".to_string(),
+            Some(super::View::Map(_)) => "map".to_string(),
             None => focused.map(pane_name).unwrap_or_default(),
         };
         let first = w.group.clone().unwrap_or_default();
@@ -403,6 +404,10 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
         Some(super::View::Pr(v)) => {
             super::hydra::draw_pr(app, f.buffer_mut(), panes, t, &v);
             app.view = Some(super::View::Pr(v));
+        }
+        Some(super::View::Map(v)) => {
+            super::hydra::draw_map(app, f.buffer_mut(), panes, t, &v);
+            app.view = Some(super::View::Map(v));
         }
         None => draw_panes(app, f, panes, t),
     }

@@ -146,3 +146,6 @@ sources = ["github", "linear", "plane"]
 # worktree = true
 # run = ["claude", "npm run dev", "lazygit"]
 
+[mcp]
+approve = "never"       # may agents (through `hydra mcp`) answer "yes" to prompts? never | safe | always
+scope = "project"       # project | all

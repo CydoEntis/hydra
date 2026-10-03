@@ -18,6 +18,8 @@ pub struct Config {
     pub prefix: String,
     /// Where tickets come from (Ctrl+Space i).
     pub tickets: Tickets,
+    /// What agents may do through `hydra mcp`.
+    pub mcp: Mcp,
     /// Named setups for + New: e.g. a worktree with claude, a dev server and lazygit.
     pub recipes: Vec<Recipe>,
     /// Put agents to sleep after sitting finished or idle this long ("15m", "1h", "4h",
@@ -154,6 +156,33 @@ impl Default for Tickets {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+pub struct Mcp {
+    /// May agents answer other agents' prompts with "yes"? never | safe | always
+    /// ("no" is always allowed).
+    pub approve: String,
+    /// "safe": the prompt must mention one of these.
+    pub safe: Vec<String>,
+    /// project: only sessions in the calling agent's repo; all: every session.
+    pub scope: String,
+}
+
+impl Default for Mcp {
+    fn default() -> Self {
+        Mcp {
+            approve: "never".into(),
+            safe: [
+                "npm test", "npm run test", "npm run lint", "pnpm test", "yarn test", "cargo test", "cargo check", "cargo clippy", "pytest",
+                "go test", "git status", "git diff", "git log",
+            ]
+            .map(String::from)
+            .to_vec(),
+            scope: "project".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Recipe {
     pub name: String,
     /// Start in its own worktree (in a git project).
@@ -262,6 +291,7 @@ impl Default for Config {
             editor: String::new(),
             sleep_after: "never".into(),
             tickets: Tickets::default(),
+            mcp: Mcp::default(),
             recipes: Vec::new(),
             theme: "hydra".into(),
             theme_overrides: ThemeOverrides::default(),

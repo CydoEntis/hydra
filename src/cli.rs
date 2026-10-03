@@ -9,12 +9,12 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::time::Duration;
 
-fn block_on<T>(f: impl std::future::Future<Output = Result<T>>) -> Result<T> {
+pub(crate) fn block_on<T>(f: impl std::future::Future<Output = Result<T>>) -> Result<T> {
     tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(f)
 }
 
 /// Send one message and wait for the reply.
-async fn request(msg: ClientMsg) -> Result<Reply> {
+pub(crate) async fn request(msg: ClientMsg) -> Result<Reply> {
     let (mut r, mut w) = ipc::open(false).await.context("no hydra server running")?;
     ipc::send(&mut w, &msg).await?;
     loop {
@@ -392,6 +392,22 @@ pub fn integrate(agent: &str, uninstall: bool) -> Result<()> {
                 println!("installed hydra hooks into {}", path.display());
                 println!("they only act inside hydra panes (HYDRA_TERM_ID), so other terminals are unaffected.");
             }
+            Ok(())
+        }
+        "mcp" => {
+            // Claude Code: register for every project (user scope).
+            let args = ["mcp", "add", "--scope", "user", "hydra", "--", exe.as_str(), "mcp"];
+            let added = std::process::Command::new(if cfg!(windows) { "claude.cmd" } else { "claude" })
+                .args(args)
+                .status()
+                .or_else(|_| std::process::Command::new("claude").args(args).status());
+            match added {
+                Ok(s) if s.success() => println!("added the hydra MCP server to Claude Code (all projects)"),
+                _ => println!("Claude Code: run  claude mcp add --scope user hydra -- \"{exe}\" mcp"),
+            }
+            println!("\nCodex: add to ~/.codex/config.toml\n\n[mcp_servers.hydra]\ncommand = \"{exe}\"\nargs = [\"mcp\"]\n");
+            println!("Agents can then list, read, message and start sessions. Whether they may approve");
+            println!("prompts is up to you: hydra Settings → Agents (never, by default).");
             Ok(())
         }
         "codex" => {

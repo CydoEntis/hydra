@@ -104,6 +104,7 @@ pub(super) enum View {
     Files(Box<views::FilesTree>),
     Settings(Box<design::SettingsView>),
     Pr(Box<pr::PrView>),
+    Map(Box<hydra::MapView>),
 }
 
 /// Clickable chips and buttons.
@@ -1319,6 +1320,7 @@ impl App {
             }
             Action::Ideas => self.open_ideas(),
             Action::Race => self.open_race_new(),
+            Action::Map => self.open_map(),
             Action::PullRequest => {
                 if let Some(dir) = self.target_path()
                     && let Some(h) = crate::gitfs::head(&dir)
@@ -2003,6 +2005,11 @@ impl App {
                     self.view = Some(View::Pr(v));
                 }
             }
+            View::Map(mut v) => {
+                if self.on_map_key(&mut v, k) && self.view.is_none() {
+                    self.view = Some(View::Map(v));
+                }
+            }
         }
     }
 
@@ -2640,6 +2647,7 @@ impl App {
                             self.on_view_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                         }
                     }
+                    Some(View::Map(_)) => {}
                     Some(View::Pr(_)) => {}
                     Some(View::Settings(_)) => {}
                     None => {}
@@ -3919,6 +3927,18 @@ mod hydra_tests {
         show(&o);
         assert!(o.contains("Race · add rate limiting") && o.contains("+42 −7 · 3 files") && o.contains("not running"));
         assert!(o.contains("Keep codex's rate-limit and delete the other 1?"));
+    }
+
+    #[test]
+    fn map_view() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        app.view = Some(View::Map(Box::new(hydra::MapView { proj: None, sel: 1 })));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("map  shop-api") && o.contains("▌shop-api  ●1 ⠋1"), "the project at the top");
+        assert!(o.contains("◉ main folder") && o.contains("⑂ rate") && o.contains("⑂ orders"), "a box per folder");
+        assert!(o.contains("● claude") && o.contains("needs you 3m") && o.contains("⠋ codex") && o.contains("working 2m"));
+        assert!(o.contains("┴") && (o.contains("┬") || o.contains("┼")), "boxes hang off the project");
     }
 
     #[test]
