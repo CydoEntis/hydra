@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 18;
+pub const PROTOCOL_VERSION: u32 = 19;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -39,6 +39,10 @@ pub enum ClientMsg {
         event: String,
         /// The reporting process; only reports from inside the pane's own process tree count.
         pid: u32,
+        /// The pane's secret (HYDRA_PANE_TOKEN), for when the process chain can't be traced
+        /// (Git Bash on Windows hands each command to a fresh process).
+        #[serde(default)]
+        token: String,
         /// The agent's conversation file (Claude's transcript), for moving it elsewhere.
         transcript: Option<PathBuf>,
         /// The model it's answering with right now (from the transcript).

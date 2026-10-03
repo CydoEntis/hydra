@@ -847,7 +847,7 @@ impl Daemon {
                     self.dirty = true;
                 }
             }
-            ClientMsg::Hook { term, agent, status, session, cwd, prompt, said, subagent, event, pid, transcript, model, name } => {
+            ClientMsg::Hook { term, agent, status, session, cwd, prompt, said, subagent, event, pid, token, transcript, model, name } => {
                 // Only the pane's own processes may report its status (a desktop app that
                 // inherited the pane's environment can't).
                 if let Some(tp) = self.terms.get(&term).and_then(|t| t.pid)
@@ -860,8 +860,10 @@ impl Daemon {
                                 t.trusted.extend(chain);
                             }
                         }
-                        // Outside the pane, or a chain that can't be traced back to it (the
-                        // reporter sends its live parent, so a real one always can be).
+                        // A chain that can't be traced (a process in it already gone, as with
+                        // Git Bash running Claude's hooks on Windows): the pane's secret decides.
+                        (None, _) if !token.is_empty() && self.terms.get(&term).is_some_and(|t| t.token == token) => {}
+                        // Outside the pane.
                         (_, _) => {
                             tracing::info!("ignoring a status report for pane {term} from pid {pid} outside it");
                             return;

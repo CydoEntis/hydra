@@ -486,7 +486,8 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             "claude",
             &["claude"],
             &["@anthropic-ai/claude-code", "claude-code/cli"],
-            &[r"esc to interrupt"],
+            // "esc to interrupt", or the spinner line: "Misting… (5s · ↓ 219 tokens)".
+            &[r"esc to interrupt", r"…\s*\(\d+[smh][^)]*tokens"],
             &[
                 r"Do you want to (proceed|make this edit|create|run|allow)",
                 r"❯ 1\. Yes",

@@ -151,3 +151,27 @@ fn match_agent(name: &str, cmd: &[std::ffi::OsString], agents: &[CompiledAgent])
         .find(|a| a.cmdline.iter().any(|c| line.contains(c.as_str())))
         .map(|a| a.name.clone())
 }
+
+#[cfg(test)]
+mod walk_tests {
+    #[test]
+    fn walks_several_levels_up() {
+        let me = std::process::id();
+        let mut sys = sysinfo::System::new();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        let mut chain = vec![me];
+        let mut cur = sysinfo::Pid::from_u32(me);
+        while let Some(p) = sys.process(cur).and_then(|p| p.parent()) {
+            chain.push(p.as_u32());
+            cur = p;
+            if chain.len() > 6 {
+                break;
+            }
+        }
+        eprintln!("ancestors: {chain:?}");
+        let up = chain[chain.len().min(4) - 1];
+        let r = super::descends_from(me, up, &Default::default());
+        eprintln!("descends_from(me, {up}) = {:?}", r.0);
+        assert_eq!(r.0, Some(true));
+    }
+}

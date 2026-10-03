@@ -117,6 +117,8 @@ pub struct Term {
     pub last_working_hook: Option<Instant>,
     /// Processes known to run inside this pane (trusted to report its status).
     pub trusted: std::collections::HashSet<u32>,
+    /// A secret only this pane's processes have (HYDRA_PANE_TOKEN).
+    pub token: String,
     /// Finished and not seen before a restart: stays "done" once it's back.
     pub restore_unseen: bool,
     /// Typed while it was asleep: delivered once it's back up (or after a few seconds).
@@ -311,6 +313,10 @@ fn argv(cfg: &Config, cmd: Option<&str>) -> Vec<String> {
 
 impl Term {
     pub fn spawn(cfg: &Config, spec: SpawnSpec, tx: mpsc::Sender<Ev>) -> Result<Term> {
+        let token = {
+            let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+            format!("{:x}{:x}", n ^ (std::process::id() as u128) << 64, (spec.id as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15))
+        };
         let pty = native_pty_system();
         let size = PtySize { rows: spec.rows.max(2), cols: spec.cols.max(2), pixel_width: 0, pixel_height: 0 };
         let pair = pty.openpty(size).context("opening pty")?;
@@ -334,6 +340,7 @@ impl Term {
         cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
         cmd.env("HYDRA", "1");
         cmd.env("HYDRA_TERM_ID", spec.id.to_string());
+        cmd.env("HYDRA_PANE_TOKEN", &token);
         if let Ok(sock) = std::env::var("HYDRA_SOCKET") {
             cmd.env("HYDRA_SOCKET", sock);
         }
@@ -407,6 +414,7 @@ impl Term {
             progress_off: None,
             last_working_hook: None,
             trusted: std::collections::HashSet::new(),
+            token,
             restore_unseen: false,
             pending_input: None,
             transcript: None,

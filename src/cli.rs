@@ -684,6 +684,7 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
         sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[me]), true, ProcessRefreshKind::nothing());
         sys.process(me).and_then(|p| p.parent()).map(|p| p.as_u32()).unwrap_or(0)
     };
+    let token = std::env::var("HYDRA_PANE_TOKEN").unwrap_or_default();
     let said = field(&["last_assistant_message", "last-assistant-message"])
         .or_else(|| field(&["transcript_path"]).and_then(|p| last_assistant_text(std::path::Path::new(&p))))
         .map(|s| s.trim().chars().take(2000).collect::<String>())
@@ -691,7 +692,7 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
     block_on(async move {
         tokio::time::timeout(Duration::from_secs(2), async {
             let (_r, mut w) = ipc::open(false).await?;
-            ipc::send(&mut w, &ClientMsg::Hook { term, agent: agent.to_string(), status, session, cwd, prompt, said, subagent, event, pid, transcript, model, name }).await?;
+            ipc::send(&mut w, &ClientMsg::Hook { term, agent: agent.to_string(), status, session, cwd, prompt, said, subagent, event, pid, token, transcript, model, name }).await?;
             Ok::<_, anyhow::Error>(())
         })
         .await?
