@@ -1037,7 +1037,7 @@ pub(super) fn render_screen(screen: &vt100::Screen, area: Rect, buf: &mut Buffer
                 continue;
             }
             let mut fg = themed(vt_color(cell.fgcolor()), &pal);
-            let mut bg = match themed(vt_color(cell.bgcolor()), &pal) {
+            let mut bg = match vt_color(cell.bgcolor()) {
                 Color::Reset => default_bg,
                 c => c,
             };

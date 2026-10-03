@@ -142,8 +142,6 @@ pub(super) enum Bg {
     TreeRecent(PathBuf, Vec<files::FileEntry>),
     /// A finished action: its message, and whether the open review should reload.
     Done(Result<String, String>, bool),
-    /// A project's recent local branches (by project key).
-    Branches(String, Vec<String>),
     /// Your open pull requests in a project (by key).
     Prs(String, Vec<pr::PrBrief>),
     /// One pull request (by number or branch), and its diff.
@@ -2716,11 +2714,6 @@ impl App {
 
     fn on_bg(&mut self, b: Bg) {
         let b = match b {
-            Bg::Branches(key, list) => {
-                self.hy.branches.insert(key, list);
-                self.dirty = true;
-                return;
-            }
             Bg::Prs(key, list) => {
                 self.hy.prs.insert(key, list);
                 self.dirty = true;
@@ -3505,7 +3498,7 @@ mod render_tests {
         let ws_color = crate::theme::parse_color(&app.cfg.ui.workspace_colors[2]).unwrap();
         let tint = render::blend(app.theme.bg, ws_color, app.cfg.ui.workspace_tint);
         assert_eq!(buf[(inner.x, inner.y)].bg, tint, "default background takes the tint");
-        assert_eq!(buf[(inner.x + 6, inner.y)].bg, app.theme.ansi.unwrap()[3], "program colours use the theme's palette");
+        assert_eq!(buf[(inner.x + 6, inner.y)].bg, ratatui::style::Color::Indexed(4), "program backgrounds are left alone");
         assert_eq!(buf[(inner.x + 20, inner.y + 5)].bg, tint, "empty cells are tinted too");
         assert_eq!(buf[(inner.x - 1, inner.y)].fg, ws_color, "focused border is the workspace colour");
     }
@@ -3771,28 +3764,32 @@ mod hydra_tests {
         show(&text);
         let lines: Vec<&str> = text.lines().collect();
         assert!(lines[0].starts_with(" >_ hydra"), "top bar: {}", lines[0]);
-        assert!(lines[0].contains("shop-api  ›  main  ›  Fix flaky checkout test"), "crumb: {}", lines[0]);
+        assert!(lines[0].contains("shop-api  ›  ⎇ main  ›  claude  ● needs you  ·  Fix flaky checkout test"), "crumb: {}", lines[0]);
         assert!(lines[0].contains("Jump ●1") && lines[0].contains("+ New n"), "jump and + new: {}", lines[0]);
-        // One tree: project → main folder → worktrees (→ branches).
-        assert!(text.contains("▾ ▌shop-api") && text.contains("◉ main folder · main") && text.contains("WORKTREES"));
+        // One tree: project → BRANCHES (what runs in the repo folder) → WORKTREES.
+        assert!(text.contains("▾ ▌shop-api") && text.contains("BRANCHES") && text.contains("⎇ main") && text.contains("WORKTREES"));
+        assert!(!text.contains("main folder"), "no 'main folder' wording");
         assert!(text.contains("+ open a project"));
-        let main = text.find("◉ main folder").unwrap();
-        let rate = text.find("⑂ rate").unwrap();
-        assert!(main < rate, "the main folder first");
-        assert!(text.contains("Fix flaky checkout") && text.contains("● claude 3m"));
+        let branches = text.find("BRANCHES").unwrap();
+        let worktrees = text.find("WORKTREES").unwrap();
+        assert!(branches < worktrees, "branches first");
+        // Rows: agent and state, then what it's on (or its question) underneath.
+        assert!(text.contains("● claude  needs you") && text.contains("3m"));
         assert!(text.contains("Run npm test -- checkout?"), "the question under the agent");
         assert!(text.contains("↳ Explore"), "subagents under their agent");
-        assert!(text.contains("⑂ rate · rate-limit") && text.contains("⠋ codex 2m") && text.contains("Rate limit /login"), "one agent per worktree: one row, prompt under it");
-        assert!(text.contains("⑂ orders") && text.contains("no agent"), "worktrees with nothing running");
-        assert!(text.contains("› shell") && !text.contains("shell 2"), "shells: no age");
+        assert!(text.contains("⑂ rate · rate-limit") && text.contains("⠋ codex  working") && text.contains("Rate limit /login"));
+        assert!(text.contains("⑂ orders") && text.contains("nothing running"), "worktrees with nothing running");
+        assert!(text.contains("› shell  shop-api") && !text.contains("shell 2"), "shells: where they are, no age");
         assert!(!text.contains("session"), "no 'session' wording on screen");
         assert!(text.contains("● claude is waiting") && text.contains(" Yes 1 ") && text.contains(" Always 2 ") && text.contains(" No 3 "));
-        assert!(text.contains("click or press T to message claude"));
-        assert!(lines[44].contains("● 1 need you") && lines[44].contains("across 1 project"), "status: {}", lines[44]);
+        assert!(!text.contains("click or press T"), "no footer under the pane");
+        assert!(lines[1].contains("> fix the flaky checkout test"), "one pane: no title bar of its own, output starts right under the top bar");
+        assert!(lines[44].contains("● 1 need you") && !lines[44].contains("across"), "status: {}", lines[44]);
         // Overlays are centred over a dimmed screen.
         for (mode, needle) in [
             (Mode::Jump { sel: 0 }, "NEEDS YOU"),
-            (Mode::HyPane(hydra::NewPaneHy { p: 0, a: 0, row: 0, beside: false }), "claude gets its own new worktree in shop-api"),
+            (Mode::HyPane(hydra::NewPaneHy::new(0, false)), "claude gets its own new worktree in shop-api"),
+            (Mode::HyPane(hydra::NewPaneHy { place: Some(1), ..hydra::NewPaneHy::new(0, false) }), "Switches shop-api to a new branch"),
             (Mode::Help { scroll: 0 }, "PANES & CODE"),
             (Mode::Talk { term: 1, input: String::new() }, "Message claude"),
         ] {
@@ -3838,7 +3835,7 @@ mod hydra_tests {
         assert!(o.contains("CHECKS  1 failing") && o.contains("✕ test") && o.contains("sam asked for changes"));
         assert!(o.contains("Ask the agent to fix it f") && o.contains("Open in browser o"));
         // The sidebar stays; the view takes the main area.
-        assert!(o.contains("◉ main folder"));
+        assert!(o.contains("⎇ main"));
         // And a PR tag on the branch that has one.
         app.view = None;
         app.hy.prs.insert(
@@ -3936,7 +3933,7 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains("map  shop-api") && o.contains("▌shop-api  ●1 ⠋1"), "the project at the top");
-        assert!(o.contains("◉ main folder") && o.contains("⑂ rate") && o.contains("⑂ orders"), "a box per folder");
+        assert!(o.contains("⎇ main") && o.contains("⑂ rate") && o.contains("⑂ orders"), "a box per folder");
         assert!(o.contains("● claude") && o.contains("needs you 3m") && o.contains("⠋ codex") && o.contains("working 2m"));
         assert!(o.contains("┴") && (o.contains("┬") || o.contains("┼")), "boxes hang off the project");
     }
