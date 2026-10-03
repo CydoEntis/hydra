@@ -490,6 +490,10 @@ impl App {
             self.hy.proj = focus.and_then(proj_of).or_else(|| model.first().map(|p| p.key.clone()));
         }
         self.recipe_followup();
+        if !cfg!(test) {
+            let wts: Vec<(String, PathBuf)> = model.iter().flat_map(|p| p.wts.iter().map(|w| (w.key.clone(), w.path.clone()))).collect();
+            self.refresh_ext_labels(wts);
+        }
         // Your pull requests, every two minutes per repo.
         if !cfg!(test) {
             for p in model.iter().filter(|p| p.git) {
@@ -960,8 +964,10 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 let racing = app.hy.saved.races.iter().any(|r| r.entries.iter().any(|(_, b)| *b == wt.branch));
                 let (icon, name) = if wt.main { ("⎇ ", wt.branch.clone()) } else { (if racing { "⚑ " } else { "⑂ " }, wt.name.clone()) };
                 let tag = p.prs.iter().find(|pr| pr.branch == wt.branch).map(|pr| (pr_tag(t, pr), pr.number));
+                let ext: Vec<String> = app.ext_labels.iter().filter(|((k, _), (txt, _))| *k == wt.key && !txt.is_empty()).map(|(_, (txt, _))| txt.clone()).collect();
                 let tail: Vec<Seg> = match &tag {
                     Some((tg, _)) => tg.iter().map(|(x, st)| (x.clone(), st.bg(bg))).collect(),
+                    None if !ext.is_empty() => vec![seg(ext.join(" · "), s.fg(t.muted))],
                     None if wt.sessions.is_empty() && hov => vec![seg(format!("+ {}", if wt.main { "shell".into() } else { app.hy_agent() }), s.fg(t.accent))],
                     None if wt.sessions.is_empty() => vec![seg("nothing running", s.fg(t.muted))],
                     None => vec![],

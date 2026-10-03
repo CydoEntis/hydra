@@ -324,6 +324,70 @@ pub fn worktree(branch: String, base: Option<String>, ws: Option<WsId>, cmd: Vec
     command(Command::NewWorktree { ws, branch, base, cmd: join_command(cmd), split: None, from: None })
 }
 
+/// `hydra ext list | new <name> | run <name> <n> [--term id]`.
+pub fn ext(action: &str, name: Option<String>, index: Option<usize>, term: Option<TermId>) -> Result<()> {
+    match action {
+        "list" | "ls" => {
+            let (exts, errors) = crate::ext::load_all();
+            println!("extensions in {}\n", crate::ext::dir().display());
+            if exts.is_empty() && errors.is_empty() {
+                println!("none yet; `hydra ext new <name>` makes one to start from");
+            }
+            for e in &exts {
+                println!("{}  {}", e.name, e.description);
+                for c in &e.commands {
+                    println!("    command: {}{}", c.title, if c.background { " (background)" } else { "" });
+                }
+                for l in &e.labels {
+                    println!("    label: {} (every {}s)", l.run, l.every);
+                }
+                for ev in ["agent_start", "agent_done", "needs_you", "worktree_create", "worktree_remove"] {
+                    let h = e.hooks.get(ev);
+                    if !h.is_empty() {
+                        println!("    on {ev}: {h}");
+                    }
+                }
+            }
+            for e in errors {
+                println!("✕ {e}");
+            }
+            Ok(())
+        }
+        "new" => {
+            let name = name.ok_or_else(|| anyhow!("give it a name: hydra ext new <name>"))?;
+            let d = crate::ext::scaffold(&name)?;
+            println!("made {}\nedit {} and it shows up in the palette (Ctrl+Space space)", d.display(), d.join(crate::ext::MANIFEST).display());
+            Ok(())
+        }
+        // A command opened in a pane: run it here (the pane's terminal), with its context.
+        "run" => {
+            let name = name.ok_or_else(|| anyhow!("which extension?"))?;
+            let (exts, _) = crate::ext::load_all();
+            let e = exts.iter().find(|e| e.name == name).ok_or_else(|| anyhow!("no extension {name}"))?;
+            let c = e.commands.get(index.unwrap_or(0)).ok_or_else(|| anyhow!("{name} has no command {}", index.unwrap_or(0)))?;
+            let info = term.and_then(|t| snapshot().ok().and_then(|s| s.terms.get(&t).cloned()));
+            let dir = std::env::current_dir()?;
+            let (cfg, _) = crate::config::Config::load_or_default();
+            let shell = cfg.shell_command();
+            let line = crate::ext::resolve(&e.dir, &c.run);
+            let exe = std::path::Path::new(&shell[0]).file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+            let mut cmd = std::process::Command::new(&shell[0]);
+            match exe.as_str() {
+                "pwsh" | "powershell" => cmd.args(["-NoProfile", "-Command", &if line.starts_with('"') { format!("& {line}") } else { line.clone() }]),
+                "cmd" => cmd.args(["/C", &line]),
+                _ => cmd.args(["-c", &line]),
+            };
+            cmd.env("HYDRA_EXT_DIR", &e.dir);
+            for (k, v) in crate::ext::vars("command", &dir, info.as_ref()) {
+                cmd.env(k, v);
+            }
+            let status = cmd.status()?;
+            std::process::exit(status.code().unwrap_or(1));
+        }
+        other => bail!("{other}? use list, new or run"),
+    }
+}
+
 /// `hydra doctor`: each thing hydra relies on, ✓ or what to do about it.
 pub fn doctor() -> Result<()> {
     let mut bad = 0;

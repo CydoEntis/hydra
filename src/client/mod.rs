@@ -167,6 +167,9 @@ pub(super) enum Bg {
     RaceStat(u64, usize, String),
     /// Pulled a shared setup from another machine.
     Synced(bool),
+    /// An extension's label for a worktree, or a background command's result.
+    ExtLabel(String, usize, String),
+    ExtDone(Result<String, String>),
     /// Every file under a folder (Find).
     FindFiles(PathBuf, Vec<String>),
     /// A checkout's branches: (folder, current, branches, files with changes).
@@ -353,6 +356,8 @@ enum PickTarget {
     Workspace(WsId),
     Pane(TermId),
     Command(Action),
+    /// An extension's command: (extension, command).
+    Ext(usize, usize),
 }
 
 pub struct App {
@@ -363,6 +368,10 @@ pub struct App {
     /// What happened lately, newest last: (unix secs, pane, kind, text). Kinds: '!' needs
     /// you, '✓' finished, '♪' bell, 'i' a message, 'x' an error.
     pub(super) history: std::collections::VecDeque<(u64, Option<TermId>, char, String)>,
+    /// Extensions, and the labels they put on worktree rows: (worktree key, label n) ->
+    /// (text, when it was asked for).
+    pub(super) exts: Vec<crate::ext::Ext>,
+    pub(super) ext_labels: HashMap<(String, usize), (String, Instant)>,
     snap: Snapshot,
     got_state: bool,
     parsers: HashMap<TermId, vt100::Parser>,
@@ -485,6 +494,8 @@ impl App {
             cfg,
             notice: None,
             history: Default::default(),
+            exts: if cfg!(test) { Vec::new() } else { crate::ext::load_all().0 },
+            ext_labels: HashMap::new(),
             snap: Snapshot::default(),
             got_state: false,
             parsers: HashMap::new(),
@@ -1015,6 +1026,7 @@ impl App {
                                 PickTarget::Workspace(ws) => self.cmd(Command::SelectWorkspace { ws }),
                                 PickTarget::Pane(term) => self.cmd(Command::FocusPane { term }),
                                 PickTarget::Command(a) => self.act(a),
+                                PickTarget::Ext(e, c) => self.run_ext(e, c),
                             }
                         }
                         return;
@@ -2129,6 +2141,62 @@ impl App {
         let i = waiting.iter().position(|t| Some(t.id) == cur).map(|i| i + 1).unwrap_or(0);
         let term = waiting[i % waiting.len()].id;
         self.cmd(Command::FocusPane { term });
+    }
+
+    /// Run an extension's command about the worktree you're in: hidden (its last line is
+    /// shown), or in a pane beside.
+    fn run_ext(&mut self, ei: usize, ci: usize) {
+        let Some(e) = self.exts.get(ei).cloned() else { return };
+        let Some(c) = e.commands.get(ci).cloned() else { return };
+        let term = self.focused();
+        let info = term.and_then(|t| self.snap.terms.get(&t)).cloned();
+        let dir = info.as_ref().map(|t| t.top.clone().unwrap_or_else(|| t.cwd.clone())).unwrap_or_else(|| self.here_dir());
+        if c.background {
+            let shell = self.cfg.shell_command();
+            self.notify(format!("{}…", c.title), false);
+            self.spawn_bg(move || {
+                let vars = crate::ext::vars("command", &dir, info.as_ref());
+                Bg::ExtDone(crate::ext::run(&shell, &e, &dir, &c.run, &vars))
+            });
+        } else {
+            let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "hydra".into());
+            let t = term.map(|t| format!(" --term {t}")).unwrap_or_default();
+            let cmd = format!("{} ext run {} {ci}{t}", self.cfg.quote_for_shell(&exe), self.cfg.quote_for_shell(&e.name));
+            let cmd = if self.cfg.shell_command()[0].to_lowercase().contains("powershell") || self.cfg.shell_command()[0].to_lowercase().contains("pwsh") { format!("& {cmd}") } else { cmd };
+            self.hy_new_session(dir, Some(cmd), true);
+        }
+    }
+
+    /// Ask extensions for their worktree labels when they're due.
+    pub(super) fn refresh_ext_labels(&mut self, worktrees: Vec<(String, PathBuf)>) {
+        if self.exts.iter().all(|e| e.labels.is_empty()) {
+            return;
+        }
+        let mut n = 0;
+        for (ei, e) in self.exts.clone().into_iter().enumerate() {
+            for (li, l) in e.labels.iter().enumerate() {
+                let slot = ei * 100 + li;
+                for (key, path) in &worktrees {
+                    let due = self.ext_labels.get(&(key.clone(), slot)).is_none_or(|(_, at)| at.elapsed().as_secs() >= l.every.max(5));
+                    if !due {
+                        continue;
+                    }
+                    let old = self.ext_labels.get(&(key.clone(), slot)).map(|x| x.0.clone()).unwrap_or_default();
+                    self.ext_labels.insert((key.clone(), slot), (old, Instant::now()));
+                    let (shell, e, l, key, path) = (self.cfg.shell_command(), e.clone(), l.clone(), key.clone(), path.clone());
+                    self.spawn_bg(move || {
+                        let vars = crate::ext::vars("label", &path, None);
+                        let text = crate::ext::run(&shell, &e, &path, &l.run, &vars).map(|o| o.lines().next().unwrap_or("").trim().chars().take(24).collect()).unwrap_or_default();
+                        Bg::ExtLabel(key, slot, text)
+                    });
+                    n += 1;
+                    // A few at a time.
+                    if n >= 8 {
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     fn reload_config(&mut self) {
@@ -3321,6 +3389,24 @@ impl App {
                 self.dirty = true;
                 return;
             }
+            Bg::ExtLabel(key, i, text) => {
+                if let Some(l) = self.ext_labels.get_mut(&(key, i)) {
+                    l.0 = text;
+                }
+                self.hy_fresh();
+                self.dirty = true;
+                return;
+            }
+            Bg::ExtDone(r) => {
+                match r {
+                    Ok(out) => {
+                        let last = out.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("done").trim().to_string();
+                        self.notify(last, false);
+                    }
+                    Err(e) => self.notify(e, true),
+                }
+                return;
+            }
             Bg::FindFiles(dir, list) => {
                 if let Mode::Find(v) = &mut self.mode
                     && v.dir == dir
@@ -3921,6 +4007,15 @@ impl App {
     fn pick_items(&self, query: &str, commands: bool) -> Vec<PickItem> {
         let q = query.to_lowercase();
         let command_items: Vec<PickItem> = if commands {
+            let ext = self.exts.iter().enumerate().flat_map(|(ei, e)| {
+                e.commands.iter().enumerate().map(move |(ci, c)| PickItem {
+                    label: c.title.clone(),
+                    detail: format!("extension · {}", e.name),
+                    status: Status::None,
+                    key: String::new(),
+                    target: PickTarget::Ext(ei, ci),
+                })
+            });
             self.palette_commands()
                 .into_iter()
                 .map(|a| PickItem {
@@ -3930,6 +4025,7 @@ impl App {
                     key: self.key_for(&a),
                     target: PickTarget::Command(a),
                 })
+                .chain(ext)
                 .collect()
         } else {
             Vec::new()

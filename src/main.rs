@@ -2,6 +2,7 @@ mod alert;
 mod cli;
 mod client;
 mod config;
+mod ext;
 mod daemon;
 mod gitfs;
 mod ipc;
@@ -151,6 +152,19 @@ enum Cmd {
     DebugColors { pane: u32 },
     /// Check that everything hydra relies on is in place, and how to fix what isn't.
     Doctor,
+    /// Extensions: `hydra ext list`, `hydra ext new <name>`.
+    Ext {
+        /// list | new | run
+        #[arg(default_value = "list")]
+        action: String,
+        /// The extension's name (new, run).
+        name: Option<String>,
+        /// The command's number (run).
+        index: Option<usize>,
+        /// The pane it's about (run).
+        #[arg(long)]
+        term: Option<protocol::TermId>,
+    },
     /// Start, stop or restart this worktree's dev server (from `.hydra.toml`).
     Dev {
         /// start | stop | restart
@@ -231,6 +245,7 @@ fn main() {
         Some(Cmd::Mcp) => mcp::run(),
         Some(Cmd::Dev { action, dir }) => cli::dev(&action, dir),
         Some(Cmd::Doctor) => cli::doctor(),
+        Some(Cmd::Ext { action, name, index, term }) => cli::ext(&action, name, index, term),
         Some(Cmd::DebugColors { pane }) => cli::debug_colors(pane),
         Some(Cmd::Sync { action, name }) => sync::command(action.as_deref(), name.as_deref()),
         Some(Cmd::TestAlert) => {

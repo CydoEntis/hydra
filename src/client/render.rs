@@ -1244,6 +1244,7 @@ fn draw_picker(app: &App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, qu
             }
             PickTarget::Pane(_) => (status_icon(app, item.status), t.status(item.status)),
             PickTarget::Command(_) => ("›".to_string(), t.accent),
+            PickTarget::Ext(..) => ("◆".to_string(), t.accent),
         };
         let line = if let PickTarget::Command(_) = item.target {
             let key_w = item.key.width();
