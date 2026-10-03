@@ -11,7 +11,8 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
-arboard = { version = "3", default-features = false }
+arboard = { version = "3", default-features = false, features = ["image-data"] }
+png = "0.17"
 bytes = "1"
 crossterm = { version = "0.29", features = ["event-stream"] }
 clap = { version = "4", features = ["derive"] }

@@ -189,6 +189,37 @@ fn pr_checks(dir: &std::path::Path, branch: &str) -> Option<String> {
     })
 }
 
+/// Save the clipboard image as a PNG under the data folder; old pastes (a week) are
+/// cleared out. Returns (path, width, height).
+fn clipboard_image_to_file() -> Result<(PathBuf, usize, usize), String> {
+    let mut cb = arboard::Clipboard::new().map_err(|e| format!("can't open the clipboard: {e}"))?;
+    let img = cb.get_image().map_err(|_| "there's no image on the clipboard".to_string())?;
+    let dir = crate::config::data_dir().join("pastes");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    if let Ok(rd) = std::fs::read_dir(&dir) {
+        for e in rd.flatten() {
+            if e.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|a| a.as_secs() > 7 * 86_400)) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let path = dir.join(format!("paste-{ms}.png"));
+    write_png(&path, img.width as u32, img.height as u32, &img.bytes)?;
+    Ok((path, img.width, img.height))
+}
+
+/// RGBA pixels to a PNG file.
+fn write_png(path: &std::path::Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), w, h);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    let mut wr = enc.write_header().map_err(|e| e.to_string())?;
+    wr.write_image_data(rgba).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Remove a worktree that isn't open as a workspace.
 fn remove_worktree_dir(dir: &std::path::Path) -> Result<String, String> {
     let out = std::process::Command::new("git")
@@ -361,6 +392,11 @@ pub struct App {
     focus_sent: Option<(TermId, bool)>,
     /// The last left-click in a pane, for double-click.
     pane_click: Option<(Position, Instant)>,
+    /// Recent raw output per pane, to re-wrap the screen when its width changes.
+    raw: HashMap<TermId, std::collections::VecDeque<u8>>,
+    /// The cursor style each pane's program asked for (DECSCUSR 0-6), and the one we set.
+    cursor_style: HashMap<TermId, u8>,
+    cursor_sent: u8,
 }
 
 pub fn run(opts: Options) -> Result<()> {
@@ -403,7 +439,8 @@ async fn run_async(opts: Options) -> Result<()> {
         event::DisableBracketedPaste,
         event::DisableFocusChange
     );
-    // Give the terminal its own background back.
+    // Give the terminal its own background and cursor back.
+    let _ = execute!(std::io::stdout(), crossterm::cursor::SetCursorStyle::DefaultUserShape);
     {
         use std::io::Write;
         let _ = write!(std::io::stdout(), "]111");
@@ -457,6 +494,9 @@ impl App {
             focus_report: HashSet::new(),
             focus_sent: None,
             pane_click: None,
+            raw: HashMap::new(),
+            cursor_style: HashMap::new(),
+            cursor_sent: 0,
         };
         app.splash = app.cfg.ui.splash;
         if !crate::theme::BUILTIN.contains(&app.cfg.theme.as_str()) {
@@ -531,6 +571,7 @@ impl App {
                 return Ok(());
             }
             self.report_focus();
+            self.sync_cursor_style();
             if self.dirty && last_draw.elapsed() >= frame && self.sync_hold_until().is_none_or(|h| Instant::now() >= h) {
                 self.dirty = false;
                 last_draw = Instant::now();
@@ -591,8 +632,17 @@ impl App {
             if self.sizes.get(&term) == Some(&want) {
                 continue;
             }
-            self.sizes.insert(term, want);
-            if let Some(p) = self.parsers.get_mut(&term) {
+            let old = self.sizes.insert(term, want);
+            if old.is_some_and(|o| o.0 != want.0) && self.raw.get(&term).is_some_and(|r| !r.is_empty()) {
+                // A new width: replay recent output into a fresh screen so text re-wraps
+                // instead of being cut (history included).
+                let mut p = self.new_parser(want.1, want.0);
+                if let Some(raw) = self.raw.get_mut(&term) {
+                    p.process(raw.make_contiguous());
+                }
+                self.parsers.insert(term, p);
+                self.scroll.remove(&term);
+            } else if let Some(p) = self.parsers.get_mut(&term) {
                 p.screen_mut().set_size(want.1, want.0);
             }
             self.send(ClientMsg::Resize { term, cols: want.0, rows: want.1 });
@@ -634,10 +684,18 @@ impl App {
             ServerMsg::Replay { term, cols, rows, data } => {
                 let mut p = self.new_parser(rows, cols);
                 p.process(&data);
+                self.keep_raw(term, &data, true);
+                if let Some(c) = keys::last_cursor_style(&data) {
+                    self.cursor_style.insert(term, c);
+                }
                 self.parsers.insert(term, p);
                 self.sizes.insert(term, (cols, rows));
             }
             ServerMsg::Output { term, data } => {
+                self.keep_raw(term, &data, false);
+                if let Some(c) = keys::last_cursor_style(&data) {
+                    self.cursor_style.insert(term, c);
+                }
                 let last = |pat: &[u8]| data.windows(pat.len()).rposition(|w| w == pat);
                 match (last(b"\x1b[?2026h"), last(b"\x1b[?2026l")) {
                     (Some(h), l) if l.is_none_or(|l| h > l) => {
@@ -782,6 +840,7 @@ impl App {
                     e.push_str(s.lines().next().unwrap_or(""));
                 }
             }
+            _ if s.is_empty() => self.paste_image(),
             _ => {
                 let Some(term) = self.focused() else { return };
                 let bracketed = self.parsers.get(&term).is_some_and(|p| p.screen().bracketed_paste());
@@ -1177,6 +1236,58 @@ impl App {
         true
     }
 
+    /// Keep the last ~768 KiB a pane printed (for re-wrapping on resize).
+    fn keep_raw(&mut self, term: TermId, data: &[u8], replace: bool) {
+        const CAP: usize = 768 * 1024;
+        let ring = self.raw.entry(term).or_default();
+        if replace {
+            ring.clear();
+        }
+        ring.extend(data.iter().copied());
+        if ring.len() > CAP {
+            let extra = ring.len() - CAP;
+            ring.drain(..extra);
+        }
+    }
+
+    /// Show the focused program's cursor style (bar, block, underline) in the real terminal.
+    fn sync_cursor_style(&mut self) {
+        use crossterm::cursor::SetCursorStyle as S;
+        let want = self.focused().and_then(|t| self.cursor_style.get(&t).copied()).unwrap_or(0);
+        if want == self.cursor_sent {
+            return;
+        }
+        self.cursor_sent = want;
+        let style = match want {
+            1 => S::BlinkingBlock,
+            2 => S::SteadyBlock,
+            3 => S::BlinkingUnderScore,
+            4 => S::SteadyUnderScore,
+            5 => S::BlinkingBar,
+            6 => S::SteadyBar,
+            _ => S::DefaultUserShape,
+        };
+        if !cfg!(test) {
+            let _ = execute!(std::io::stdout(), style);
+        }
+    }
+
+    /// The clipboard's image, saved as a PNG; its path is pasted into the focused pane
+    /// (Claude Code, Codex and friends attach an image given by path).
+    pub(super) fn paste_image(&mut self) {
+        let Some(term) = self.focused() else { return };
+        match clipboard_image_to_file() {
+            Ok((path, w, h)) => {
+                let text = files::quote_path(&path);
+                let bracketed = self.parsers.get(&term).is_some_and(|p| p.screen().bracketed_paste());
+                let data = if bracketed { format!("\x1b[200~{text} \x1b[201~") } else { format!("{text} ") };
+                self.send(ClientMsg::Input { term, data: data.into_bytes() });
+                self.notify(format!("pasted the clipboard image ({w}×{h}) as a file"), false);
+            }
+            Err(e) => self.notify(e, true),
+        }
+    }
+
     /// When to draw a pane that's mid synchronized update: its start + 100 ms, if that's
     /// still ahead.
     fn sync_hold_until(&self) -> Option<Instant> {
@@ -1228,7 +1339,11 @@ impl App {
     fn forward_key(&mut self, k: &KeyEvent) {
         let Some(term) = self.focused() else { return };
         let app_cursor = self.parsers.get(&term).is_some_and(|p| p.screen().application_cursor());
-        let data = keys::encode(k, app_cursor);
+        let win32 = cfg!(windows) && self.snap.terms.get(&term).is_some_and(|t| t.win32_input) && keys::wants_win32(k);
+        let data = match win32.then(|| keys::encode_win32(k)).flatten() {
+            Some(d) => d,
+            None => keys::encode(k, app_cursor),
+        };
         if data.is_empty() {
             return;
         }
@@ -1609,6 +1724,7 @@ impl App {
             Action::Ideas => self.open_ideas(),
             Action::Race => self.open_race_new(),
             Action::Map => self.open_map(),
+            Action::PasteImage => self.paste_image(),
             Action::PullRequest => {
                 if let Some(dir) = self.target_path()
                     && let Some(h) = crate::gitfs::head(&dir)
@@ -3825,6 +3941,7 @@ mod design_tests {
             top: None,
             since: 0,
             asleep: false,
+            win32_input: false,
         }
     }
 
@@ -4357,6 +4474,40 @@ mod hydra_tests {
         // A program's clipboard copy reaches the user (and says so).
         app.on_server(ServerMsg::Clipboard { term: 1, text: "hello".into() });
         assert!(app.notice.as_ref().is_some_and(|(m, ..)| m.contains("copied 5 characters")));
+    }
+
+    #[test]
+    fn rewraps_on_resize_and_follows_the_cursor_style() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        // Narrow pane: a long line wraps over several rows.
+        let long = "word ".repeat(40);
+        app.sizes.insert(1, (40, 20));
+        app.parsers.insert(1, vt100::Parser::new(20, 40, 1000));
+        app.on_server(ServerMsg::Output { term: 1, data: format!("{long}\r\nend\x1b[5 q").into_bytes() });
+        let rows_of = |app: &App| {
+            let sc = app.parsers[&1].screen();
+            sc.rows(0, sc.size().1).filter(|l| l.contains("word")).count()
+        };
+        let rows_narrow = rows_of(&app);
+        assert!(rows_narrow >= 5, "wrapped narrow: {rows_narrow}");
+        // Wider: the same text re-wraps into fewer rows instead of being cut.
+        app.panes = vec![(1, Rect { x: 0, y: 0, width: 120, height: 20 })];
+        app.sync_sizes();
+        let rows_wide = rows_of(&app);
+        assert!(rows_wide < rows_narrow && rows_wide >= 1, "re-wrapped: {rows_wide} rows (was {rows_narrow})");
+        assert!(app.parsers[&1].screen().contents().contains("end"));
+        // The program asked for a blinking bar.
+        assert_eq!(app.cursor_style.get(&1), Some(&5));
+    }
+
+    #[test]
+    fn saves_pasted_images_as_png() {
+        let p = std::env::temp_dir().join(format!("hydra-paste-{}.png", std::process::id()));
+        let px: Vec<u8> = (0..4 * 3 * 2).map(|i| i as u8).collect();
+        super::write_png(&p, 3, 2, &px).unwrap();
+        let bytes = std::fs::read(&p).unwrap();
+        assert_eq!(&bytes[..8], &[0x89, b'P', b'N', b'G', 13, 10, 26, 10], "a real PNG");
+        let _ = std::fs::remove_file(p);
     }
 
     #[test]

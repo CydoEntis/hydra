@@ -115,6 +115,23 @@ diff, `f` hands failing checks and review comments to the branch's agent, `o` op
 
 Everything also works with the mouse. Hold Shift to select text with your terminal.
 
+## Panes are real terminals
+
+- **Scroll:** the wheel, or `PageUp` / `PageDown` at a prompt (full-screen programs keep those
+  keys), or `Shift+PageUp` / `Shift+PageDown` anywhere. A scrollbar shows when there's history;
+  click or drag it. Typing (or clicking for the program) goes back to the bottom.
+- **Mouse:** programs that use it (vim, lazygit, htop, full-screen agents) get clicks, wheel and
+  drags. Hold Shift to select text yourself.
+- **Copy:** drag to select; double-click copies a word, path or link. Programs that copy (OSC 52,
+  e.g. Claude's `/copy`, nvim) put it on your clipboard. Ctrl+click opens a link.
+- **Images:** `Ctrl+Space V` (or `Ctrl+Space Ctrl+V`, or a paste while an image is on the
+  clipboard) saves the image and pastes its path; Claude Code and Codex attach it.
+- **Keys:** on Windows, combos plain terminals can't send (Ctrl+Shift+letter, Ctrl+Enter, Ctrl+Tab)
+  reach programs exactly, as native key records. Shift+Enter is still a newline for agents.
+- **Resize:** text re-wraps to the new width (history included). Programs' cursor shape (bar,
+  block, underline) shows. Synchronized redraws are drawn whole, so agents don't flicker.
+- **Closing** a pane ends everything running in it, instantly.
+
 ## Alerts
 
 A desktop notification and a sound when an agent you're not looking at needs you or finishes,

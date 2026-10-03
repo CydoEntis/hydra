@@ -259,6 +259,8 @@ pub enum Action {
     Race,
     /// The project as a map: its folders and worktrees as boxes, coloured by status.
     Map,
+    /// Save the clipboard's image to a file and paste its path (agents attach it).
+    PasteImage,
     /// Move the sidebar cursor (-1 up, 1 down); bare keys then work on the sidebar.
     SideMove(i8),
     Detach,
@@ -351,6 +353,7 @@ impl Action {
             Action::Ideas => "ideas: jot one, start an agent on one".into(),
             Action::Race => "race agents on one task".into(),
             Action::Map => "map of the project".into(),
+            Action::PasteImage => "paste the clipboard image".into(),
             Action::SideMove(d) if *d < 0 => "sidebar up".into(),
             Action::SideMove(_) => "sidebar down".into(),
             Action::Detach => "detach".into(),
@@ -430,6 +433,7 @@ impl Action {
             Action::Ideas => "ideas".into(),
             Action::Race => "race".into(),
             Action::Map => "map".into(),
+            Action::PasteImage => "paste-image".into(),
             Action::SideMove(d) if *d < 0 => "side-up".into(),
             Action::SideMove(_) => "side-down".into(),
             Action::Talk => "talk".into(),
@@ -535,6 +539,7 @@ impl FromStr for Action {
             "ideas" => Action::Ideas,
             "race" => Action::Race,
             "map" => Action::Map,
+            "paste-image" => Action::PasteImage,
             "side-up" => Action::SideMove(-1),
             "side-down" => Action::SideMove(1),
             "talk" => Action::Talk,
@@ -595,6 +600,8 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("I", "ideas"),
     ("c", "race"),
     ("M", "map"),
+    ("V", "paste-image"),
+    ("ctrl+v", "paste-image"),
     ("f", "files"),
     ("v", "tasks"),
     ("i", "inbox"),
@@ -676,6 +683,119 @@ pub fn mouse_bytes(screen: &vt100::Screen, m: &crossterm::event::MouseEvent, col
             out
         }
     })
+}
+
+/// Keys plain VT can't express exactly (Ctrl+Shift+letter, Ctrl+Enter, Ctrl+Tab, Ctrl with
+/// symbols) — sent as Windows key records when ConPTY asked for them. Everything else keeps
+/// its usual encoding (so Claude's Shift+Enter, Ctrl+C and friends behave as before).
+pub fn wants_win32(ev: &KeyEvent) -> bool {
+    let m = ev.modifiers;
+    let (ctrl, alt, shift) = (m.contains(KeyModifiers::CONTROL), m.contains(KeyModifiers::ALT), m.contains(KeyModifiers::SHIFT));
+    match ev.code {
+        // Ctrl+Alt+symbol is AltGr typing a character: leave it.
+        KeyCode::Char(c) if ctrl && alt && !c.is_ascii_alphabetic() => false,
+        KeyCode::Char(' ') => false,
+        KeyCode::Char(c) => ctrl && (shift || !c.is_ascii_alphabetic()),
+        KeyCode::Enter | KeyCode::Tab | KeyCode::Esc => ctrl,
+        KeyCode::Backspace => ctrl && shift,
+        _ => false,
+    }
+}
+
+/// A key as Windows' win32-input-mode records (`CSI Vk;Sc;Uc;Kd;Cs;Rc _`), down then up.
+pub fn encode_win32(ev: &KeyEvent) -> Option<Vec<u8>> {
+    let m = ev.modifiers;
+    let (ctrl, alt, shift) = (m.contains(KeyModifiers::CONTROL), m.contains(KeyModifiers::ALT), m.contains(KeyModifiers::SHIFT));
+    let (vk, uc, enhanced): (u16, u32, bool) = match ev.code {
+        KeyCode::Char(c) => {
+            let up = c.to_ascii_uppercase();
+            let vk = if up.is_ascii_alphanumeric() {
+                up as u16
+            } else {
+                match c {
+                    ' ' => 0x20,
+                    '-' | '_' => 0xBD,
+                    '=' | '+' => 0xBB,
+                    '[' | '{' => 0xDB,
+                    ']' | '}' => 0xDD,
+                    '\\' | '|' => 0xDC,
+                    ';' | ':' => 0xBA,
+                    '\'' | '"' => 0xDE,
+                    ',' | '<' => 0xBC,
+                    '.' | '>' => 0xBE,
+                    '/' | '?' => 0xBF,
+                    '`' | '~' => 0xC0,
+                    '!' => 0x31,
+                    '@' => 0x32,
+                    '#' => 0x33,
+                    '$' => 0x34,
+                    '%' => 0x35,
+                    '^' => 0x36,
+                    '&' => 0x37,
+                    '*' => 0x38,
+                    '(' => 0x39,
+                    ')' => 0x30,
+                    _ => return None,
+                }
+            };
+            let uc = if ctrl && up.is_ascii_alphabetic() { up as u32 - 0x40 } else { c as u32 };
+            (vk, uc, false)
+        }
+        KeyCode::Enter => (0x0D, 13, false),
+        KeyCode::Tab | KeyCode::BackTab => (0x09, 9, false),
+        KeyCode::Backspace => (0x08, if ctrl { 0x7f } else { 8 }, false),
+        KeyCode::Esc => (0x1B, 27, false),
+        KeyCode::Up => (0x26, 0, true),
+        KeyCode::Down => (0x28, 0, true),
+        KeyCode::Left => (0x25, 0, true),
+        KeyCode::Right => (0x27, 0, true),
+        KeyCode::Home => (0x24, 0, true),
+        KeyCode::End => (0x23, 0, true),
+        KeyCode::PageUp => (0x21, 0, true),
+        KeyCode::PageDown => (0x22, 0, true),
+        KeyCode::Insert => (0x2D, 0, true),
+        KeyCode::Delete => (0x2E, 0, true),
+        KeyCode::F(n @ 1..=12) => (0x6F + n as u16, 0, false),
+        _ => return None,
+    };
+    let mut cs = 0u32;
+    if shift || ev.code == KeyCode::BackTab {
+        cs |= 0x10; // SHIFT_PRESSED
+    }
+    if ctrl {
+        cs |= 0x08; // LEFT_CTRL_PRESSED
+    }
+    if alt {
+        cs |= 0x02; // LEFT_ALT_PRESSED
+    }
+    if enhanced {
+        cs |= 0x100; // ENHANCED_KEY
+    }
+    let rec = |down: u8| format!("\x1b[{vk};0;{uc};{down};{cs};1_");
+    Some(format!("{}{}", rec(1), rec(0)).into_bytes())
+}
+
+/// The last cursor style a program asked for (DECSCUSR `CSI n SP q`, 0-6) in `data`.
+pub fn last_cursor_style(data: &[u8]) -> Option<u8> {
+    let mut found = None;
+    let mut i = 0;
+    while i + 3 < data.len() + 1 {
+        if data[i] == 0x1b && data.get(i + 1) == Some(&b'[') {
+            let mut j = i + 2;
+            let mut n: Option<u8> = None;
+            if let Some(d) = data.get(j).filter(|d| d.is_ascii_digit()) {
+                n = Some(d - b'0');
+                j += 1;
+            }
+            if data.get(j) == Some(&b' ') && data.get(j + 1) == Some(&b'q') {
+                found = Some(n.unwrap_or(0).min(6));
+                i = j + 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    found
 }
 
 /// Encode a key press as the bytes a terminal program expects.
@@ -794,6 +914,20 @@ mod tests {
         let spec: KeySpec = "alt+left".parse().unwrap();
         assert_eq!(spec, KeySpec::from_event(&ev(KeyCode::Left, KeyModifiers::ALT)));
         assert_eq!("ctrl++".parse::<KeySpec>().unwrap().code, KeyCode::Char('+'));
+        // Windows key records for what VT can't say; the rest unchanged.
+        let k = |code, m| KeyEvent::new(code, m);
+        let cs = KeyModifiers::CONTROL | KeyModifiers::SHIFT;
+        assert!(wants_win32(&k(KeyCode::Char('A'), cs)));
+        assert!(wants_win32(&k(KeyCode::Enter, KeyModifiers::CONTROL)));
+        assert!(!wants_win32(&k(KeyCode::Char('c'), KeyModifiers::CONTROL)), "Ctrl+C stays ^C");
+        assert!(!wants_win32(&k(KeyCode::Enter, KeyModifiers::SHIFT)), "Shift+Enter stays the agents' newline");
+        assert!(!wants_win32(&k(KeyCode::Char('@'), KeyModifiers::CONTROL | KeyModifiers::ALT)), "AltGr typing");
+        assert_eq!(encode_win32(&k(KeyCode::Char('A'), cs)).unwrap(), b"\x1b[65;0;1;1;24;1_\x1b[65;0;1;0;24;1_".to_vec());
+        assert_eq!(encode_win32(&k(KeyCode::Up, KeyModifiers::NONE)).unwrap(), b"\x1b[38;0;0;1;256;1_\x1b[38;0;0;0;256;1_".to_vec());
+        // Cursor styles.
+        assert_eq!(last_cursor_style(b"x\x1b[2 qy\x1b[6 q"), Some(6));
+        assert_eq!(last_cursor_style(b"\x1b[ q"), Some(0));
+        assert_eq!(last_cursor_style(b"\x1b[2J"), None);
         // Mouse: nothing until the program asks; then SGR or X10 like any terminal.
         use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
         let ev = |kind| MouseEvent { kind, column: 0, row: 0, modifiers: KeyModifiers::NONE };

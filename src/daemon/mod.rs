@@ -857,6 +857,7 @@ impl Daemon {
                     top: t.head.as_ref().map(|h| h.top.clone()),
                     since: t.status_since,
                     asleep: t.asleep,
+                    win32_input: t.win32_input,
                     subagents: t.subagents.iter().map(|(_, k)| k.clone()).collect(),
                 })
             })

@@ -101,6 +101,8 @@ pub struct Term {
     pub asleep: bool,
     /// Text and background colour answered to OSC 10 / 11 queries.
     colors: ((u8, u8, u8), (u8, u8, u8)),
+    /// ConPTY turned on win32-input-mode (`ESC [ ? 9001 h`).
+    pub win32_input: bool,
 }
 
 pub struct SpawnSpec<'a> {
@@ -364,6 +366,7 @@ impl Term {
             subagents: Vec::new(),
             cwd_reported: false,
             asleep: false,
+            win32_input: false,
             colors: {
                 let t = crate::theme::Theme::named(&cfg.theme);
                 let rgb = |c| match c {
@@ -405,6 +408,12 @@ impl Term {
     /// is the terminal as far as the program is concerned, and some programs block until
     /// answered: ConPTY itself sends `ESC[6n` at startup and waits for the cursor report.
     fn process_answering_queries(&mut self, data: &[u8]) {
+        let last = |pat: &[u8]| data.windows(pat.len()).rposition(|w| w == pat);
+        match (last(b"\x1b[?9001h"), last(b"\x1b[?9001l")) {
+            (Some(h), l) if l.is_none_or(|l| h > l) => self.win32_input = true,
+            (_, Some(_)) => self.win32_input = false,
+            _ => {}
+        }
         let mut rest = data;
         while let Some((at, len, query)) = find_query(rest) {
             self.parser.process(&rest[..at + len]);
