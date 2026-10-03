@@ -1386,12 +1386,17 @@ fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &The
     };
     let lead = app.keymap.prefix.to_string().replace("C-", "Ctrl+");
     let hk = k(app, &Action::Help);
-    let right = vec![
+    let mut right = Vec::new();
+    if let Some(host) = crate::ipc::remote() {
+        right.push(seg(format!(" ⇄ {host} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)));
+        right.push(seg(" ", s));
+    }
+    right.extend([
         seg(" Keys ", Style::default().bg(t.btn).fg(t.strong).add_modifier(Modifier::BOLD)),
         seg(format!("{hk} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)),
         seg(" ", s),
         seg(format!(" {lead} "), Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)),
-    ];
+    ]);
     let rw = segs_width(&right);
     put(buf, r.x + 1, r.y, &left, r.right().saturating_sub(rw + 2));
     hit(app, Rect { width: 60.min(r.width), ..r }, HyHit::Jump);

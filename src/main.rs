@@ -23,6 +23,10 @@ use std::path::PathBuf;
 struct Args {
     /// Directory to open as a workspace (switches to it if already open).
     path: Option<PathBuf>,
+    /// Work on another machine over SSH (user@host): the UI here, agents there. Needs
+    /// hydra installed there too.
+    #[arg(long, global = true)]
+    remote: Option<String>,
     #[command(subcommand)]
     cmd: Option<Cmd>,
 }
@@ -152,6 +156,9 @@ enum Cmd {
     DebugColors { pane: u32 },
     /// Check that everything hydra relies on is in place, and how to fix what isn't.
     Doctor,
+    /// (Run by `--remote` over ssh) connect stdin/stdout to this machine's server.
+    #[command(hide = true)]
+    Proxy,
     /// Extensions: `hydra ext list`, `hydra ext new <name>`.
     Ext {
         /// list | new | run
@@ -197,6 +204,10 @@ enum ConfigCmd {
 
 fn main() {
     let args = Args::parse();
+    if let Some(r) = &args.remote {
+        // SAFETY: set once at startup, before any thread is started.
+        unsafe { std::env::set_var("HYDRA_REMOTE", r) };
+    }
     config::migrate_from_drover();
     // `hydra <dir>` opens a directory; a typo'd subcommand shouldn't silently attach.
     if let Some(p) = args.path.as_ref().or(match &args.cmd {
@@ -245,6 +256,7 @@ fn main() {
         Some(Cmd::Mcp) => mcp::run(),
         Some(Cmd::Dev { action, dir }) => cli::dev(&action, dir),
         Some(Cmd::Doctor) => cli::doctor(),
+        Some(Cmd::Proxy) => cli::block_on(ipc::proxy()),
         Some(Cmd::Ext { action, name, index, term }) => cli::ext(&action, name, index, term),
         Some(Cmd::DebugColors { pane }) => cli::debug_colors(pane),
         Some(Cmd::Sync { action, name }) => sync::command(action.as_deref(), name.as_deref()),

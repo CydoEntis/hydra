@@ -23,7 +23,7 @@ Ticked when built, tested and pushed (dev branch).
 - [x] Prewarm: a booted agent waiting so + New starts instantly.
 
 ## Batch D: reach and extras
-- [ ] Remote machines over SSH (UI here, agents there).
+- [x] Remote machines over SSH (UI here, agents there).
 - [x] Extensions: a manifest plus commands; palette entries, sidebar labels, lifecycle hooks.
 - [x] Real tabs and any number of splits in the hydra layout.
 - [x] Memory view: RAM per agent.

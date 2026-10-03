@@ -10,12 +10,16 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub(crate) fn block_on<T>(f: impl std::future::Future<Output = Result<T>>) -> Result<T> {
-    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(f)
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let out = rt.block_on(f);
+    // Don't wait on reads still blocked on a pipe (ssh's, over --remote).
+    rt.shutdown_background();
+    out
 }
 
 /// Send one message and wait for the reply.
 pub(crate) async fn request(msg: ClientMsg) -> Result<Reply> {
-    let (mut r, mut w) = ipc::open(false).await.context("no hydra server running")?;
+    let (mut r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "no hydra server running" })?;
     ipc::send(&mut w, &msg).await?;
     loop {
         match ipc::recv_server(&mut r).await? {
@@ -247,7 +251,7 @@ fn wait_print(term: TermId, regex: Option<String>, timeout: u64, just_sent: bool
 pub fn send(pane: Option<TermId>, text: String, enter: bool) -> Result<()> {
     let term = resolve_pane(pane)?;
     block_on(async move {
-        let (_r, mut w) = ipc::open(false).await.context("no hydra server running")?;
+        let (_r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "no hydra server running" })?;
         let data = if text.contains('\n') { format!("\x1b[200~{text}\x1b[201~") } else { text };
         ipc::send(&mut w, &ClientMsg::Input { term, data: data.into_bytes() }).await?;
         if enter {
@@ -270,7 +274,7 @@ pub fn send_keys(pane: Option<TermId>, keys: Vec<String>) -> Result<()> {
         chunks.push(crate::keys::encode(&ev, false));
     }
     block_on(async move {
-        let (_r, mut w) = ipc::open(false).await.context("no hydra server running")?;
+        let (_r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "no hydra server running" })?;
         for data in chunks {
             ipc::send(&mut w, &ClientMsg::Input { term, data }).await?;
             // One key per beat, like a person typing; lets modes change between keys.
@@ -523,7 +527,7 @@ pub fn move_to_worktree(branch: String) -> Result<()> {
         .ok_or_else(|| anyhow!("run this from inside a hydra pane (an agent running in hydra)"))?;
     let branch = Some(branch.trim().to_string()).filter(|b| !b.is_empty());
     block_on(async move {
-        let (mut r, mut w) = ipc::open(false).await.context("no hydra server running")?;
+        let (mut r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "no hydra server running" })?;
         ipc::send(&mut w, &ClientMsg::Command(Command::MoveToWorktree { term, branch })).await?;
         loop {
             match ipc::recv_server(&mut r).await? {

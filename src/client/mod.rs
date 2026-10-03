@@ -1801,6 +1801,13 @@ impl App {
     // ---- actions -------------------------------------------------------------------
 
     fn act(&mut self, a: Action) {
+        // These read files on this machine; over ssh the files are on the other one.
+        if crate::ipc::remote().is_some()
+            && matches!(a, Action::Files | Action::Changes | Action::Find(_) | Action::Branches | Action::PasteImage | Action::Ship | Action::Race)
+        {
+            self.notify(format!("{} isn't available over ssh yet (agents, panes and worktrees are)", a.describe()), true);
+            return;
+        }
         if self.cfg.ui.layout == "hydra" && self.hy_act(&a) {
             return;
         }
