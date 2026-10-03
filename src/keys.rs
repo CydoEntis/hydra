@@ -249,6 +249,8 @@ pub enum Action {
     NewSession,
     /// Close the split (both sessions keep running).
     CloseSplit,
+    /// The pull request of this branch: checks, reviews, comments, diff.
+    PullRequest,
     /// Move the sidebar cursor (-1 up, 1 down); bare keys then work on the sidebar.
     SideMove(i8),
     Detach,
@@ -336,6 +338,7 @@ impl Action {
             Action::OpenProject => "open a project".into(),
             Action::NewSession => "+ new, beside this one".into(),
             Action::CloseSplit => "close the split".into(),
+            Action::PullRequest => "pull request (checks, reviews, diff)".into(),
             Action::SideMove(d) if *d < 0 => "sidebar up".into(),
             Action::SideMove(_) => "sidebar down".into(),
             Action::Detach => "detach".into(),
@@ -410,6 +413,7 @@ impl Action {
             Action::OpenProject => "open-project".into(),
             Action::NewSession => "new-beside".into(),
             Action::CloseSplit => "close-split".into(),
+            Action::PullRequest => "pr".into(),
             Action::SideMove(d) if *d < 0 => "side-up".into(),
             Action::SideMove(_) => "side-down".into(),
             Action::Talk => "talk".into(),
@@ -510,6 +514,7 @@ impl FromStr for Action {
             "open-project" => Action::OpenProject,
             "new-session" | "new-beside" => Action::NewSession,
             "close-split" => Action::CloseSplit,
+            "pr" | "pull-request" => Action::PullRequest,
             "side-up" => Action::SideMove(-1),
             "side-down" => Action::SideMove(1),
             "talk" => Action::Talk,
@@ -563,6 +568,7 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("pagedown", "scroll-down"),
     // Code
     ("d", "changes"),
+    ("P", "pr"),
     ("f", "files"),
     ("v", "tasks"),
     ("i", "inbox"),

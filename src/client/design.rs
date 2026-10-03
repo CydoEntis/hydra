@@ -189,6 +189,7 @@ impl App {
             Some(super::View::Changes(_)) => "changes".to_string(),
             Some(super::View::Files(_)) => "files".to_string(),
             Some(super::View::Settings(_)) => "settings".to_string(),
+            Some(super::View::Pr(_)) => "pull request".to_string(),
             None => focused.map(pane_name).unwrap_or_default(),
         };
         let first = w.group.clone().unwrap_or_default();
@@ -398,6 +399,10 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
         Some(super::View::Settings(v)) => {
             draw_settings_view(app, f.buffer_mut(), panes, t, &v);
             app.view = Some(super::View::Settings(v));
+        }
+        Some(super::View::Pr(v)) => {
+            super::hydra::draw_pr(app, f.buffer_mut(), panes, t, &v);
+            app.view = Some(super::View::Pr(v));
         }
         None => draw_panes(app, f, panes, t),
     }
@@ -820,7 +825,7 @@ fn action_row(app: &mut App, buf: &mut Buffer, r: Rect, t: &Theme, buttons: &[(&
     put(buf, x + 2, y, &tail, r.right());
 }
 
-fn diff_line(t: &Theme, l: &str, old: &mut u32, new: &mut u32) -> Vec<Seg> {
+pub(super) fn diff_line(t: &Theme, l: &str, old: &mut u32, new: &mut u32) -> Vec<Seg> {
     let (red, green, cyan, gray) = (t.err, t.done, Color::Rgb(0x3d, 0xd6, 0xc0), t.muted);
     if let Some(rest) = l.strip_prefix("@@") {
         // @@ -a,b +c,d @@ context
@@ -851,7 +856,7 @@ fn diff_line(t: &Theme, l: &str, old: &mut u32, new: &mut u32) -> Vec<Seg> {
     vec![seg(format!("{n:>4}    "), Style::default().fg(gray)), seg(body.to_string(), Style::default().fg(t.fg))]
 }
 
-fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, v: &super::views::ChangesView) {
+pub(super) fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, v: &super::views::ChangesView) {
     use super::views::ChangesRow;
     fill(buf, area, t.bg);
     let (green, red, yellow) = (t.done, t.err, Color::Rgb(0xe8, 0xc5, 0x65));
@@ -979,6 +984,8 @@ fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, v: &supe
                 ("Commit", "c", BtnKind::Primary, Hit::Button(super::Btn::ViewKey('c'))),
                 (&merge, "m", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('m'))),
                 ("Open PR", "p", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('p'))),
+                ("PR", "v", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('v'))),
+                ("Editor", "e", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('e'))),
                 (&reply, "r", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('r'))),
             ],
             &[seg("d", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)), seg(" discard", Style::default().fg(t.err))],
@@ -993,6 +1000,8 @@ fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, v: &supe
             &[
                 ("Commit", "c", BtnKind::Primary, Hit::Button(super::Btn::ViewKey('c'))),
                 ("Open PR", "p", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('p'))),
+                ("PR", "v", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('v'))),
+                ("Editor", "e", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('e'))),
                 (&reply, "r", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('r'))),
             ],
             &[seg("Esc close", Style::default().fg(t.muted))],
@@ -1000,7 +1009,7 @@ fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, v: &supe
     }
 }
 
-fn draw_files(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, v: &super::views::FilesTree) {
+pub(super) fn draw_files(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, v: &super::views::FilesTree) {
     fill(buf, area, t.bg);
     let (green, yellow) = (t.done, Color::Rgb(0xe8, 0xc5, 0x65));
     let branch = v.branch.clone().map(|b| format!(" · {b}")).unwrap_or_default();
@@ -1099,6 +1108,7 @@ fn draw_files(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, v: &super:
         t,
         &[
             (&insert, "Enter", BtnKind::Primary, Hit::Button(super::Btn::ViewKey('\n'))),
+            ("Editor", "e", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('e'))),
             ("Open", "o", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('o'))),
             ("Copy path", "y", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('y'))),
             ("Show diff", "d", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('d'))),

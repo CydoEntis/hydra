@@ -16,6 +16,9 @@ pub const EXAMPLE: &str = include_str!("../config.example.toml");
 pub struct Config {
     /// Key that arms command mode, tmux style.
     pub prefix: String,
+    /// Editor for "open in editor" (Files, Changes). Empty: $VISUAL, $EDITOR, then `code`.
+    /// Terminal editors (nvim, vim, hx, nano, micro, …) open inside hydra beside the agent.
+    pub editor: String,
     pub theme: String,
     pub theme_overrides: ThemeOverrides,
     /// Shell for new panes. Default: pwsh (or powershell) on Windows, $SHELL elsewhere.
@@ -202,6 +205,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             prefix: "ctrl+space".into(),
+            editor: String::new(),
             theme: "hydra".into(),
             theme_overrides: ThemeOverrides::default(),
             shell: None,

@@ -70,6 +70,11 @@ pub(super) struct Hy {
     pub proj_keys: Vec<String>,
     pub wt_keys: Vec<(String, PathBuf)>,
     pub branch_keys: Vec<(PathBuf, String)>,
+    /// Your open pull requests per project (by key), refreshed every couple of minutes.
+    pub prs: std::collections::HashMap<String, Vec<super::pr::PrBrief>>,
+    pub pr_at: std::collections::HashMap<String, Instant>,
+    /// Pull request tags and rows drawn this frame: (folder, number).
+    pub pr_keys: Vec<(PathBuf, String)>,
 }
 
 fn saved_path() -> PathBuf {
@@ -162,6 +167,8 @@ pub(super) struct Proj {
     pub git: bool,
     /// Recent local branches not checked out anywhere.
     pub branches: Vec<String>,
+    /// Your open pull requests here.
+    pub prs: Vec<super::pr::PrBrief>,
 }
 
 impl Proj {
@@ -255,6 +262,7 @@ impl App {
                 fresh: self.hy.fresh.contains(&key),
                 git,
                 branches: Vec::new(),
+                prs: Vec::new(),
             });
             projs.len() - 1
         };
@@ -331,6 +339,7 @@ impl App {
                 let worst = w.sessions.iter().map(|s| rank(s.status)).min().unwrap_or(4);
                 (!w.main, if sort { worst } else { 0 }, w.name.clone())
             });
+            p.prs = self.hy.prs.get(&p.key).cloned().unwrap_or_default();
             if let Some(list) = self.hy.branches.get(&p.key) {
                 let out: HashSet<&str> = p.wts.iter().map(|w| w.branch.as_str()).collect();
                 p.branches = list.iter().filter(|b| !out.contains(b.as_str())).take(8).cloned().collect();
@@ -388,6 +397,21 @@ impl App {
         }
         if self.hy.proj.as_ref().is_none_or(|k| !model.iter().any(|p| &p.key == k)) {
             self.hy.proj = focus.and_then(proj_of).or_else(|| model.first().map(|p| p.key.clone()));
+        }
+        // Your pull requests, every two minutes per repo.
+        if !cfg!(test) {
+            for p in model.iter().filter(|p| p.git) {
+                if self.hy.pr_at.get(&p.key).is_some_and(|t| t.elapsed().as_secs() < 120) {
+                    continue;
+                }
+                self.hy.pr_at.insert(p.key.clone(), Instant::now());
+                let (tx, key, dir) = (self.bg.clone(), p.key.clone(), p.path.clone());
+                std::thread::spawn(move || {
+                    if let Ok(list) = super::pr::list_mine(&dir) {
+                        let _ = tx.send(super::Bg::Prs(key, list));
+                    }
+                });
+            }
         }
         // Recent branches, at most once a minute per repo, off the UI thread.
         if !cfg!(test) {
@@ -472,6 +496,10 @@ pub(super) enum HyHit {
     SetVal(usize, usize),
     /// A button on the splash screen.
     SplashKey(char),
+    /// A pull request tag or row (index into `pr_keys`).
+    Pr(usize),
+    /// A key for the view in the main area (Files, Changes, PR).
+    ViewKey(char),
 }
 
 fn hit(app: &mut App, r: Rect, h: HyHit) {
@@ -516,6 +544,9 @@ fn side_w(width: u16) -> u16 {
 /// Draw the main screen; returns the pane area.
 pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect {
     let model = app.hy_model();
+    app.hy.wt_keys.clear();
+    app.hy.branch_keys.clear();
+    app.hy.pr_keys.clear();
     fill(f.buffer_mut(), area, t.bg);
     let sw = if app.sidebar { side_w(area.width).min(area.width / 2) } else { 0 };
     let right_side = app.cfg.ui.sidebar_position == "right";
@@ -737,8 +768,6 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
 
     app.hy.visible = lines.iter().filter_map(|l| line_term(model, l)).collect();
     app.hy.proj_keys = model.iter().map(|p| p.key.clone()).collect();
-    app.hy.wt_keys.clear();
-    app.hy.branch_keys.clear();
     let tk = k(app, &Action::Talk);
     let (x0, w) = (r.x, r.width);
     let right = r.right().saturating_sub(1);
@@ -827,14 +856,19 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 let bg = if hovered(app, row) { t.hov } else { surf };
                 fill(buf, row, bg);
                 let s = Style::default().bg(bg);
-                put(
-                    buf,
-                    x0 + 3,
-                    y,
-                    &[seg("◉ ", s.fg(t.text)), seg("main folder", s.fg(t.muted)), seg(" · ", s.fg(t.muted)), seg(wt.branch.clone(), s.fg(t.text))],
-                    right,
-                );
+                let mut label = vec![seg("◉ ", s.fg(t.text)), seg("main folder", s.fg(t.muted)), seg(" · ", s.fg(t.muted)), seg(wt.branch.clone(), s.fg(t.text))];
+                let tag = model[*pi].prs.iter().find(|p| p.branch == wt.branch).map(|p| (pr_tag(t, p), p.number));
+                let tag_x = x0 + 3 + segs_width(&label);
+                if let Some((tg, _)) = &tag {
+                    label.extend(tg.iter().map(|(x, st)| (x.clone(), st.bg(bg))));
+                }
+                put(buf, x0 + 3, y, &label, right);
                 hit(app, row, HyHit::Wt(idx));
+                if let Some((tg, n)) = tag {
+                    let pi2 = app.hy.pr_keys.len();
+                    app.hy.pr_keys.push((wt.path.clone(), n.to_string()));
+                    hit(app, Rect { x: tag_x, y, width: segs_width(&tg), height: 1 }, HyHit::Pr(pi2));
+                }
             }
             Line::Label(text) => {
                 put(buf, x0 + 3, y, &[seg(*text, plain.fg(t.muted).add_modifier(Modifier::BOLD))], right);
@@ -843,9 +877,16 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 let wt = &model[*pi].wts[*wi];
                 let idx = app.hy.wt_keys.len();
                 app.hy.wt_keys.push((wt.key.clone(), wt.path.clone()));
-                let mut label = vec![seg("⑂ ", Style::default().fg(t.muted)), seg(wt.name.clone(), Style::default().fg(t.strong))];
-                if wt.branch != wt.name && !wt.branch.is_empty() {
+                let tag = model[*pi].prs.iter().find(|p| p.branch == wt.branch).map(|p| (pr_tag(t, p), p.number));
+                // With a PR tag the branch name is implied; keep the row short so the tag shows.
+                let name = if tag.is_some() { truncate(&wt.name, w.saturating_sub(26) as usize) } else { wt.name.clone() };
+                let mut label = vec![seg("⑂ ", Style::default().fg(t.muted)), seg(name, Style::default().fg(t.strong))];
+                if tag.is_none() && wt.branch != wt.name && !wt.branch.is_empty() {
                     label.push(seg(format!(" · {}", wt.branch), Style::default().fg(t.muted)));
+                }
+                let tag_x = x0 + 3 + segs_width(&label);
+                if let Some((tg, _)) = &tag {
+                    label.extend(tg.iter().cloned());
                 }
                 if wt.sessions.len() == 1 {
                     session_row(app, buf, y, x0 + 3, label, &wt.sessions[0]);
@@ -863,6 +904,11 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                     put(buf, x0 + 3, y, &label, right.saturating_sub(tw + 1));
                     put(buf, right.saturating_sub(tw), y, &tail, right + 1);
                     hit(app, row, HyHit::Wt(idx));
+                }
+                if let Some((tg, n)) = tag {
+                    let pi2 = app.hy.pr_keys.len();
+                    app.hy.pr_keys.push((wt.path.clone(), n.to_string()));
+                    hit(app, Rect { x: tag_x, y, width: segs_width(&tg), height: 1 }, HyHit::Pr(pi2));
                 }
             }
             Line::Sess(pi, wi, si, indent) => {
@@ -930,6 +976,28 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
 }
 
 fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme) {
+    // Files, Changes or a pull request replace the sessions until closed.
+    if let Some(view) = app.view.take() {
+        let buf = f.buffer_mut();
+        match view {
+            super::View::Changes(v) => {
+                super::design::draw_changes(app, buf, area, t, &v);
+                app.view = Some(super::View::Changes(v));
+            }
+            super::View::Files(v) => {
+                super::design::draw_files(app, buf, area, t, &v);
+                app.view = Some(super::View::Files(v));
+            }
+            super::View::Pr(v) => {
+                draw_pr(app, buf, area, t, &v);
+                app.view = Some(super::View::Pr(v));
+            }
+            other => app.view = Some(other),
+        }
+        if app.view.is_some() {
+            return;
+        }
+    }
     let Some(focus) = app.focused() else {
         let nk = k(app, &Action::NewPane);
         put(f.buffer_mut(), area.x + 4, area.y + 3, &[seg(format!("Nothing open. Press {} {nk} to start an agent or a shell.", app.keymap.prefix.to_string().replace("C-", "Ctrl+")), Style::default().fg(t.muted))], area.right());
@@ -1192,12 +1260,26 @@ pub(super) fn jump_list(model: &[Proj]) -> Vec<(Session, String, String, Color)>
     out
 }
 
+/// Your pull requests with failing checks or changes requested: (folder, PR, project, colour).
+pub(super) fn jump_prs(model: &[Proj]) -> Vec<(PathBuf, super::pr::PrBrief, String, Color)> {
+    model
+        .iter()
+        .flat_map(|p| {
+            p.prs.iter().filter(|pr| pr.needs_you()).map(move |pr| {
+                let dir = p.wts.iter().find(|w| w.branch == pr.branch).map(|w| w.path.clone()).unwrap_or_else(|| p.path.clone());
+                (dir, pr.clone(), p.name.clone(), p.color)
+            })
+        })
+        .collect()
+}
+
 pub(super) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, sel: usize) {
     let model = app.hy_model();
     let list = jump_list(&model);
+    let prs = jump_prs(&model);
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let h = (list.len() as u16 + 10).max(10);
+    let h = (list.len() as u16 + prs.len() as u16 + 12).max(10);
     let r = panel(app, buf, area, 80, h, "Jump to", &[], t);
     let mut y = r.y + 2;
     let mut i = 0;
@@ -1242,7 +1324,30 @@ pub(super) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, sel
         }
         y += 1;
     }
-    if list.is_empty() {
+    if !prs.is_empty() && y < r.bottom().saturating_sub(3) {
+        put(buf, r.x + 3, y, &[seg("PULL REQUESTS", Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::BOLD))], r.right());
+        y += 1;
+        for (dir, pr, pname, pc) in &prs {
+            if y >= r.bottom().saturating_sub(2) {
+                break;
+            }
+            let bg = sel_row(app, buf, r, y, i == sel, t);
+            let st_ = Style::default().bg(bg);
+            let mut row = vec![seg(format!("{}  ", i + 1), st_.fg(t.accent).add_modifier(Modifier::BOLD))];
+            row.extend(pr_tag(t, pr).into_iter().map(|(x, s2)| (x, s2.bg(bg))));
+            row.push(seg(format!("  {}", pr.title), st_.fg(t.strong)));
+            let rseg = vec![seg("▌", st_.fg(*pc)), seg(pname.clone(), st_.fg(t.text)), seg(format!("  {}", pr.state_text()), st_.fg(if pr.checks == super::pr::Checks::Fail { t.err } else { t.blocked }))];
+            let rw = segs_width(&rseg);
+            put(buf, r.x + 3, y, &row, r.right().saturating_sub(rw + 3));
+            put(buf, r.right().saturating_sub(rw + 2), y, &rseg, r.right());
+            let k = app.hy.pr_keys.len();
+            app.hy.pr_keys.push((dir.clone(), pr.number.to_string()));
+            hit(app, Rect { x: r.x + 1, y, width: r.width - 2, height: 1 }, HyHit::Pr(k));
+            y += 1;
+            i += 1;
+        }
+    }
+    if list.is_empty() && prs.is_empty() {
         put(buf, r.x + 3, r.y + 3, &[seg("Nothing needs you right now.", Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::ITALIC))], r.right());
     }
     put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("1-9", "jump"), ("Enter", "jump"), ("↑↓", "choose"), ("Esc", "close")]), r.right());
@@ -2079,6 +2184,19 @@ impl App {
                 }
             }
             Action::SideMove(d) => self.hy_side_move(*d),
+            Action::Files | Action::Changes | Action::PullRequest => {
+                let dir = self.hy_target_dir();
+                self.hy.cursor = None;
+                self.mode = Mode::Normal;
+                match a {
+                    Action::Files => self.open_files(dir),
+                    Action::Changes => self.open_changes(dir),
+                    _ => match crate::gitfs::head(&dir) {
+                        Some(h) => self.open_pr(h.top, h.branch),
+                        None => self.notify("not a git repo".into(), true),
+                    },
+                }
+            }
             Action::BrowseTree => self.hy_side_move(0),
             _ => return false,
         }
@@ -2115,24 +2233,36 @@ impl App {
     }
 
     pub(super) fn on_jump_key(&mut self, sel: usize, k: &KeyEvent) {
-        let list = jump_list(&self.hy_model());
-        let pick = |i: usize| list.get(i).map(|(s, ..)| s.term);
+        let model = self.hy_model();
+        let list = jump_list(&model);
+        let prs = jump_prs(&model);
+        let total = list.len() + prs.len();
+        let go = |app: &mut App, i: usize| {
+            if let Some((s, ..)) = list.get(i) {
+                app.hy_focus(s.term);
+            } else if let Some((dir, pr, ..)) = prs.get(i - list.len().min(i)) {
+                app.mode = Mode::Normal;
+                app.open_pr(dir.clone(), pr.number.to_string());
+            }
+        };
         match k.code {
             KeyCode::Esc | KeyCode::Char('j') => self.mode = Mode::Normal,
-            KeyCode::Down => self.mode = Mode::Jump { sel: (sel + 1).min(list.len().saturating_sub(1)) },
+            KeyCode::Down => self.mode = Mode::Jump { sel: (sel + 1).min(total.saturating_sub(1)) },
             KeyCode::Up => self.mode = Mode::Jump { sel: sel.saturating_sub(1) },
-            KeyCode::Enter => {
-                if let Some(t) = pick(sel) {
-                    self.hy_focus(t);
-                }
-            }
-            KeyCode::Char(c) if c.is_ascii_digit() && c != '0' => {
-                if let Some(t) = pick(c as usize - '1' as usize) {
-                    self.hy_focus(t);
-                }
-            }
+            KeyCode::Enter if sel < total => go(self, sel),
+            KeyCode::Char(c) if c.is_ascii_digit() && c != '0' && (c as usize - '1' as usize) < total => go(self, c as usize - '1' as usize),
             _ => {}
         }
+    }
+
+    /// The folder Files / Changes / PR act on: the sidebar cursor's, else the focused one's.
+    fn hy_target_dir(&self) -> PathBuf {
+        self.hy
+            .cursor
+            .or(self.focused())
+            .and_then(|t| self.snap.terms.get(&t))
+            .map(|t| t.top.clone().unwrap_or_else(|| t.cwd.clone()))
+            .unwrap_or_else(|| self.here_dir())
     }
 
     fn finder_enter(&mut self, mut fd: Finder) {
@@ -2398,6 +2528,20 @@ impl App {
                 self.splash = false;
                 self.hy_splash_action(c);
             }
+            HyHit::Pr(i) => {
+                if let Some((dir, n)) = self.hy.pr_keys.get(i).cloned() {
+                    self.mode = Mode::Normal;
+                    self.open_pr(dir, n);
+                }
+            }
+            HyHit::ViewKey(c) => {
+                let code = match c {
+                    '\x1b' => KeyCode::Esc,
+                    '\n' => KeyCode::Enter,
+                    c => KeyCode::Char(c),
+                };
+                self.on_view_key(&KeyEvent::new(code, KeyModifiers::NONE));
+            }
         }
     }
 
@@ -2412,4 +2556,169 @@ impl App {
             self.mode = Mode::HySettings(Box::new(v));
         }
     }
+}
+
+// ---- pull request view ---------------------------------------------------------------------
+
+fn check_glyph(t: &Theme, c: super::pr::Checks) -> Seg {
+    use super::pr::Checks;
+    match c {
+        Checks::Pass => seg("✓", Style::default().fg(t.done)),
+        Checks::Fail => seg("✕", Style::default().fg(t.err).add_modifier(Modifier::BOLD)),
+        Checks::Pending => seg("…", Style::default().fg(t.muted)),
+        Checks::None => seg("·", Style::default().fg(t.muted)),
+    }
+}
+
+/// The little `#412 ✓` tag for a branch with a pull request.
+fn pr_tag(t: &Theme, pr: &super::pr::PrBrief) -> Vec<Seg> {
+    use super::pr::Review;
+    let mut v = vec![seg(format!(" #{} ", pr.number), Style::default().fg(t.muted)), check_glyph(t, pr.checks)];
+    if pr.review == Review::Changes {
+        v.push(seg("±", Style::default().fg(t.blocked).add_modifier(Modifier::BOLD)));
+    } else if pr.review == Review::Approved {
+        v.push(seg("✔", Style::default().fg(t.done)));
+    }
+    v
+}
+
+/// Wrap plain text to `width` columns.
+fn wrap_text(s: &str, width: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    for para in s.lines() {
+        let mut line = String::new();
+        for word in para.split_whitespace() {
+            if !line.is_empty() && line.width() + 1 + word.width() > width {
+                out.push(std::mem::take(&mut line));
+            }
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(word);
+        }
+        out.push(line);
+    }
+    out
+}
+
+pub(super) fn draw_pr(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, v: &super::pr::PrView) {
+    fill(buf, area, t.bg);
+    let title = match &v.info {
+        Some(Ok(i)) => format!("#{}  {}", i.number, i.title),
+        _ => format!("pull request · {}", v.which),
+    };
+    super::design::title_bar(
+        buf,
+        area,
+        t,
+        &[seg(title, Style::default().add_modifier(Modifier::BOLD))],
+        &[seg(if v.tab == 0 { "Tab diff   " } else { "Tab overview   " }, Style::default()), seg("✕ ", Style::default())],
+        true,
+    );
+    hit(app, Rect { x: area.right().saturating_sub(2), y: area.y, width: 2, height: 1 }, HyHit::ViewKey('\x1b'));
+    let body = Rect { x: area.x + 2, y: area.y + 2, width: area.width.saturating_sub(4), height: area.height.saturating_sub(5) };
+    let info = match &v.info {
+        None => {
+            put(buf, body.x, body.y, &[seg("loading…", Style::default().fg(t.muted))], body.right());
+            return;
+        }
+        Some(Err(e)) => {
+            let msg = if e.contains("no pull requests found") { "No pull request for this branch yet. Open one from Changes (d, then p)." } else { e.as_str() };
+            put(buf, body.x, body.y, &[seg(msg.to_string(), Style::default().fg(t.muted))], body.right());
+            return;
+        }
+        Some(Ok(i)) => i,
+    };
+    let w = body.width as usize;
+    let head = |s: &str| vec![seg(s.to_string(), Style::default().fg(t.muted).add_modifier(Modifier::BOLD))];
+    let mut lines: Vec<Vec<Seg>> = Vec::new();
+    if v.tab == 0 {
+        let state_c = match info.state.as_str() {
+            "MERGED" => t.accent,
+            "CLOSED" => t.err,
+            _ => t.done,
+        };
+        lines.push(vec![
+            seg(format!(" {} ", info.state.to_lowercase()), Style::default().bg(state_c).fg(t.acc_ink).add_modifier(Modifier::BOLD)),
+            seg(format!("  {} → {}", info.branch, info.base), Style::default().fg(t.text)),
+            seg(format!("   +{}", info.additions), Style::default().fg(t.done)),
+            seg(format!(" −{}", info.deletions), Style::default().fg(t.err)),
+            seg(format!(" · {} files · by {}", info.files, info.author), Style::default().fg(t.muted)),
+        ]);
+        lines.push(vec![]);
+        if !info.checks.is_empty() {
+            let bad = info.checks.iter().filter(|(_, c)| *c == super::pr::Checks::Fail).count();
+            lines.push(head(&format!("CHECKS  {}", if bad > 0 { format!("{bad} failing") } else { format!("{} ok", info.checks.len()) })));
+            for (name, c) in &info.checks {
+                lines.push(vec![check_glyph(t, *c), seg(format!(" {name}"), Style::default().fg(t.text))]);
+            }
+            lines.push(vec![]);
+        }
+        if !info.reviews.is_empty() {
+            lines.push(head("REVIEWS"));
+            for (who, st, text) in &info.reviews {
+                let (label, c) = match st.as_str() {
+                    "APPROVED" => ("approved", t.done),
+                    "CHANGES_REQUESTED" => ("asked for changes", t.blocked),
+                    _ => ("commented", t.muted),
+                };
+                lines.push(vec![seg(who.clone(), Style::default().fg(t.strong).add_modifier(Modifier::BOLD)), seg(format!(" {label}"), Style::default().fg(c))]);
+                for l in wrap_text(text, w.saturating_sub(4)) {
+                    lines.push(vec![seg(format!("  {l}"), Style::default().fg(t.text))]);
+                }
+            }
+            lines.push(vec![]);
+        }
+        if !info.comments.is_empty() {
+            lines.push(head("COMMENTS"));
+            for (who, text) in &info.comments {
+                lines.push(vec![seg(who.clone(), Style::default().fg(t.strong).add_modifier(Modifier::BOLD))]);
+                for l in wrap_text(text, w.saturating_sub(4)) {
+                    lines.push(vec![seg(format!("  {l}"), Style::default().fg(t.text))]);
+                }
+            }
+            lines.push(vec![]);
+        }
+        lines.push(head("DESCRIPTION"));
+        let text = if info.body.trim().is_empty() { "(none)" } else { info.body.as_str() };
+        for l in wrap_text(text, w) {
+            lines.push(vec![seg(l, Style::default().fg(t.text))]);
+        }
+    } else {
+        match &v.diff {
+            None => lines.push(vec![seg("loading the diff…", Style::default().fg(t.muted))]),
+            Some(Err(e)) => lines.push(vec![seg(e.clone(), Style::default().fg(t.err))]),
+            Some(Ok(d)) => {
+                let (mut old, mut new) = (0, 0);
+                for l in d.lines() {
+                    if let Some(rest) = l.strip_prefix("diff --git a/") {
+                        let file = rest.split(" b/").next().unwrap_or(rest).to_string();
+                        lines.push(vec![]);
+                        lines.push(vec![seg(file, Style::default().fg(t.strong).add_modifier(Modifier::BOLD))]);
+                        continue;
+                    }
+                    if l.starts_with("index ") || l.starts_with("--- ") || l.starts_with("+++ ") || l.starts_with("new file") || l.starts_with("deleted file") {
+                        continue;
+                    }
+                    lines.push(super::design::diff_line(t, l, &mut old, &mut new));
+                }
+            }
+        }
+    }
+    let start = (v.scroll as usize).min(lines.len().saturating_sub(1));
+    for (i, l) in lines.iter().skip(start).take(body.height as usize).enumerate() {
+        put(buf, body.x, body.y + i as u16, l, body.right());
+    }
+    // Actions
+    let y = area.bottom().saturating_sub(1);
+    fill(buf, Rect { y, height: 1, ..area }, t.card2);
+    let mut x = area.x + 2;
+    for (label, key, kind, c) in [
+        ("Ask the agent to fix it", "f", BtnKind::Primary, 'f'),
+        ("Open in browser", "o", BtnKind::Normal, 'o'),
+        ("Reload", "r", BtnKind::Normal, 'r'),
+    ] {
+        x = btn(app, buf, x, y, label, key, kind, HyHit::ViewKey(c), area.right()) + 1;
+    }
+    put(buf, x + 1, y, &hints(t, &[("↑↓", "scroll"), ("Tab", if v.tab == 0 { "diff" } else { "overview" }), ("Esc", "close")]).into_iter().map(|(s, st)| (s, st.bg(t.card2))).collect::<Vec<_>>(), area.right());
 }

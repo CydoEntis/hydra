@@ -7,6 +7,7 @@ mod files;
 mod hydra;
 mod inbox;
 mod modal;
+mod pr;
 mod render;
 mod tasks;
 mod toolbox;
@@ -87,6 +88,7 @@ pub(super) enum View {
     Changes(Box<views::ChangesView>),
     Files(Box<views::FilesTree>),
     Settings(Box<design::SettingsView>),
+    Pr(Box<pr::PrView>),
 }
 
 /// Clickable chips and buttons.
@@ -126,6 +128,11 @@ pub(super) enum Bg {
     Done(Result<String, String>, bool),
     /// A project's recent local branches (by project key).
     Branches(String, Vec<String>),
+    /// Your open pull requests in a project (by key).
+    Prs(String, Vec<pr::PrBrief>),
+    /// One pull request (by number or branch), and its diff.
+    Pr(String, Result<pr::PrInfo, String>),
+    PrDiff(String, Result<String, String>),
 }
 
 /// The pull request checks for a branch, if it has a pull request: "✓ checks 14/14" or
@@ -1269,6 +1276,13 @@ impl App {
             Action::OpenProject => self.act(Action::NewWorkspace),
             Action::NewSession => self.act(Action::NewPane),
             Action::CloseSplit => self.act(Action::ClosePane),
+            Action::PullRequest => {
+                if let Some(dir) = self.target_path()
+                    && let Some(h) = crate::gitfs::head(&dir)
+                {
+                    self.open_pr(h.top, h.branch);
+                }
+            }
             Action::SideMove(d) => self.act(Action::Focus(if d < 0 { Dir::Up } else { Dir::Down })),
             Action::SplitRight => self.split(Dir::Right, None),
             Action::SplitDown => self.split(Dir::Down, None),
@@ -1898,6 +1912,109 @@ impl App {
                     self.view = Some(View::Settings(v));
                 }
             }
+            View::Pr(mut v) => {
+                if self.on_pr_key(&mut v, k) {
+                    self.view = Some(View::Pr(v));
+                }
+            }
+        }
+    }
+
+    /// The pull request of a branch (or a number), in the main area.
+    pub(super) fn open_pr(&mut self, dir: PathBuf, which: String) {
+        self.view = Some(View::Pr(Box::new(pr::PrView { dir: dir.clone(), which: which.clone(), info: None, diff: None, tab: 0, scroll: 0 })));
+        self.spawn_bg(move || Bg::Pr(which.clone(), pr::load(&dir, &which)));
+    }
+
+    /// Returns false when the view closes.
+    fn on_pr_key(&mut self, v: &mut pr::PrView, k: &KeyEvent) -> bool {
+        match k.code {
+            KeyCode::Esc => return false,
+            KeyCode::Tab | KeyCode::BackTab => {
+                v.tab = 1 - v.tab;
+                v.scroll = 0;
+                if v.tab == 1 && v.diff.is_none() {
+                    let (dir, which) = (v.dir.clone(), v.which.clone());
+                    self.spawn_bg(move || Bg::PrDiff(which.clone(), pr::diff(&dir, &which)));
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => v.scroll = v.scroll.saturating_add(1),
+            KeyCode::Up | KeyCode::Char('k') => v.scroll = v.scroll.saturating_sub(1),
+            KeyCode::PageDown | KeyCode::Char(' ') => v.scroll = v.scroll.saturating_add(15),
+            KeyCode::PageUp => v.scroll = v.scroll.saturating_sub(15),
+            KeyCode::Char('o') => {
+                if let Some(Ok(i)) = &v.info {
+                    inbox::open_url(&i.url);
+                }
+            }
+            KeyCode::Char('r') => {
+                v.info = None;
+                v.diff = None;
+                let (dir, which) = (v.dir.clone(), v.which.clone());
+                self.spawn_bg(move || Bg::Pr(which.clone(), pr::load(&dir, &which)));
+            }
+            KeyCode::Char('f') => {
+                let Some(Ok(info)) = &v.info else { return true };
+                // The agent working in this branch's folder.
+                let key = design::path_key(&v.dir);
+                let term = self
+                    .snap
+                    .terms
+                    .values()
+                    .filter(|t| t.agent.is_some() && t.top.as_ref().is_some_and(|p| design::path_key(p) == key))
+                    .map(|t| t.id)
+                    .next();
+                match term {
+                    Some(term) => {
+                        self.mode = Mode::Talk { term, input: info.fix_prompt() };
+                        return false;
+                    }
+                    None => self.notify("no agent is working in this branch; start one with + New".into(), true),
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
+    /// Open a file in your editor: terminal editors inside hydra beside what you're on,
+    /// others (VS Code, …) as their own window.
+    pub(super) fn open_in_editor(&mut self, path: &std::path::Path) {
+        let ed = [self.cfg.editor.clone(), std::env::var("VISUAL").unwrap_or_default(), std::env::var("EDITOR").unwrap_or_default()]
+            .into_iter()
+            .find(|e| !e.trim().is_empty())
+            .unwrap_or_else(|| "code".into());
+        let exe = ed.split_whitespace().next().unwrap_or("code");
+        let name = std::path::Path::new(exe).file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let line = format!("{ed} {}", files::quote_path(path));
+        let dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| self.here_dir());
+        if ["nvim", "vim", "vi", "hx", "helix", "nano", "micro", "kak", "emacs", "ne"].contains(&name.as_str()) {
+            if self.cfg.ui.layout == "hydra" {
+                self.hy_new_session(dir, Some(line), true);
+            } else if let Some(term) = self.focused() {
+                self.cmd(Command::Split { term, dir: Dir::Right, cmd: Some(line), cwd: Some(dir) });
+            }
+            self.view = None;
+            return;
+        }
+        let mut cmd = if cfg!(windows) {
+            let mut c = std::process::Command::new("cmd");
+            c.args(["/C", &line]);
+            c
+        } else {
+            let mut c = std::process::Command::new("sh");
+            c.args(["-c", &line]);
+            c
+        };
+        cmd.current_dir(&dir).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+        match cmd.spawn() {
+            Ok(_) => self.notify(format!("opened {} in {exe}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), false),
+            Err(e) => self.notify(format!("couldn't start {exe}: {e}"), true),
         }
     }
 
@@ -1950,6 +2067,17 @@ impl App {
             KeyCode::Char('c') => {
                 let task = r.task.clone();
                 self.spawn_bg(move || Bg::Done(tasks::commit(&task), true));
+            }
+            KeyCode::Char('e') => {
+                if let Some(f) = r.files.get(r.sel) {
+                    let p = v.dir.join(&f.path);
+                    self.open_in_editor(&p);
+                }
+            }
+            KeyCode::Char('v') => {
+                let (dir, branch) = (v.dir.clone(), r.task.branch.clone());
+                self.open_pr(dir, branch);
+                return true_and_replace();
             }
             KeyCode::Char('m') if v.linked => v.confirm = Some((format!("Merge {} into {}?", r.task.branch, r.task.base), 'm')),
             KeyCode::Char('p') => v.confirm = Some((format!("Push {} and open a pull request?", r.task.branch), 'p')),
@@ -2040,6 +2168,12 @@ impl App {
             KeyCode::Char('o') => {
                 if let Some(n) = node {
                     let _ = files::open_default(&n.path);
+                }
+            }
+            KeyCode::Char('e') => {
+                if let Some(n) = node.filter(|n| !n.is_dir) {
+                    self.open_in_editor(&n.path);
+                    return self.view.is_some() || !matches!(self.cfg.ui.layout.as_str(), "hydra");
                 }
             }
             KeyCode::Char('y') => {
@@ -2420,6 +2554,7 @@ impl App {
                             self.on_view_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                         }
                     }
+                    Some(View::Pr(_)) => {}
                     Some(View::Settings(_)) => {}
                     None => {}
                 },
@@ -2486,11 +2621,37 @@ impl App {
     }
 
     fn on_bg(&mut self, b: Bg) {
-        if let Bg::Branches(key, list) = b {
-            self.hy.branches.insert(key, list);
-            self.dirty = true;
-            return;
-        }
+        let b = match b {
+            Bg::Branches(key, list) => {
+                self.hy.branches.insert(key, list);
+                self.dirty = true;
+                return;
+            }
+            Bg::Prs(key, list) => {
+                self.hy.prs.insert(key, list);
+                self.dirty = true;
+                return;
+            }
+            Bg::Pr(which, info) => {
+                if let Some(View::Pr(v)) = &mut self.view
+                    && v.which == which
+                {
+                    v.info = Some(info);
+                }
+                self.dirty = true;
+                return;
+            }
+            Bg::PrDiff(which, d) => {
+                if let Some(View::Pr(v)) = &mut self.view
+                    && v.which == which
+                {
+                    v.diff = Some(d);
+                }
+                self.dirty = true;
+                return;
+            }
+            b => b,
+        };
         match (b, &mut self.mode) {
             (Bg::Recent(root, list), Mode::Files(v)) if v.root == root => {
                 v.recent = Some(list);
@@ -3537,6 +3698,38 @@ mod hydra_tests {
         // Small windows drop the art but keep the rest.
         let o = draw(&mut app, 100, 30);
         assert!(!o.contains("⣿") && o.contains("Jump to what needs you"));
+    }
+
+    #[test]
+    fn pull_request_view() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let info = pr::parse_info(
+            r#"{"number":412,"title":"Rate limit /login","url":"u","state":"OPEN","author":{"login":"cody"},"headRefName":"rate-limit","baseRefName":"main",
+            "body":"Token bucket, 5 a minute.","additions":42,"deletions":7,"changedFiles":3,
+            "statusCheckRollup":[{"conclusion":"SUCCESS","name":"lint"},{"conclusion":"FAILURE","name":"test"}],
+            "reviews":[{"author":{"login":"sam"},"state":"CHANGES_REQUESTED","body":"use X-Forwarded-For"}],"comments":[]}"#,
+        )
+        .unwrap();
+        app.view = Some(View::Pr(Box::new(pr::PrView { dir: PathBuf::from("."), which: "412".into(), info: Some(Ok(info)), diff: None, tab: 0, scroll: 0 })));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("#412  Rate limit /login") && o.contains("rate-limit → main") && o.contains("+42 −7"));
+        assert!(o.contains("CHECKS  1 failing") && o.contains("✕ test") && o.contains("sam asked for changes"));
+        assert!(o.contains("Ask the agent to fix it f") && o.contains("Open in browser o"));
+        // The sidebar stays; the view takes the main area.
+        assert!(o.contains("◉ main folder"));
+        // And a PR tag on the branch that has one.
+        app.view = None;
+        app.hy.prs.insert(
+            app.hy_model()[0].key.clone(),
+            vec![pr::PrBrief { number: 412, title: "Rate limit".into(), branch: "rate-limit".into(), checks: pr::Checks::Fail, review: pr::Review::Changes, url: String::new() }],
+        );
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("#412 ✕±"), "PR tag on the worktree row");
+        app.mode = Mode::Jump { sel: 0 };
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("PULL REQUESTS") && o.contains("checks failing"), "failing PRs in Jump");
     }
 
     #[test]
