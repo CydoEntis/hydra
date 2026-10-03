@@ -26,6 +26,8 @@ pub struct ChangesView {
     /// A linked worktree (can be merged or discarded), not the main checkout.
     pub linked: bool,
     pub confirm: Option<(String, char)>,
+    /// Files you've marked reviewed (and that haven't changed since).
+    pub reviewed: HashSet<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -34,13 +36,44 @@ pub enum ChangesRow {
     Dir(String, usize),
     /// Index into `review.files`, depth.
     File(usize, usize),
+    /// The reviewed files start here (how many).
+    Reviewed(usize),
+}
+
+/// What a file is like right now, so a review mark clears when it changes.
+pub fn fingerprint(dir: &Path, file: &str) -> u64 {
+    let bytes = std::fs::read(dir.join(file)).unwrap_or_else(|_| b"(deleted)".to_vec());
+    // FNV-1a: the same everywhere and across versions.
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ *b as u64).wrapping_mul(0x0100_0000_01b3))
+}
+
+/// Which of `files` are still as they were when marked.
+pub fn still_reviewed(dir: &Path, files: &[super::tasks::Changed], marks: Option<&HashMap<String, u64>>) -> HashSet<String> {
+    let Some(marks) = marks else { return HashSet::new() };
+    files.iter().filter(|f| marks.get(&f.path).is_some_and(|m| *m == fingerprint(dir, &f.path))).map(|f| f.path.clone()).collect()
 }
 
 impl ChangesView {
-    /// The changed files as a tree: folders, then their files.
+    /// The files in the order they're shown (Up/Down follow it).
+    pub fn order(&self) -> Vec<usize> {
+        self.rows().into_iter().filter_map(|r| if let ChangesRow::File(i, _) = r { Some(i) } else { None }).collect()
+    }
+
+    /// The changed files as a tree: folders, then their files; the ones you've reviewed
+    /// sink to the bottom.
     pub fn rows(&self) -> Vec<ChangesRow> {
         let Some(r) = &self.review else { return Vec::new() };
-        let mut idx: Vec<usize> = (0..r.files.len()).collect();
+        let (done, todo): (Vec<usize>, Vec<usize>) = (0..r.files.len()).partition(|i| self.reviewed.contains(&r.files[*i].path));
+        let mut rows = self.tree(todo);
+        if !done.is_empty() {
+            rows.push(ChangesRow::Reviewed(done.len()));
+            rows.extend(self.tree(done));
+        }
+        rows
+    }
+
+    fn tree(&self, mut idx: Vec<usize>) -> Vec<ChangesRow> {
+        let Some(r) = &self.review else { return Vec::new() };
         idx.sort_by(|a, b| r.files[*a].path.cmp(&r.files[*b].path));
         let mut rows = Vec::new();
         let mut open: Vec<String> = Vec::new();
@@ -356,6 +389,21 @@ pub fn highlight(line: &str, t: &Theme) -> Vec<(String, Style)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_review_mark_clears_when_the_file_changes() {
+        let dir = std::env::temp_dir().join(format!("hydra-review-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.rs"), "one").unwrap();
+        std::fs::write(dir.join("b.rs"), "two").unwrap();
+        let f = |p: &str| super::super::tasks::Changed { path: p.into(), added: 1, removed: 0, untracked: false };
+        let files = vec![f("a.rs"), f("b.rs")];
+        let marks: HashMap<String, u64> = [("a.rs".to_string(), fingerprint(&dir, "a.rs")), ("b.rs".to_string(), fingerprint(&dir, "b.rs"))].into();
+        assert_eq!(still_reviewed(&dir, &files, Some(&marks)).len(), 2);
+        std::fs::write(dir.join("b.rs"), "two, edited by the agent").unwrap();
+        assert_eq!(still_reviewed(&dir, &files, Some(&marks)), HashSet::from(["a.rs".to_string()]), "b changed since");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     use super::*;
     use crate::client::tasks::{Changed, Review, Stage, TaskRow};
 
@@ -396,6 +444,7 @@ mod tests {
             checks: None,
             linked: true,
             confirm: None,
+            reviewed: HashSet::new(),
         };
         let rows = v.rows();
         let shape: Vec<String> = rows
@@ -403,9 +452,16 @@ mod tests {
             .map(|r| match r {
                 ChangesRow::Dir(n, d) => format!("{}{n}/", "  ".repeat(*d)),
                 ChangesRow::File(i, d) => format!("{}{}", "  ".repeat(*d), v.review.as_ref().unwrap().files[*i].path),
+                ChangesRow::Reviewed(n) => format!("REVIEWED {n}"),
             })
             .collect();
         assert_eq!(shape, ["README.md", "src/", "  src/auth.ts", "  src/rate.ts", "test/", "  test/rate.test.ts"]);
+        // Reviewed files sink, under their own heading; Up/Down follow what's shown.
+        v.reviewed = HashSet::from(["src/auth.ts".to_string(), "README.md".to_string()]);
+        let files = &v.review.as_ref().unwrap().files;
+        let order: Vec<&str> = v.order().iter().map(|i| files[*i].path.as_str()).collect();
+        assert_eq!(order, ["src/rate.ts", "test/rate.test.ts", "README.md", "src/auth.ts"]);
+        assert!(v.rows().contains(&ChangesRow::Reviewed(2)));
         v.review = None;
         assert!(v.rows().is_empty());
     }

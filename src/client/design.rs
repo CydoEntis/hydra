@@ -875,6 +875,10 @@ pub(super) fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Them
         left.push(seg(format!("+{added}"), Style::default().fg(green)));
         left.push(seg(format!(" −{removed}"), Style::default().fg(red)));
         left.push(seg(format!(" · {} files", r.files.len()), Style::default().fg(t.muted)));
+        if !v.reviewed.is_empty() {
+            let all = v.reviewed.len() == r.files.len();
+            left.push(seg(format!(" · {} of {} reviewed", v.reviewed.len(), r.files.len()), Style::default().fg(if all { t.done } else { t.muted })));
+        }
     }
     if let Some(c) = &v.checks {
         right.push(seg(format!("{c}  "), Style::default().fg(if c.starts_with('✓') { t.done } else { t.err })));
@@ -906,13 +910,18 @@ pub(super) fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Them
         let bg = if sel { t.hov } else { t.bg };
         let s = Style::default().bg(bg);
         match row {
+            ChangesRow::Reviewed(n) => {
+                put(buf, body.x + 2, y, &[seg(format!("REVIEWED · {n}"), s.fg(t.muted).add_modifier(Modifier::BOLD))], body.x + fw);
+            }
             ChangesRow::Dir(name, depth) => {
                 put(buf, body.x + 2, y, &[seg(format!("{}▾ {name}", "  ".repeat(*depth)), s.fg(t.text))], body.x + fw);
             }
             ChangesRow::File(fi, depth) => {
                 let f = &r.files[*fi];
+                let done = v.reviewed.contains(&f.path);
                 let name = Path::new(&f.path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                let mut ns = s.fg(if sel { t.strong } else { t.fg });
+                let name = if done { format!("✓ {name}") } else { name };
+                let mut ns = s.fg(if sel { t.strong } else if done { t.muted } else { t.fg });
                 if sel {
                     ns = ns.add_modifier(Modifier::BOLD);
                 }
@@ -991,6 +1000,7 @@ pub(super) fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Them
                 ("Open PR", "p", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('p'))),
                 ("PR", "v", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('v'))),
                 ("Editor", "e", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('e'))),
+                ("Reviewed", "x", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('x'))),
                 (&reply, "r", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('r'))),
             ],
             &[seg("d", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)), seg(" discard", Style::default().fg(t.err))],
@@ -1007,6 +1017,7 @@ pub(super) fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Them
                 ("Open PR", "p", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('p'))),
                 ("PR", "v", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('v'))),
                 ("Editor", "e", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('e'))),
+                ("Reviewed", "x", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('x'))),
                 (&reply, "r", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('r'))),
             ],
             &[seg("Esc close", Style::default().fg(t.muted))],

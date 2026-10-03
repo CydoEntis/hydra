@@ -21,7 +21,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
@@ -48,6 +48,8 @@ pub(super) struct Saved {
     pub split: Option<f32>,
     /// A task typed into + New and not started yet.
     pub draft: String,
+    /// Files marked reviewed in Changes: folder key -> file -> what it was like then.
+    pub reviewed: HashMap<String, HashMap<String, u64>>,
 }
 
 #[derive(Debug, Default)]

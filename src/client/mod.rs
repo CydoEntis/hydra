@@ -2393,6 +2393,7 @@ impl App {
             said: info.as_ref().map(|i| i.said.clone()).unwrap_or_default(),
             term,
             ws,
+            reviewed: Default::default(),
             checks: None,
             linked,
             confirm: None,
@@ -2588,18 +2589,46 @@ impl App {
                 }
             return true;
         }
+        let order = v.order();
+        let dir_key = design::path_key(&v.dir);
         let Some(r) = v.review.as_mut() else { return c != '\x1b' };
-        match k.code {
-            KeyCode::Esc => return false,
-            KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => {
-                r.sel = (r.sel + 1).min(r.files.len().saturating_sub(1));
+        let pos = order.iter().position(|i| *i == r.sel).unwrap_or(0);
+        let go = |r: &mut tasks::Review, to: usize| {
+            if let Some(i) = order.get(to) {
+                r.sel = *i;
                 r.diff = tasks::file_diff(r);
                 r.scroll = 0;
             }
-            KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab => {
-                r.sel = r.sel.saturating_sub(1);
-                r.diff = tasks::file_diff(r);
-                r.scroll = 0;
+        };
+        match k.code {
+            KeyCode::Esc => return false,
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => go(r, (pos + 1).min(order.len().saturating_sub(1))),
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab => go(r, pos.saturating_sub(1)),
+            // Mark reviewed (or not): it sinks, and the next one to look at comes up.
+            KeyCode::Char('x') => {
+                let Some(file) = r.files.get(r.sel).map(|f| f.path.clone()) else { return true };
+                let marks = self.hy.saved.reviewed.entry(dir_key).or_default();
+                let now = !v.reviewed.contains(&file);
+                if now {
+                    marks.insert(file.clone(), views::fingerprint(&v.dir, &file));
+                    v.reviewed.insert(file.clone());
+                } else {
+                    marks.remove(&file);
+                    v.reviewed.remove(&file);
+                }
+                self.hy.save();
+                let order = v.order();
+                if let Some(r) = v.review.as_mut() {
+                    let next = if now { order.iter().copied().find(|i| !v.reviewed.contains(&r.files[*i].path)) } else { None };
+                    if let Some(i) = next.or_else(|| order.iter().copied().find(|i| r.files[*i].path == file)) {
+                        r.sel = i;
+                        r.diff = tasks::file_diff(r);
+                        r.scroll = 0;
+                    }
+                    if now && v.reviewed.len() == r.files.len() {
+                        self.notify("all reviewed".into(), false);
+                    }
+                }
             }
             KeyCode::PageDown | KeyCode::Char(' ') => r.scroll = r.scroll.saturating_add(15),
             KeyCode::PageUp => r.scroll = r.scroll.saturating_sub(15),
@@ -3303,11 +3332,18 @@ impl App {
                         Ok(r) => {
                             let keep = v.review.as_ref().map(|o| o.sel);
                             let mut r = *r;
+                            v.reviewed = views::still_reviewed(&v.dir, &r.files, self.hy.saved.reviewed.get(&design::path_key(&v.dir)));
                             if let Some(sel) = keep {
                                 r.sel = sel.min(r.files.len().saturating_sub(1));
                                 r.diff = tasks::file_diff(&r);
                             }
+                            let first = keep.is_none();
                             v.review = Some(r);
+                            // Start on the first file not reviewed yet.
+                            if first && let Some(i) = v.order().first().copied() && let Some(r) = v.review.as_mut() {
+                                r.sel = i;
+                                r.diff = tasks::file_diff(r);
+                            }
                         }
                         Err(e) => v.error = Some(e),
                     }
