@@ -1284,6 +1284,7 @@ impl Daemon {
                     summary: t.summary.clone(),
                     name: if t.name.is_empty() { t.first_prompt.clone() } else { t.name.clone() },
                     model: t.model.clone(),
+                    label: t.label.clone(),
                     dev: t.dev.as_ref().map(|(d, _)| d.clone()),
                     mem: t.mem,
                     bell: t.bell,
@@ -1591,6 +1592,11 @@ impl Daemon {
                     let _ = tx.blocking_send(Ev::MoveReady { client, term, branch: b, result });
                 });
                 return Ok(false);
+            }
+            Command::RenamePane { term, name } => {
+                if let Some(t) = self.terms.get_mut(&term) {
+                    t.label = name.trim().chars().take(60).collect();
+                }
             }
             Command::MarkSeen { term } => {
                 if self.terms.get(&term).is_some_and(|t| t.status == Status::Done) {

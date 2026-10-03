@@ -138,6 +138,8 @@ pub struct Term {
     /// The name given in the agent (/rename), its first prompt, and its model.
     pub name: String,
     pub first_prompt: String,
+    /// Rename pane.
+    pub label: String,
     pub model: String,
 }
 
@@ -425,6 +427,7 @@ impl Term {
             bell: false,
             name: String::new(),
             first_prompt: String::new(),
+            label: String::new(),
             model: String::new(),
             colors: {
                 let t = crate::theme::Theme::named(&cfg.theme);

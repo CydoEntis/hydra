@@ -91,6 +91,8 @@ enum Mode {
     Memory { sel: usize },
     /// Notification history (the selected row, newest first).
     History { sel: usize },
+    /// "Close …?" with confirm / cancel.
+    Confirm(Box<menu::Confirm>),
 }
 
 /// The ship confirm: the branch and what shipping it will do.
@@ -296,6 +298,8 @@ enum WtRow {
 
 #[derive(Debug, Clone, PartialEq)]
 enum PromptKind {
+    RenamePane(TermId),
+    RenameProject(String),
     RenameTab(WsId, TabId),
     RenameWorkspace(WsId),
     NewWorkspace,
@@ -308,6 +312,8 @@ enum PromptKind {
 impl PromptKind {
     fn label(&self) -> &'static str {
         match self {
+            PromptKind::RenamePane(_) => "Rename pane (empty: automatic)",
+            PromptKind::RenameProject(_) => "Rename project (empty: its folder name)",
             PromptKind::RenameTab(..) => "Rename tab",
             PromptKind::RenameWorkspace(_) => "Rename workspace",
             PromptKind::NewWorkspace => "New pane: name it (empty = its folder)",
@@ -371,6 +377,8 @@ pub struct App {
     /// Extensions, and the labels they put on worktree rows: (worktree key, label n) ->
     /// (text, when it was asked for).
     pub(super) exts: Vec<crate::ext::Ext>,
+    /// When the right button last went down (menus open on press or release, once).
+    right_down: Option<Instant>,
     pub(super) ext_labels: HashMap<(String, usize), (String, Instant)>,
     snap: Snapshot,
     got_state: bool,
@@ -496,6 +504,7 @@ impl App {
             history: Default::default(),
             exts: if cfg!(test) { Vec::new() } else { crate::ext::load_all().0 },
             ext_labels: HashMap::new(),
+            right_down: None,
             snap: Snapshot::default(),
             got_state: false,
             parsers: HashMap::new(),
@@ -983,6 +992,14 @@ impl App {
             Mode::Branch(v) => self.on_branch_key(*v, &k),
             Mode::Memory { sel } => self.on_memory_key(sel, &k),
             Mode::History { sel } => self.on_history_key(sel, &k),
+            Mode::Confirm(c) => match k.code {
+                KeyCode::Enter | KeyCode::Char('y') => {
+                    self.mode = Mode::Normal;
+                    self.menu_do(c.act);
+                }
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('q') => self.mode = Mode::Normal,
+                _ => self.mode = Mode::Confirm(c),
+            },
             Mode::Ship(ask) => {
                 self.mode = Mode::Normal;
                 if k.code == KeyCode::Enter {
@@ -1217,6 +1234,15 @@ impl App {
     fn submit_prompt(&mut self, kind: PromptKind, input: String) {
         let input = input.trim().to_string();
         match kind {
+            PromptKind::RenamePane(term) => self.cmd(Command::RenamePane { term, name: input }),
+            PromptKind::RenameProject(key) => {
+                if input.is_empty() {
+                    self.hy.saved.names.remove(&key);
+                } else {
+                    self.hy.saved.names.insert(key, input);
+                }
+                self.hy.save();
+            }
             PromptKind::RenameTab(ws, tab) => self.cmd(Command::RenameTab { ws, tab, name: input }),
             PromptKind::RenameWorkspace(ws) if !input.is_empty() => {
                 self.cmd(Command::RenameWorkspace { ws, name: input })
@@ -1491,8 +1517,9 @@ impl App {
             && matches!(self.mode, Mode::Normal)
             && self.view.is_none()
             && !m.modifiers.contains(KeyModifiers::SHIFT)
-            && !matches!(m.kind, MouseEventKind::Down(MouseButton::Right) | MouseEventKind::Up(MouseButton::Right) | MouseEventKind::Drag(MouseButton::Right))
             && let Some((term, inner)) = self.panes.iter().find(|(_, r)| r.contains(pos)).copied()
+            && (self.hy.right_clicks.contains(&term)
+                || !matches!(m.kind, MouseEventKind::Down(MouseButton::Right) | MouseEventKind::Up(MouseButton::Right) | MouseEventKind::Drag(MouseButton::Right)))
             && let Some(bytes) = self.parsers.get(&term).and_then(|p| keys::mouse_bytes(p.screen(), &m, pos.x - inner.x, pos.y - inner.y))
         {
             if m.kind == MouseEventKind::Moved && self.hover != Some(pos) {
@@ -1559,7 +1586,17 @@ impl App {
                 _ => {}
             }
         }
-        if self.cfg.ui.layout == "hydra" && m.kind == MouseEventKind::Down(MouseButton::Right) && !self.splash {
+        // Some terminals only report the release of a right click: open on whichever comes
+        // first.
+        let right_click = match m.kind {
+            MouseEventKind::Down(MouseButton::Right) => {
+                self.right_down = Some(Instant::now());
+                true
+            }
+            MouseEventKind::Up(MouseButton::Right) => !self.right_down.take().is_some_and(|at| at.elapsed() < Duration::from_millis(600)),
+            _ => false,
+        };
+        if self.cfg.ui.layout == "hydra" && right_click && !self.splash && !matches!(self.mode, Mode::HyMenu(_) | Mode::Confirm(_)) {
             let hit = self.hits.iter().rev().find(|(r, _)| r.contains(pos)).map(|(_, h)| *h);
             let at = (m.column, m.row);
             match hit {
@@ -1852,7 +1889,7 @@ impl App {
             }
             Action::ClosePane => {
                 if let Some(term) = focused {
-                    self.cmd(Command::ClosePane { term });
+                    self.menu_act(menu::Act::End(vec![term]));
                 }
             }
             Action::Focus(d) => {
@@ -4223,6 +4260,7 @@ mod design_tests {
     fn term(id: TermId, agent: Option<&str>, status: Status, cwd: &str) -> TermInfo {
         TermInfo {
             name: String::new(),
+            label: String::new(),
             model: String::new(),
             dev: None,
             mem: 0,
@@ -4672,7 +4710,7 @@ mod hydra_tests {
         app.menu_for_session(1, (10, 10));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("Message claude…") && o.contains("Interrupt (Ctrl+C)") && o.contains("End claude"));
+        assert!(o.contains("Message claude…") && o.contains("Interrupt (Ctrl+C)") && o.contains("Close"));
         let Mode::HyMenu(m) = &app.mode else { panic!("a menu") };
         let talk = m.items.iter().position(|(l, _)| l.starts_with("Message")).unwrap();
         app.menu_pick(talk);
@@ -4680,8 +4718,25 @@ mod hydra_tests {
         app.mode = Mode::Normal;
         app.menu_for_project(0, (5, 5));
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains("+ New here…") && o.contains("End everything here (3)"));
+        assert!(o.contains("Rename") && o.contains("Close") && o.contains("New worktree") && o.contains("Open worktree…"), "herdr's project menu");
         app.mode = Mode::Normal;
+
+        // herdr's pane menu, and closing asks first.
+        app.menu_for_pane(1, (40, 10));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        for item in ["Rename pane", "Split right", "Split down", "Send right-clicks to pane", "Close pane"] {
+            assert!(o.contains(item), "pane menu has {item}");
+        }
+        let Mode::HyMenu(m) = &app.mode else { panic!("a menu") };
+        let close = m.items.iter().position(|(l, _)| l == "Close pane").unwrap();
+        app.menu_pick(close);
+        assert!(matches!(&app.mode, Mode::Confirm(c) if c.title == "Close pane?"), "asks before closing");
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("↵ confirm") && o.contains("esc cancel"));
+        app.on_key(key(KeyCode::Esc));
+        assert!(matches!(app.mode, Mode::Normal), "Esc keeps it");
         let wt = app.hy_model()[0].wts.iter().find(|w| !w.main).unwrap().key.clone();
         app.menu_for_place(wt, (5, 5));
         let o = draw(&mut app, 160, 45);

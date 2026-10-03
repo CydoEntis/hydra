@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 19;
+pub const PROTOCOL_VERSION: u32 = 20;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -71,6 +71,8 @@ pub enum Command {
     FocusPane { term: TermId },
     /// You've seen a finished agent (the cursor rested on it): done → idle.
     MarkSeen { term: TermId },
+    /// Name a pane yourself (empty: back to the automatic name).
+    RenamePane { term: TermId, name: String },
     /// A checkout's dev server (from its `.hydra.toml`): start, stop or restart it.
     Dev { dir: PathBuf, action: DevAction },
     /// The agent in `term` moves into a new worktree of its repo: made now, and when its turn
@@ -290,6 +292,9 @@ pub struct TermInfo {
     pub summary: String,
     /// What to call it: the name you gave it in the agent (/rename), else its first prompt.
     pub name: String,
+    /// The name you gave the pane in hydra (Rename pane), which wins over everything.
+    #[serde(default)]
+    pub label: String,
     /// The model it's using, short ("opus 4.5"), if known.
     pub model: String,
     /// It's a checkout's dev server.

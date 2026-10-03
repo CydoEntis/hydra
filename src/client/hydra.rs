@@ -48,6 +48,8 @@ pub(super) struct Saved {
     pub split: Option<f32>,
     /// A task typed into + New and not started yet.
     pub draft: String,
+    /// Projects you renamed: key -> name.
+    pub names: HashMap<String, String>,
     /// Files marked reviewed in Changes: folder key -> file -> what it was like then.
     pub reviewed: HashMap<String, HashMap<String, u64>>,
 }
@@ -60,6 +62,12 @@ pub(super) struct Hy {
     /// Two sessions side by side: (left, right). One of them is the focused one.
     /// Tabs: each shows one session or any number side by side.
     pub tabs: Vec<HyTab>,
+    /// Shown alone for now, out of its split (Zoom).
+    pub zoom: Option<TermId>,
+    /// Panes whose program gets right-clicks (no hydra menu there; Shift+right-click for it).
+    pub right_clicks: HashSet<TermId>,
+    /// Which way the next "split" goes.
+    pub split_dir: Option<crate::layout::Dir>,
     pub tab: usize,
     /// The next session that opens goes in a new tab (Ctrl+Space w), until this time.
     pub new_tab: Option<Instant>,
@@ -350,7 +358,7 @@ impl App {
             projs.push(Proj {
                 key: key.clone(),
                 path: path.to_path_buf(),
-                name: folder_name(path),
+                name: self.hy.saved.names.get(&key).cloned().unwrap_or_else(|| folder_name(path)),
                 color: self.theme.project(ci, &fallback),
                 wts: Vec::new(),
                 fresh: self.hy.fresh.contains(&key),
@@ -515,6 +523,9 @@ impl App {
 /// What to call a session: its name if renamed, else the agent's last prompt, else where a
 /// shell is (inside its worktree), else the program.
 fn session_title(t: &TermInfo, name: &str, top: &Path) -> String {
+    if !t.label.trim().is_empty() {
+        return t.label.trim().to_string();
+    }
     if !name.is_empty() {
         return name.to_string();
     }
@@ -553,6 +564,12 @@ pub(super) enum HyHit {
     Keys,
     CloseSplit(TermId),
     Divider(usize),
+    /// The ⋯ on a hovered sidebar row: its menu.
+    RowMenuSess(TermId),
+    RowMenuWt(usize),
+    RowMenuProj(usize),
+    ConfirmYes,
+    ConfirmNo,
     TabPick(usize),
     TabClose(usize),
     TabNew,
@@ -904,16 +921,20 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     let look = |app: &App, term: TermId, row: Rect| -> (Color, Option<Color>, bool) {
         let prim = Some(term) == focus;
         let sel = !prim && (app.hy.cursor == Some(term) || hovered(app, row));
-        let bg = if prim {
-            t.accent
+        let bg = if prim || sel {
+            t.hov
         } else if Some(term) == split || (shown.len() > 1 && shown.contains(&term) && Some(term) != focus) {
             t.card2
-        } else if sel {
-            t.hov
         } else {
             surf
         };
-        (bg, prim.then_some(t.acc_ink), sel)
+        (bg, None, sel)
+    };
+    // The open one is marked by a bar on its left, not a fill.
+    let bar = |buf: &mut Buffer, term: TermId, y: u16, bg: Color| {
+        if Some(term) == focus {
+            buf[(x0, y)].set_symbol("▌").set_style(Style::default().fg(t.accent).bg(bg));
+        }
     };
 
     for (i, line) in lines.iter().enumerate().skip(scroll).take(list_h) {
@@ -945,6 +966,9 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 put(buf, x0 + 1, y, &left, right.saturating_sub(cw + 1));
                 put(buf, right.saturating_sub(cw) + 1, y, &c, r.right());
                 hit(app, row, HyHit::ToggleProj(*pi));
+                if hov {
+                    row_menu_button(app, buf, Rect { x: r.right().saturating_sub(2), y, width: 2, height: 1 }, bg, t, HyHit::RowMenuProj(*pi));
+                }
                 if hov {
                     hit(app, Rect { x: right.saturating_sub(2), y, width: 3, height: 1 }, HyHit::NewIn(*pi));
                 }
@@ -981,6 +1005,9 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 put(buf, x0 + 3, y, &label, right.saturating_sub(tw + 1));
                 put(buf, right.saturating_sub(tw) + 1, y, &tail, r.right());
                 hit(app, row, HyHit::Wt(idx));
+                if hov {
+                    row_menu_button(app, buf, Rect { x: r.right().saturating_sub(2), y, width: 2, height: 1 }, bg, t, HyHit::RowMenuWt(idx));
+                }
                 if let Some((tg, n)) = tag {
                     let k2 = app.hy.pr_keys.len();
                     app.hy.pr_keys.push((wt.path.clone(), n.to_string()));
@@ -1039,6 +1066,10 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 put(buf, x0 + 5, y, &left, right.saturating_sub(tw + 1));
                 put(buf, right.saturating_sub(tw) + 1, y, &tail, r.right());
                 hit(app, row, HyHit::Session(s.term));
+                bar(buf, s.term, y, bg);
+                if hovered(app, row) {
+                    row_menu_button(app, buf, Rect { x: r.right().saturating_sub(2), y, width: 2, height: 1 }, bg, t, HyHit::RowMenuSess(s.term));
+                }
                 if sel {
                     hit(app, Rect { x: right.saturating_sub(tw) + 1, y, width: tw, height: 1 }, HyHit::Talk(s.term));
                 }
@@ -1141,7 +1172,12 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
         area
     };
     app.hy.dividers.clear();
-    let layout = app.hy.tabs.get(app.hy.tab).map(|tab| tab.layout.clone()).filter(|l| l.contains(focus) && l.leaves().len() > 1);
+    let layout = app
+        .hy
+        .tabs
+        .get(app.hy.tab)
+        .map(|tab| tab.layout.clone())
+        .filter(|l| l.contains(focus) && l.leaves().len() > 1 && app.hy.zoom != Some(focus));
     let Some(layout) = layout else {
         app.hy.leaf_rects = vec![(focus, area)];
         draw_session(app, f, area, focus, true, false, model, t);
@@ -1173,6 +1209,13 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
         hit(app, div, HyHit::Divider(i));
         app.hy.dividers.push((sa, horizontal, path));
     }
+}
+
+/// The ⋯ that opens a sidebar row's menu (for terminals that keep right-clicks).
+fn row_menu_button(app: &mut App, buf: &mut Buffer, r: Rect, bg: Color, t: &Theme, h: HyHit) {
+    let st = if hovered(app, r) { Style::default().bg(t.btn).fg(t.strong) } else { Style::default().bg(bg).fg(t.muted) };
+    put(buf, r.x, r.y, &[seg("⋯ ", st)], r.right());
+    hit(app, r, h);
 }
 
 /// One chip per tab: what it shows; the one you're in is filled. A + makes another.
@@ -2577,8 +2620,9 @@ impl App {
             };
             // Beside a wide one, under a tall one.
             let wide = self.hy.leaf_rects.iter().find(|(id, _)| *id == p).is_none_or(|(_, r)| r.width >= r.height * 3);
+            let dir = self.hy.split_dir.take().unwrap_or(if wide { Dir::Right } else { Dir::Down });
             let tab = &mut self.hy.tabs[i];
-            tab.layout.split(p, if wide { Dir::Right } else { Dir::Down }, f);
+            tab.layout.split(p, dir, f);
             tab.focus = f;
             self.hy.tab = i;
             return;
@@ -2767,7 +2811,13 @@ impl App {
                     None => self.notify("nothing to message".into(), true),
                 }
             }
-            Action::Zoom => self.sidebar = !self.sidebar,
+            // In a split: just this one, and back. On its own: hide the sidebar.
+            Action::Zoom => match focused {
+                Some(f) if self.hy.tabs.get(self.hy.tab).is_some_and(|t| t.layout.contains(f) && t.layout.leaves().len() > 1) => {
+                    self.hy.zoom = if self.hy.zoom == Some(f) { None } else { Some(f) };
+                }
+                _ => self.sidebar = !self.sidebar,
+            },
             Action::Focus(d) => {
                 if let Some(f) = focused
                     && let Some(to) = crate::layout::neighbor(&self.hy.leaf_rects, f, *d)
@@ -3314,6 +3364,26 @@ impl App {
                 self.hy_unshow(t);
             }
             HyHit::Divider(i) => self.hy.drag = Some(Drag::Divider(i)),
+            HyHit::RowMenuSess(t) => {
+                let at = self.hover.map(|p| (p.x, p.y)).unwrap_or((0, 0));
+                self.menu_for_session(t, at);
+            }
+            HyHit::RowMenuWt(i) => {
+                let at = self.hover.map(|p| (p.x, p.y)).unwrap_or((0, 0));
+                if let Some((key, _)) = self.hy.wt_keys.get(i).cloned() {
+                    self.menu_for_place(key, at);
+                }
+            }
+            HyHit::RowMenuProj(i) => {
+                let at = self.hover.map(|p| (p.x, p.y)).unwrap_or((0, 0));
+                self.menu_for_project(i, at);
+            }
+            HyHit::ConfirmYes => {
+                if let Mode::Confirm(c) = std::mem::replace(&mut self.mode, Mode::Normal) {
+                    self.menu_do(c.act);
+                }
+            }
+            HyHit::ConfirmNo => self.mode = Mode::Normal,
             HyHit::TabPick(i) => {
                 if let Some(tab) = self.hy.tabs.get(i) {
                     let to = tab.focus;
