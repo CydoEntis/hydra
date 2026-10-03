@@ -998,6 +998,7 @@ impl Daemon {
     fn update_statuses(&mut self) {
         // Dev servers: up once their output shows the ready pattern (and which port, if it
         // prints a localhost URL).
+        static URL: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?:localhost|127\.0\.0\.1):(\d{2,5})").unwrap());
         for t in self.terms.values_mut() {
             if let Some((d, re)) = &mut t.dev
                 && !d.ready
@@ -1009,7 +1010,7 @@ impl Daemon {
                 if re.as_ref().is_some_and(|r| r.is_match(&text)) {
                     d.ready = true;
                     if d.port.is_none()
-                        && let Some(p) = regex::Regex::new(r"(?:localhost|127\.0\.0\.1):(\d{2,5})").ok().and_then(|r| r.captures(&text)).and_then(|c| c[1].parse().ok())
+                        && let Some(p) = URL.captures(&text).and_then(|c| c[1].parse().ok())
                     {
                         d.port = Some(p);
                     }
