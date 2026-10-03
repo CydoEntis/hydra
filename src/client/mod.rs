@@ -6,6 +6,7 @@ mod design;
 mod files;
 mod hydra;
 mod inbox;
+mod menu;
 mod modal;
 mod pr;
 mod render;
@@ -77,6 +78,8 @@ enum Mode {
     Tickets(Box<work::TicketsView>),
     RaceNew(Box<work::RaceNew>),
     Race(Box<work::RaceView>),
+    /// A right-click menu (hydra layout).
+    HyMenu(Box<menu::HyMenu>),
 }
 
 /// The ship confirm: the branch and what shipping it will do.
@@ -346,6 +349,8 @@ pub struct App {
     hy: hydra::Hy,
     /// The terminal window has focus (for alerts about the session you're looking at).
     window_focused: bool,
+    /// The background we told the terminal to use (OSC 11), so its padding matches.
+    osc_bg: Option<ratatui::style::Color>,
 }
 
 pub fn run(opts: Options) -> Result<()> {
@@ -388,6 +393,11 @@ async fn run_async(opts: Options) -> Result<()> {
         event::DisableBracketedPaste,
         event::DisableFocusChange
     );
+    // Give the terminal its own background back.
+    {
+        use std::io::Write;
+        let _ = write!(std::io::stdout(), "]111");
+    }
     ratatui::restore();
     result?;
     if let Some(reason) = app.quit {
@@ -432,6 +442,7 @@ impl App {
             splash: false,
             hy: hydra::Hy::load(),
             window_focused: true,
+            osc_bg: None,
         };
         app.splash = app.cfg.ui.splash;
         if !crate::theme::BUILTIN.contains(&app.cfg.theme.as_str()) {
@@ -747,6 +758,7 @@ impl App {
             Mode::Tickets(v) => self.on_tickets_key(*v, &k),
             Mode::RaceNew(v) => self.on_race_new_key(*v, &k),
             Mode::Race(v) => self.on_race_key(*v, &k),
+            Mode::HyMenu(m) => self.on_hy_menu_key(*m, &k),
             Mode::Ship(ask) => {
                 self.mode = Mode::Normal;
                 if k.code == KeyCode::Enter {
@@ -1083,6 +1095,59 @@ impl App {
 
     fn on_mouse(&mut self, m: MouseEvent) {
         let pos = Position::new(m.column, m.row);
+        // Dragging the sidebar edge or the split divider.
+        if let Some(d) = self.hy.drag {
+            match m.kind {
+                MouseEventKind::Drag(MouseButton::Left) => {
+                    match d {
+                        hydra::Drag::Side => {
+                            let side = self.hy.side_rect;
+                            let w = if self.cfg.ui.sidebar_position == "right" { side.right().saturating_sub(m.column) } else { m.column.saturating_sub(side.x) };
+                            self.hy.saved.side_w = Some(w.clamp(hydra::SIDE_MIN, hydra::SIDE_MAX));
+                        }
+                        hydra::Drag::Split => {
+                            if let Some((r, stack)) = self.hy.split_rect {
+                                let f = if stack {
+                                    (m.row.saturating_sub(r.y)) as f32 / r.height.max(1) as f32
+                                } else {
+                                    (m.column.saturating_sub(r.x)) as f32 / r.width.max(1) as f32
+                                };
+                                self.hy.saved.split = Some(f.clamp(0.2, 0.8));
+                            }
+                        }
+                    }
+                    self.dirty = true;
+                    return;
+                }
+                MouseEventKind::Up(_) => {
+                    self.hy.drag = None;
+                    self.hy.save();
+                    self.dirty = true;
+                    return;
+                }
+                _ => {}
+            }
+        }
+        if self.cfg.ui.layout == "hydra" && m.kind == MouseEventKind::Down(MouseButton::Right) && !self.splash {
+            let hit = self.hits.iter().rev().find(|(r, _)| r.contains(pos)).map(|(_, h)| *h);
+            let at = (m.column, m.row);
+            match hit {
+                Some(Hit::Hy(hydra::HyHit::Session(t))) => self.menu_for_session(t, at),
+                Some(Hit::Hy(hydra::HyHit::ToggleProj(pi))) => self.menu_for_project(pi, at),
+                Some(Hit::Hy(hydra::HyHit::Wt(i))) => {
+                    if let Some((key, _)) = self.hy.wt_keys.get(i).cloned() {
+                        self.menu_for_place(key, at);
+                    }
+                }
+                _ => {
+                    if let Some((term, _)) = self.pane_frames.iter().find(|(_, r)| r.contains(pos)).copied() {
+                        self.menu_for_pane(term, at);
+                    }
+                }
+            }
+            self.dirty = true;
+            return;
+        }
         if m.kind == MouseEventKind::Moved {
             if self.hover != Some(pos) {
                 self.hover = Some(pos);
@@ -1102,10 +1167,8 @@ impl App {
                 self.dirty = true;
                 return;
             }
-            // A click anywhere but a splash button just continues past it.
+            // The splash waits for one of its buttons.
             if self.splash {
-                self.splash = false;
-                self.dirty = true;
                 return;
             }
             if let Some(h @ (Hit::AddPane | Hit::SideRow(_) | Hit::SideTalk(_) | Hit::Button(_))) = hit {
@@ -3765,7 +3828,7 @@ mod hydra_tests {
         let lines: Vec<&str> = text.lines().collect();
         assert!(lines[0].starts_with(" >_ hydra"), "top bar: {}", lines[0]);
         assert!(lines[0].contains("shop-api  ›  ⎇ main  ›  claude  ● needs you  ·  Fix flaky checkout test"), "crumb: {}", lines[0]);
-        assert!(lines[0].contains("Jump ●1") && lines[0].contains("+ New n"), "jump and + new: {}", lines[0]);
+        assert!(lines[2].contains("+ New n") && lines[2].contains("Jump ●1"), "+ New and Jump at the top of the sidebar: {}", lines[2]);
         // One tree: project → BRANCHES (what runs in the repo folder) → WORKTREES.
         assert!(text.contains("▾ ▌shop-api") && text.contains("BRANCHES") && text.contains("⎇ main") && text.contains("WORKTREES"));
         assert!(!text.contains("main folder"), "no 'main folder' wording");
@@ -3783,7 +3846,7 @@ mod hydra_tests {
         assert!(!text.contains("session"), "no 'session' wording on screen");
         assert!(text.contains("● claude is waiting") && text.contains(" Yes 1 ") && text.contains(" Always 2 ") && text.contains(" No 3 "));
         assert!(!text.contains("click or press T"), "no footer under the pane");
-        assert!(lines[1].contains("> fix the flaky checkout test"), "one pane: no title bar of its own, output starts right under the top bar");
+        assert!(lines[2].contains("> fix the flaky checkout test"), "one pane: no title bar of its own, a row of air under the top bar");
         assert!(lines[44].contains("● 1 need you") && !lines[44].contains("across"), "status: {}", lines[44]);
         // Overlays are centred over a dimmed screen.
         for (mode, needle) in [
@@ -3936,6 +3999,73 @@ mod hydra_tests {
         assert!(o.contains("⎇ main") && o.contains("⑂ rate") && o.contains("⑂ orders"), "a box per folder");
         assert!(o.contains("● claude") && o.contains("needs you 3m") && o.contains("⠋ codex") && o.contains("working 2m"));
         assert!(o.contains("┴") && (o.contains("┬") || o.contains("┼")), "boxes hang off the project");
+    }
+
+    #[test]
+    fn splash_menus_and_resizing() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
+        // The splash waits for a button: other keys do nothing.
+        app.splash = true;
+        app.on_key(key(KeyCode::Char('x')));
+        app.on_key(key(KeyCode::Esc));
+        assert!(app.splash, "random keys don't leave the splash");
+        app.on_key(key(KeyCode::Right));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("←→ choose   Enter open"));
+        app.on_key(key(KeyCode::Enter));
+        assert!(!app.splash && matches!(app.mode, Mode::Jump { .. }), "Enter picks the selected button (Jump)");
+        app.mode = Mode::Normal;
+
+        // Right-click menus.
+        app.menu_for_session(1, (10, 10));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("Message claude…") && o.contains("Interrupt (Ctrl+C)") && o.contains("End claude"));
+        let Mode::HyMenu(m) = &app.mode else { panic!("a menu") };
+        let talk = m.items.iter().position(|(l, _)| l.starts_with("Message")).unwrap();
+        app.menu_pick(talk);
+        assert!(matches!(app.mode, Mode::Talk { term: 1, .. }), "picking an item does it");
+        app.mode = Mode::Normal;
+        app.menu_for_project(0, (5, 5));
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("+ New here…") && o.contains("End everything here (3)"));
+        app.mode = Mode::Normal;
+        let wt = app.hy_model()[0].wts.iter().find(|w| !w.main).unwrap().key.clone();
+        app.menu_for_place(wt, (5, 5));
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("+ claude here") && o.contains("Remove worktree (branch kept)"));
+        app.mode = Mode::Normal;
+
+        // Resizing the sidebar, within its limits.
+        let before = app.hy.side_rect.width;
+        app.act(Action::Resize(crate::layout::Dir::Right));
+        draw(&mut app, 160, 45);
+        assert!(app.hy.side_rect.width > before, "wider");
+        for _ in 0..40 {
+            app.act(Action::Resize(crate::layout::Dir::Right));
+        }
+        assert_eq!(app.hy.saved.side_w, Some(hydra::SIDE_MAX), "but not past the max");
+        for _ in 0..40 {
+            app.act(Action::Resize(crate::layout::Dir::Left));
+        }
+        assert_eq!(app.hy.saved.side_w, Some(hydra::SIDE_MIN), "nor under the min");
+    }
+
+    #[test]
+    fn bright_black_backgrounds_are_a_quiet_panel() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        // Claude draws pasted text and its diff panel on palette colour 8.
+        let mut p = vt100::Parser::new(20, 80, 0);
+        p.process(b"[100mpasted text[0m plain");
+        app.parsers.insert(1, p);
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 45)).unwrap();
+        term.draw(|f| render::draw(&mut app, f)).unwrap();
+        let (_, inner) = app.panes[0];
+        let buf = term.backend().buffer();
+        assert_eq!(buf[(inner.x, inner.y)].bg, app.theme.card2, "not a light grey slab");
+        assert_eq!(buf[(inner.x + 13, inner.y)].bg, app.theme.bg);
     }
 
     #[test]

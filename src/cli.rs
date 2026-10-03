@@ -438,3 +438,39 @@ mod tests {
         assert_eq!(s(json!({"hook_event_name": "Notification", "notification_type": "auth_success"})), None);
     }
 }
+
+/// Debugging: the colours a pane's program is drawing (rows with a background colour).
+pub fn debug_colors(pane: TermId) -> Result<()> {
+    block_on(async move {
+        let (mut r, _w) = ipc::open(true).await.context("no hydra server running")?;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        while let Ok(Ok(Some(msg))) = tokio::time::timeout_at(deadline, ipc::recv_server(&mut r)).await {
+            if let ServerMsg::Replay { term, cols, rows, data } = msg
+                && term == pane
+            {
+                let mut p = vt100::Parser::new(rows, cols, 0);
+                p.process(&data);
+                let s = p.screen();
+                for row in 0..rows {
+                    let mut seen: Vec<String> = Vec::new();
+                    for col in 0..cols {
+                        let Some(c) = s.cell(row, col) else { continue };
+                        if c.bgcolor() == vt100::Color::Default && !c.inverse() {
+                            continue;
+                        }
+                        let d = format!("fg={:?} bg={:?} inv={} dim={}", c.fgcolor(), c.bgcolor(), c.inverse(), c.dim());
+                        if !seen.contains(&d) {
+                            seen.push(d);
+                        }
+                    }
+                    if !seen.is_empty() {
+                        let text: String = s.rows(0, cols).nth(row as usize).unwrap_or_default().chars().take(40).collect();
+                        println!("row {row:>3} {text:<40} {}", seen.join(" | "));
+                    }
+                }
+                return Ok(());
+            }
+        }
+        anyhow::bail!("no pane {pane}")
+    })
+}

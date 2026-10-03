@@ -19,7 +19,16 @@ pub fn draw(app: &mut App, f: &mut Frame) {
     app.pane_frames.clear();
     let area = f.area();
     let t = app.theme.clone();
-    set_palette(t.ansi);
+    set_palette(t.ansi, t.ansi.map(|_| t.card2));
+    // The terminal's own background (its window padding) matches ours while we run.
+    if let Color::Rgb(r, g, b) = t.bg
+        && app.osc_bg != Some(t.bg)
+        && !cfg!(test)
+    {
+        use std::io::Write;
+        let _ = write!(std::io::stdout(), "]11;#{r:02x}{g:02x}{b:02x}");
+        app.osc_bg = Some(t.bg);
+    }
 
     if app.splash {
         super::hydra::draw_splash(app, f, area, &t);
@@ -438,6 +447,10 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, panes: Rect, t: &crat
         Mode::Talk { term, input } if hydra => {
             let (term, input) = (*term, input.clone());
             super::hydra::draw_talk(app, f, area, &t, term, &input);
+        }
+        Mode::HyMenu(m) => {
+            let m = (**m).clone();
+            super::menu::draw_menu(app, f, area, &t, &m);
         }
         Mode::Ideas(v) => {
             let v = (**v).clone();
@@ -1001,9 +1014,15 @@ pub(super) fn render_copy(c: &Copy, area: Rect, buf: &mut Buffer, t: &crate::the
 /// The theme's terminal colours, if it has its own (set each frame from the theme).
 static PALETTE: std::sync::RwLock<Option<[Color; 7]>> = std::sync::RwLock::new(None);
 
-pub(super) fn set_palette(p: Option<[Color; 7]>) {
+/// What programs' "bright black" backgrounds become: a subtle panel, not a grey slab.
+static PANEL: std::sync::RwLock<Option<Color>> = std::sync::RwLock::new(None);
+
+pub(super) fn set_palette(p: Option<[Color; 7]>, panel: Option<Color>) {
     if let Ok(mut w) = PALETTE.write() {
         *w = p;
+    }
+    if let Ok(mut w) = PANEL.write() {
+        *w = panel;
     }
 }
 
@@ -1030,6 +1049,7 @@ pub(super) fn vt_color(c: vt100::Color) -> Color {
 pub(super) fn render_screen(screen: &vt100::Screen, area: Rect, buf: &mut Buffer, default_bg: Color) {
     let (rows, cols) = screen.size();
     let pal = PALETTE.read().map(|p| *p).unwrap_or(None);
+    let panel = PANEL.read().map(|p| *p).unwrap_or(None);
     for row in 0..area.height.min(rows) {
         for col in 0..area.width.min(cols) {
             let Some(cell) = screen.cell(row, col) else { continue };
@@ -1039,6 +1059,7 @@ pub(super) fn render_screen(screen: &vt100::Screen, area: Rect, buf: &mut Buffer
             let mut fg = themed(vt_color(cell.fgcolor()), &pal);
             let mut bg = match vt_color(cell.bgcolor()) {
                 Color::Reset => default_bg,
+                Color::Indexed(8) if panel.is_some() => panel.unwrap_or(default_bg),
                 c => c,
             };
             if cell.inverse() {
@@ -1119,6 +1140,7 @@ pub(super) fn mode_label(app: &App, t: &crate::theme::Theme) -> (&'static str, C
         Mode::Side => ("SIDEBAR", t.accent),
         Mode::Ship(_) => ("SHIP", t.accent),
         Mode::Ideas(_) => ("IDEAS", t.accent),
+        Mode::HyMenu(_) => ("MENU", t.accent),
         Mode::Tickets(_) => ("TICKETS", t.accent),
         Mode::RaceNew(_) | Mode::Race(_) => ("RACE", t.accent),
         Mode::Tree { .. } => ("BROWSE", t.accent),

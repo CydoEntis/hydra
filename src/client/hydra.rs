@@ -43,6 +43,9 @@ pub(super) struct Saved {
     pub open_branches: Vec<String>,
     /// Races in progress.
     pub races: Vec<super::work::Race>,
+    /// Sidebar width you dragged it to, and the split's share for the left (or top) half.
+    pub side_w: Option<u16>,
+    pub split: Option<f32>,
 }
 
 #[derive(Debug, Default)]
@@ -76,7 +79,23 @@ pub(super) struct Hy {
     pub pr_keys: Vec<(PathBuf, String)>,
     /// A recipe's worktree being made: (branch, the commands to start there, since).
     pub pending_recipe: Option<(String, Vec<String>, Instant)>,
+    /// Dragging the sidebar edge or the split divider.
+    pub drag: Option<Drag>,
+    /// Where the split divider is (for dragging), and which way the halves go.
+    pub split_rect: Option<(Rect, bool)>,
+    /// The splash's selected button.
+    pub splash_sel: usize,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Drag {
+    Side,
+    Split,
+}
+
+/// The sidebar's width limits.
+pub(super) const SIDE_MIN: u16 = 24;
+pub(super) const SIDE_MAX: u16 = 60;
 
 fn saved_path() -> PathBuf {
     // Per server, like the saved session: a test server (HYDRA_SOCKET) keeps its own.
@@ -502,6 +521,12 @@ pub(super) enum HyHit {
     RaceOpen(u64),
     /// A box on the Map.
     MapNode(usize),
+    /// A right-click menu item.
+    MenuPick(usize),
+    /// The sidebar's edge (drag to resize).
+    SideEdge,
+    /// The split's divider (drag to resize).
+    SplitEdge,
 }
 
 pub(super) fn hit(app: &mut App, r: Rect, h: HyHit) {
@@ -550,7 +575,11 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
     app.hy.branch_keys.clear();
     app.hy.pr_keys.clear();
     fill(f.buffer_mut(), area, t.bg);
-    let sw = if app.sidebar { side_w(area.width).min(area.width / 2) } else { 0 };
+    let sw = if app.sidebar {
+        app.hy.saved.side_w.unwrap_or_else(|| side_w(area.width)).clamp(SIDE_MIN, SIDE_MAX).min(area.width / 2)
+    } else {
+        0
+    };
     let right_side = app.cfg.ui.sidebar_position == "right";
     let mid = Rect { x: area.x, y: area.y + 1, width: area.width, height: area.height.saturating_sub(2) };
     let (side, panes) = if sw == 0 {
@@ -566,7 +595,17 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
     draw_top(app, f.buffer_mut(), area, panes.x, &model, t);
     if sw > 0 {
         draw_side(app, f.buffer_mut(), side, &model, t);
+        // The edge between sidebar and panes: drag it.
+        let ex = if right_side { side.x.saturating_sub(1) } else { side.right() };
+        let edge = Rect { x: ex, y: side.y, width: 1, height: side.height };
+        let c = if app.hy.drag == Some(Drag::Side) || hovered(app, edge) { t.accent } else { t.line };
+        for yy in edge.top()..edge.bottom() {
+            f.buffer_mut()[(ex, yy)].set_symbol("│").set_style(Style::default().fg(c).bg(t.bg));
+        }
+        hit(app, edge, HyHit::SideEdge);
     }
+    // A little air between the panes and everything around them.
+    let panes = Rect { x: panes.x + 1, y: panes.y + 1, width: panes.width.saturating_sub(2), height: panes.height.saturating_sub(1) };
     draw_main(app, f, panes, &model, t);
     draw_status(app, f.buffer_mut(), Rect { y: area.bottom().saturating_sub(1), height: 1, ..area }, &model, t);
     panes
@@ -580,21 +619,8 @@ fn draw_top(app: &mut App, buf: &mut Buffer, area: Rect, crumb_x: u16, model: &[
     let y = area.y;
     let x = put(buf, area.x + 1, y, &[seg(">_ hydra", Style::default().fg(t.accent).bg(t.bg).add_modifier(Modifier::BOLD))], area.right());
     hit(app, Rect { x: area.x, y, width: x - area.x, height: 1 }, HyHit::Splash);
-    let needs = model.iter().flat_map(|p| p.sessions()).filter(|s| s.status == Status::Blocked).count();
-    // Right: Jump (amber when something needs you) and + Pane.
-    let pane_key = k(app, &Action::NewPane);
-    let pb = button(t, "+ New", &pane_key, BtnKind::Primary, false);
-    let px = area.right().saturating_sub(segs_width(&pb));
-    let jk = k(app, &Action::Jump);
-    let (jbg, jfg, kfg) = if needs > 0 { (t.blocked, t.bg, t.bg) } else { (t.btn, t.strong, t.accent) };
-    let jb = vec![
-        seg(" Jump ", Style::default().bg(jbg).fg(jfg).add_modifier(Modifier::BOLD)),
-        seg(format!("{}{jk} ", if needs > 0 { format!("●{needs} ") } else { String::new() }), Style::default().bg(jbg).fg(kfg).add_modifier(Modifier::BOLD)),
-    ];
-    let jx = px.saturating_sub(1 + segs_width(&jb));
-    put(buf, jx, y, &jb, px);
-    hit(app, Rect { x: jx, y, width: segs_width(&jb), height: 1 }, HyHit::Jump);
-    btn(app, buf, px, y, "+ New", &pane_key, BtnKind::Primary, HyHit::NewPane, area.right());
+    let _ = model;
+    let jx = area.right().saturating_sub(1);
     // Crumb: ▌project › worktree › session
     if let Some((p, w, s)) = app.focused().and_then(|f| find(model, f)) {
         put(
@@ -720,7 +746,10 @@ fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec<Line> {
         if !linked.is_empty() {
             out.push(Line::Gap);
             out.push(Line::Label("WORKTREES"));
-            for wi in linked {
+            for (n, wi) in linked.into_iter().enumerate() {
+                if n > 0 {
+                    out.push(Line::Gap);
+                }
                 out.push(Line::Place(pi, wi));
                 for (si, s) in p.wts[wi].sessions.iter().enumerate() {
                     out.push(Line::Sess(pi, wi, si));
@@ -728,6 +757,7 @@ fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec<Line> {
                 }
             }
         }
+        out.push(Line::Gap);
         out.push(Line::Gap);
     }
     out.push(Line::OpenProject);
@@ -749,6 +779,22 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     let lines = side_lines(app, model, t);
     let focus = app.focused();
     let split = app.hy.pair.map(|(a, b)| if Some(a) == focus { b } else { a });
+    // + New and Jump, where you'll see them.
+    let nk = k(app, &Action::NewPane);
+    let jk = k(app, &Action::Jump);
+    let needs = model.iter().flat_map(|p| p.sessions()).filter(|s| s.status == Status::Blocked).count();
+    let bx = btn(app, buf, r.x + 2, r.y + 1, "+ New", &nk, BtnKind::Primary, HyHit::NewPane, r.right());
+    let jlabel = if needs > 0 { format!("Jump ●{needs}") } else { "Jump".to_string() };
+    let jb = button(t, &jlabel, &jk, BtnKind::Normal, false);
+    let jr = Rect { x: bx + 1, y: r.y + 1, width: segs_width(&jb), height: 1 };
+    let jb: Vec<Seg> = if needs > 0 {
+        jb.into_iter().map(|(x, st)| (x, st.bg(t.blocked).fg(t.bg))).collect()
+    } else {
+        button(t, &jlabel, &jk, BtnKind::Normal, hovered(app, jr))
+    };
+    put(buf, jr.x, jr.y, &jb, r.right());
+    hit(app, jr, HyHit::Jump);
+    let r = Rect { y: r.y + 3, height: r.height.saturating_sub(3), ..r };
     let list_h = r.height.saturating_sub(3) as usize;
     // Keep the focused (or cursor) row in view when it changes; otherwise the wheel rules.
     let mut scroll = app.hy.side_scroll as usize;
@@ -992,19 +1038,23 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
     match pair {
         Some((a, b)) => {
             let stack = area.width < 140 - side_w(140);
+            let ratio = app.hy.saved.split.unwrap_or(0.5).clamp(0.2, 0.8);
             let (ra, rb, div) = if stack {
-                let h = area.height / 2;
+                let h = (area.height as f32 * ratio) as u16;
                 (Rect { height: h, ..area }, Rect { y: area.y + h + 1, height: area.height - h - 1, ..area }, Rect { y: area.y + h, height: 1, ..area })
             } else {
-                let lw = area.width / 2;
+                let lw = (area.width as f32 * ratio) as u16;
                 (Rect { width: lw, ..area }, Rect { x: area.x + lw + 1, width: area.width - lw - 1, ..area }, Rect { x: area.x + lw, width: 1, ..area })
             };
+            app.hy.split_rect = Some((area, stack));
+            let c = if app.hy.drag == Some(Drag::Split) || hovered(app, div) { t.accent } else { t.line };
             let buf = f.buffer_mut();
             for yy in div.top()..div.bottom() {
                 for xx in div.left()..div.right() {
-                    buf[(xx, yy)].set_symbol(if stack { "─" } else { "│" }).set_style(Style::default().fg(t.line).bg(t.bg));
+                    buf[(xx, yy)].set_symbol(if stack { "─" } else { "│" }).set_style(Style::default().fg(c).bg(t.bg));
                 }
             }
+            hit(app, div, HyHit::SplitEdge);
             draw_session(app, f, ra, a, a == focus, true, model, t);
             draw_session(app, f, rb, b, b == focus, true, model, t);
         }
@@ -1064,6 +1114,7 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
     let foot = 0;
     let bot = r.bottom().saturating_sub(foot + if ask { 2 } else { 0 });
     let top = r.y + bar as u16;
+    let _ = top;
     let inner = Rect { x: r.x + 2, y: top, width: r.width.saturating_sub(3), height: bot.saturating_sub(top) };
     app.panes.push((term, inner));
     app.hits.push((inner, Hit::Pane(term)));
@@ -1993,18 +2044,27 @@ pub(super) fn draw_splash(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
     ];
     let total: u16 = btns.iter().map(|(l, k, kind, _)| segs_width(&button(t, l, k, *kind, false))).sum::<u16>() + 3 * 3;
     let mut x = center(total);
-    for (l, key, kind, c) in btns {
+    let sel = app.hy.splash_sel.min(3);
+    for (i, (l, key, _, c)) in btns.into_iter().enumerate() {
+        // The selected button is the bright one; arrows, Tab and the mouse move it.
+        let kind = if i == sel { BtnKind::Primary } else { BtnKind::Normal };
         let b = button(t, l, key, kind, false);
         let br = Rect { x, y, width: segs_width(&b), height: 1 };
-        let b = if kind == BtnKind::Ghost && !hovered(app, br) {
-            b.into_iter().map(|(s, st)| (s, st.bg(t.card))).collect()
-        } else {
-            button(t, l, key, kind, hovered(app, br))
-        };
+        let b = button(t, l, key, kind, hovered(app, br));
         put(f.buffer_mut(), x, y, &b, area.right());
+        if i == sel {
+            put(f.buffer_mut(), x, y + 1, &[seg("▔".repeat(br.width as usize), Style::default().fg(t.accent).bg(t.bg))], area.right());
+        }
         hit(app, br, HyHit::SplashKey(c));
         x += br.width + 3;
     }
+    put(
+        f.buffer_mut(),
+        center(44),
+        y + 3,
+        &[seg("←→ choose   Enter open   or press a button's key", Style::default().fg(t.muted).bg(t.bg))],
+        area.right(),
+    );
     // Status line: version and where you were.
     let sy = area.bottom().saturating_sub(1);
     let buf = f.buffer_mut();
@@ -2197,6 +2257,19 @@ impl App {
                 }
             }
             Action::SideMove(d) => self.hy_side_move(*d),
+            Action::Resize(d) => {
+                use crate::layout::Dir;
+                let grow = matches!(d, Dir::Right | Dir::Down);
+                if self.hy.pair.is_some() {
+                    let r = self.hy.saved.split.unwrap_or(0.5) + if grow { 0.05 } else { -0.05 };
+                    self.hy.saved.split = Some(r.clamp(0.2, 0.8));
+                } else {
+                    let w = self.hy.saved.side_w.unwrap_or(self.hy.side_rect.width.max(SIDE_MIN));
+                    let w = if grow { w + 2 } else { w.saturating_sub(2) };
+                    self.hy.saved.side_w = Some(w.clamp(SIDE_MIN, SIDE_MAX));
+                }
+                self.hy.save();
+            }
             Action::Ideas => self.open_ideas(),
             Action::Map => self.open_map(),
             Action::Inbox => self.open_tickets(),
@@ -2421,16 +2494,25 @@ impl App {
         self.mode = Mode::HyPane(np);
     }
 
-    /// Keys on the splash: its buttons' keys; anything else goes on to the app.
+    /// Keys on the splash: move between its buttons, Enter picks one, or a button's own key.
+    /// Nothing else leaves it.
     pub(super) fn on_hy_splash_key(&mut self, k: &KeyEvent) {
-        self.splash = false;
-        if let KeyCode::Char(c) = k.code {
-            self.hy_splash_action(c);
+        const KEYS: [char; 4] = ['\n', 'j', 'o', ','];
+        match k.code {
+            KeyCode::Left | KeyCode::Up | KeyCode::BackTab => self.hy.splash_sel = (self.hy.splash_sel + 3) % 4,
+            KeyCode::Right | KeyCode::Down | KeyCode::Tab => self.hy.splash_sel = (self.hy.splash_sel + 1) % 4,
+            KeyCode::Enter => {
+                let c = KEYS[self.hy.splash_sel.min(3)];
+                self.hy_splash_action(c);
+            }
+            KeyCode::Char(c @ ('j' | 'o' | ',' | '?')) => self.hy_splash_action(c),
+            _ => {}
         }
     }
 
     fn hy_splash_action(&mut self, c: char) {
         self.splash = false;
+        self.hy.splash_sel = 0;
         match c {
             'j' => self.mode = Mode::Jump { sel: 0 },
             'o' => self.hy_open_finder(),
@@ -2620,6 +2702,9 @@ impl App {
                 }
             }
             HyHit::RaceOpen(id) => self.open_race(id),
+            HyHit::MenuPick(i) => self.menu_pick(i),
+            HyHit::SideEdge => self.hy.drag = Some(Drag::Side),
+            HyHit::SplitEdge => self.hy.drag = Some(Drag::Split),
             HyHit::MapNode(i) => {
                 if let Some(super::View::Map(v)) = &mut self.view {
                     let again = v.sel == i;

@@ -582,6 +582,8 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("left", "focus-left"),
     ("right", "focus-right"),
     ("z", "zoom"),
+    ("H", "resize-left"),
+    ("L", "resize-right"),
     ("[", "copy-mode"),
     ("/", "search"),
     ("pageup", "scroll-up"),

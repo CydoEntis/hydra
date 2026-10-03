@@ -122,6 +122,9 @@ enum Cmd {
     },
     /// Show a desktop notification and play the needs-you and done sounds, to check them.
     TestAlert,
+    /// Debugging: print the colours a pane's program draws.
+    #[command(hide = true)]
+    DebugColors { pane: u32 },
     /// Run as an MCP server (stdio) so agents can see and steer the others.
     /// `hydra integrate mcp` registers it with Claude Code.
     Mcp,
@@ -188,6 +191,7 @@ fn main() {
         Some(Cmd::WorktreeRemove { ws, force }) => cli::worktree_remove(ws, force),
         Some(Cmd::KillServer { forget }) => cli::kill_server(forget),
         Some(Cmd::Mcp) => mcp::run(),
+        Some(Cmd::DebugColors { pane }) => cli::debug_colors(pane),
         Some(Cmd::Sync { action, name }) => sync::command(action.as_deref(), name.as_deref()),
         Some(Cmd::TestAlert) => {
             let (cfg, _) = config::Config::load_or_default();
