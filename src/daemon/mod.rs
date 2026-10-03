@@ -605,6 +605,17 @@ impl Daemon {
                 if let Some(text) = t.parser.callbacks_mut().copied.take() {
                     self.broadcast(|c| c.attach, ServerMsg::Clipboard { term: tid, text });
                 }
+                // A bell from a pane you aren't looking at marks it until you do.
+                if self.terms.get_mut(&tid).is_some_and(|t| std::mem::take(&mut t.parser.callbacks_mut().rang)) {
+                    let seen = self.focused_term() == Some(tid) && self.has_viewer();
+                    if let Some(t) = self.terms.get_mut(&tid)
+                        && !seen
+                        && !t.bell
+                    {
+                        t.bell = true;
+                        self.dirty = true;
+                    }
+                }
                 self.broadcast(|c| c.attach, ServerMsg::Output { term: tid, data });
             }
             Ev::Exited(tid) => {
@@ -1237,6 +1248,7 @@ impl Daemon {
                     model: t.model.clone(),
                     dev: t.dev.as_ref().map(|(d, _)| d.clone()),
                     mem: t.mem,
+                    bell: t.bell,
                     said: t.said.clone(),
                     branch: t.head.as_ref().map(|h| h.branch.clone()),
                     linked: t.head.as_ref().is_some_and(|h| h.linked),
@@ -1546,12 +1558,18 @@ impl Daemon {
                 if self.terms.get(&term).is_some_and(|t| t.status == Status::Done) {
                     self.set_status(term, Status::Idle);
                 }
+                if let Some(t) = self.terms.get_mut(&term) {
+                    t.bell = false;
+                }
             }
             Command::FocusPane { term } if self.terms.get(&term).is_some_and(|t| t.asleep) => {
                 self.wake(term);
             }
             Command::FocusPane { term } => {
                 let (ws, tab) = self.locate(term).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?;
+                if let Some(t) = self.terms.get_mut(&term) {
+                    t.bell = false;
+                }
                 let w = self.ws_mut(ws)?;
                 w.active_tab = tab;
                 w.is_new = false;

@@ -18,12 +18,18 @@ pub struct Callbacks {
     pub title_changed: bool,
     /// Text the program copied (OSC 52), waiting to go to the user's clipboard.
     pub copied: Option<String>,
+    /// The program rang the bell.
+    pub rang: bool,
 }
 
 impl vt100::Callbacks for Callbacks {
     fn set_window_title(&mut self, _: &mut vt100::Screen, title: &[u8]) {
         self.title = String::from_utf8_lossy(title).trim().to_string();
         self.title_changed = true;
+    }
+
+    fn audible_bell(&mut self, _: &mut vt100::Screen) {
+        self.rang = true;
     }
 
     fn copy_to_clipboard(&mut self, _: &mut vt100::Screen, _ty: &[u8], data: &[u8]) {
@@ -123,6 +129,8 @@ pub struct Term {
     pub spare: bool,
     /// Memory used by what runs in it (bytes), from the process scan.
     pub mem: u64,
+    /// It rang the bell while you weren't looking at it.
+    pub bell: bool,
     /// Running a checkout's dev server: its info and what "ready" looks like.
     pub dev: Option<(crate::protocol::DevInfo, Option<regex::Regex>)>,
     /// The name given in the agent (/rename), its first prompt, and its model.
@@ -406,6 +414,7 @@ impl Term {
             dev: None,
             spare: false,
             mem: 0,
+            bell: false,
             name: String::new(),
             first_prompt: String::new(),
             model: String::new(),

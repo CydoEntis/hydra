@@ -205,6 +205,8 @@ pub(super) struct Session {
     pub model: String,
     /// A dev server, not an agent or a shell.
     pub dev: Option<crate::protocol::DevInfo>,
+    /// It rang the bell and you haven't looked.
+    pub bell: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -389,6 +391,7 @@ impl App {
                     asleep: t.asleep,
                     subagents: t.subagents.clone(),
                     dev: t.dev.clone(),
+                    bell: t.bell,
                     latest: if t.agent.is_some() && !t.name.trim().is_empty() && t.name.trim() != t.summary.trim() { t.summary.trim().to_string() } else { String::new() },
                     model: t.model.clone(),
                 });
@@ -585,6 +588,7 @@ pub(super) enum HyHit {
     FindRow(usize),
     BranchRow(usize),
     MemRow(usize),
+    HistRow(usize),
     BranchChoice(usize),
 }
 
@@ -982,6 +986,7 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 };
                 let (gl, gc) = match &s.dev {
                     Some(d) => ("▶".to_string(), if d.ready { t.done } else { t.muted }),
+                    None if s.bell && s.status != Status::Blocked => ("♪".to_string(), t.blocked),
                     None => (gl, gc),
                 };
                 let mut gs = st.fg(ink.unwrap_or(gc));
@@ -1717,6 +1722,52 @@ pub(super) fn memory_rows(app: &App) -> Vec<(TermId, String, String, u64, bool)>
         .collect();
     v.sort_by_key(|r| std::cmp::Reverse(r.3));
     v
+}
+
+pub(super) fn draw_history(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, sel: usize) {
+    let items: Vec<(u64, Option<TermId>, char, String)> = app.history.iter().rev().cloned().collect();
+    let buf = f.buffer_mut();
+    dim_all(buf, area, t);
+    let h = (items.len() as u16 + 7).clamp(10, area.height.saturating_sub(4));
+    let r = panel(app, buf, area, 104, h, "What happened", &[], t);
+    let c = Style::default().bg(t.card);
+    let list = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: r.height.saturating_sub(5) };
+    if items.is_empty() {
+        put(buf, list.x + 2, list.y, &[seg("nothing yet: agents finishing, asking and ringing show up here", c.fg(t.muted))], list.right());
+    }
+    let start = sel.saturating_sub(list.height.saturating_sub(1) as usize);
+    for (i, (at, term, kind, text)) in items.iter().enumerate().skip(start).take(list.height as usize) {
+        let y = list.y + (i - start) as u16;
+        let row = Rect { y, height: 1, ..list };
+        let on = i == sel;
+        let bg = if on || hovered(app, row) { t.hov } else { t.card };
+        fill(buf, row, bg);
+        let st = Style::default().bg(bg);
+        if on {
+            put(buf, row.x, y, &[seg(">", st.fg(t.accent).add_modifier(Modifier::BOLD))], row.right());
+        }
+        let (g, gc) = match kind {
+            '!' => ("●", t.blocked),
+            '✓' => ("✓", t.done),
+            '♪' => ("♪", t.blocked),
+            'x' => ("✕", t.err),
+            _ => ("·", t.muted),
+        };
+        let gone = term.is_some_and(|tm| !app.snap.terms.contains_key(&tm));
+        put(
+            buf,
+            row.x + 2,
+            y,
+            &[
+                seg(format!("{:>4}  ", age(*at)), st.fg(t.muted)),
+                seg(format!("{g} "), st.fg(gc).add_modifier(Modifier::BOLD)),
+                seg(truncate(text, (row.width as usize).saturating_sub(18)), st.fg(if gone { t.muted } else { t.text })),
+            ],
+            row.right() - 1,
+        );
+        hit(app, row, HyHit::HistRow(i));
+    }
+    put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("Enter", "go to it"), ("c", "clear"), ("Esc", "close")]), r.right() - 1);
 }
 
 pub(super) fn mb(bytes: u64) -> String {
@@ -2796,6 +2847,30 @@ impl App {
         }
     }
 
+    pub(super) fn on_history_key(&mut self, sel: usize, k: &KeyEvent) {
+        let n = self.history.len();
+        match k.code {
+            KeyCode::Esc => self.mode = Mode::Normal,
+            KeyCode::Down => self.mode = Mode::History { sel: (sel + 1).min(n.saturating_sub(1)) },
+            KeyCode::Up => self.mode = Mode::History { sel: sel.saturating_sub(1) },
+            KeyCode::Char('c') => {
+                self.history.clear();
+                self.mode = Mode::History { sel: 0 };
+            }
+            KeyCode::Enter => {
+                let term = self.history.iter().rev().nth(sel).and_then(|h| h.1);
+                match term.filter(|t| self.snap.terms.contains_key(t)) {
+                    Some(t) => {
+                        self.mode = Mode::Normal;
+                        self.hy_focus(t);
+                    }
+                    None => self.mode = Mode::History { sel },
+                }
+            }
+            _ => self.mode = Mode::History { sel },
+        }
+    }
+
     pub(super) fn on_memory_key(&mut self, sel: usize, k: &KeyEvent) {
         let rows = memory_rows(self);
         let n = rows.len();
@@ -3196,6 +3271,15 @@ impl App {
             }
             HyHit::RaceOpen(id) => self.open_race(id),
             HyHit::MenuPick(i) => self.menu_pick(i),
+            HyHit::HistRow(i) => {
+                if let Mode::History { sel } = &mut self.mode {
+                    let again = *sel == i;
+                    *sel = i;
+                    if again || double {
+                        self.on_history_key(i, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    }
+                }
+            }
             HyHit::MemRow(i) => {
                 if let Mode::Memory { sel } = &mut self.mode {
                     let again = *sel == i;

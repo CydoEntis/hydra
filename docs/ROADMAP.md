@@ -27,4 +27,4 @@ Ticked when built, tested and pushed (dev branch).
 - [ ] Extensions: a manifest plus commands; palette entries, sidebar labels, lifecycle hooks.
 - [ ] Real tabs and any number of splits in the hydra layout.
 - [x] Memory view: RAM per agent.
-- [ ] Extras: notification history, `hydra doctor`, more agent types (Cursor, OpenCode, Grok, …), BEL tracking.
+- [x] Extras: notification history, `hydra doctor`, more agent types (Cursor, OpenCode, Grok, …), BEL tracking.

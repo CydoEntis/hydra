@@ -502,9 +502,9 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             &[r"Allow command\?", r"Would you like to (run|make|apply)", r"approve this", r"Trust this folder\?", r"› 1\. Yes"],
         ), "codex resume {session}", "codex resume --last"),
         agent("gemini", &["gemini"], &["@google/gemini-cli"], &[r"esc to cancel"], &[r"Allow execution", r"Apply this change\?"]),
-        agent("opencode", &["opencode"], &["opencode-ai"], &[r"esc interrupt"], &[r"Permission required"]),
+        resumable(agent("opencode", &["opencode"], &["opencode-ai"], &[r"esc interrupt"], &[r"Permission required"]), "opencode --session {session}", "opencode --continue"),
         agent("cursor", &["cursor-agent"], &[], &[r"ctrl\+c to stop"], &[r"Run this command\?"]),
-        agent("copilot", &["copilot"], &["@github/copilot"], &[r"esc to cancel"], &[r"Do you want to"]),
+        resumable(agent("copilot", &["copilot"], &["@github/copilot"], &[r"esc to cancel"], &[r"Do you want to"]), "copilot --resume {session}", "copilot --continue"),
         agent("amp", &["amp"], &["@sourcegraph/amp"], &[r"esc to cancel"], &[r"Allow\?"]),
         agent("qwen", &["qwen"], &["@qwen-code/qwen-code"], &[r"esc to cancel"], &[r"Allow execution"]),
         agent("aider", &["aider"], &["aider-chat", "\\aider", "/aider"], &[], &[r"\(Y\)es/\(N\)o"]),
@@ -513,6 +513,9 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         agent("droid", &["droid"], &[], &[], &[]),
         agent("pi", &["pi"], &["@mariozechner/pi"], &[], &[]),
         agent("kiro", &["kiro-cli", "q"], &[], &[], &[]),
+        agent("grok", &["grok"], &["@vibe-kit/grok-cli", "grok-cli"], &[r"esc to interrupt"], &[r"Do you want to"]),
+        agent("auggie", &["auggie"], &["@augmentcode/auggie"], &[], &[]),
+        agent("kimi", &["kimi"], &["kimi-cli"], &[], &[]),
     ]
 }
 

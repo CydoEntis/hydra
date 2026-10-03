@@ -269,6 +269,8 @@ pub enum Action {
     Branches,
     /// Memory used by each session.
     Memory,
+    /// What happened lately: who finished, who asked, bells, messages.
+    History,
     /// Move the sidebar cursor (-1 up, 1 down); bare keys then work on the sidebar.
     SideMove(i8),
     Detach,
@@ -365,6 +367,7 @@ impl Action {
             Action::Presets => "run a preset".into(),
             Action::Branches => "switch branch".into(),
             Action::Memory => "memory per session".into(),
+            Action::History => "notification history".into(),
             Action::Find(0) => "find a file".into(),
             Action::Find(_) => "search the code".into(),
             Action::SideMove(d) if *d < 0 => "sidebar up".into(),
@@ -450,6 +453,7 @@ impl Action {
             Action::Presets => "presets".into(),
             Action::Branches => "switch-branch".into(),
             Action::Memory => "memory".into(),
+            Action::History => "history".into(),
             Action::Find(0) => "find-file".into(),
             Action::Find(_) => "search-code".into(),
             Action::SideMove(d) if *d < 0 => "side-up".into(),
@@ -561,6 +565,7 @@ impl FromStr for Action {
             "presets" => Action::Presets,
             "switch-branch" => Action::Branches,
             "memory" => Action::Memory,
+            "history" => Action::History,
             "find-file" => Action::Find(0),
             "search-code" => Action::Find(1),
             "side-up" => Action::SideMove(-1),
@@ -628,6 +633,7 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     (".", "presets"),
     ("g", "switch-branch"),
     ("U", "memory"),
+    ("N", "history"),
     ("G", "search-code"),
     ("ctrl+v", "paste-image"),
     ("f", "files"),

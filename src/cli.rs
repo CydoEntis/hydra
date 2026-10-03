@@ -66,7 +66,7 @@ pub fn ls(as_json: bool) -> Result<()> {
                     "tabs": w.tabs.iter().map(|t| json!({
                         "id": t.id, "name": t.name, "active": t.id == w.active_tab, "focus": t.focus,
                         "panes": t.layout.leaves().iter().filter_map(|id| snap.terms.get(id)).map(|p| json!({
-                            "id": p.id, "process": p.process, "title": p.title, "agent": p.agent, "asleep": p.asleep, "win32_input": p.win32_input, "dev": p.dev, "model": p.model, "name": p.name, "mem_mb": p.mem >> 20,
+                            "id": p.id, "process": p.process, "title": p.title, "agent": p.agent, "asleep": p.asleep, "win32_input": p.win32_input, "dev": p.dev, "model": p.model, "name": p.name, "mem_mb": p.mem >> 20, "bell": p.bell,
                             "status": p.status.label(), "cols": p.cols, "rows": p.rows, "cwd": p.cwd,
                         })).collect::<Vec<_>>(),
                     })).collect::<Vec<_>>(),
@@ -322,6 +322,117 @@ fn resolve_ws(ws: Option<WsId>) -> Result<WsId> {
 pub fn worktree(branch: String, base: Option<String>, ws: Option<WsId>, cmd: Vec<String>) -> Result<()> {
     let ws = resolve_ws(ws)?;
     command(Command::NewWorktree { ws, branch, base, cmd: join_command(cmd), split: None, from: None })
+}
+
+/// `hydra doctor`: each thing hydra relies on, ✓ or what to do about it.
+pub fn doctor() -> Result<()> {
+    let mut bad = 0;
+    let mut line = |ok: Option<bool>, what: &str, detail: String| {
+        let mark = match ok {
+            Some(true) => "\x1b[32m✓\x1b[0m",
+            Some(false) => {
+                bad += 1;
+                "\x1b[31m✕\x1b[0m"
+            }
+            None => "\x1b[33m·\x1b[0m",
+        };
+        println!(" {mark} {what:<22} {detail}");
+    };
+    let run = |cmd: &str, args: &[&str]| -> Option<String> {
+        let mut c = std::process::Command::new(cmd);
+        c.args(args);
+        let out = c.output().ok().filter(|o| o.status.success())?;
+        Some(String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or("").trim().to_string())
+    };
+    let on_path = |name: &str| -> Option<String> {
+        let names = if cfg!(windows) { vec![format!("{name}.exe"), format!("{name}.cmd"), format!("{name}.ps1"), name.to_string()] } else { vec![name.to_string()] };
+        std::env::var_os("PATH").and_then(|p| {
+            std::env::split_paths(&p).find_map(|d| names.iter().map(|n| d.join(n)).find(|f| f.is_file()).map(|f| f.display().to_string()))
+        })
+    };
+
+    println!("hydra {}  (protocol {})\n", env!("CARGO_PKG_VERSION"), PROTOCOL_VERSION);
+
+    // Config
+    let path = crate::config::config_path();
+    match crate::config::Config::load() {
+        Ok(_) if path.exists() => line(Some(true), "config", path.display().to_string()),
+        Ok(_) => line(None, "config", format!("none yet (defaults); `hydra config init` writes one at {}", path.display())),
+        Err(e) => line(Some(false), "config", format!("{e:#}  ({})", path.display())),
+    }
+    let (cfg, _) = crate::config::Config::load_or_default();
+
+    // Server
+    let server = block_on(async { ipc::open(false).await });
+    match server {
+        Ok(_) => line(Some(true), "server", format!("running ({})", ipc::socket_id())),
+        Err(e) if format!("{e:#}").contains("protocol") => {
+            line(Some(false), "server", format!("{e:#}"));
+            println!("{:27}fix: close hydra, `hydra kill-server`, start it again", "");
+        }
+        Err(_) => line(None, "server", "not running (it starts with `hydra`)".into()),
+    }
+
+    // Tools
+    match run("git", &["--version"]) {
+        Some(v) => line(Some(true), "git", v),
+        None => line(Some(false), "git", "not found; worktrees, Changes and branches need it".into()),
+    }
+    match run("gh", &["--version"]) {
+        Some(v) => line(Some(true), "gh (GitHub CLI)", v),
+        None => line(None, "gh (GitHub CLI)", "not found; PRs and GitHub issues use it (optional)".into()),
+    }
+    let shell = cfg.shell_command();
+    let shell_ok = on_path(&shell[0]).is_some() || std::path::Path::new(&shell[0]).is_file();
+    line(Some(shell_ok), "shell", shell.join(" "));
+
+    // Agents
+    let mut found = Vec::new();
+    for a in ["claude", "codex", "gemini", "opencode", "cursor-agent", "copilot", "amp", "qwen", "aider", "grok", "auggie", "kimi"] {
+        if on_path(a).is_some() {
+            found.push(a);
+        }
+    }
+    line(Some(!found.is_empty()), "agents on PATH", if found.is_empty() { "none found (claude, codex, gemini, …)".into() } else { found.join(", ") });
+
+    // Claude: hooks and MCP
+    if found.contains(&"claude") {
+        let dir = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().join(".claude"))).unwrap_or_default();
+        let settings = std::fs::read_to_string(dir.join("settings.json")).unwrap_or_default();
+        let hooked = settings.contains("hook claude");
+        line(Some(hooked), "claude status hooks", if hooked { "installed".into() } else { "missing: `hydra integrate claude` (exact working / needs-you / done)".into() });
+        let home = directories::BaseDirs::new().map(|d| d.home_dir().join(".claude.json"));
+        let mcp = home.and_then(|p| std::fs::read_to_string(p).ok()).is_some_and(|s| s.contains("\"hydra\"") && s.contains("\"mcp\""));
+        line(if mcp { Some(true) } else { None }, "hydra MCP for claude", if mcp { "registered".into() } else { "not set up: `hydra integrate mcp` lets agents see each other (optional)".into() });
+    }
+
+    // Terminal
+    let term = std::env::var("TERM_PROGRAM").or_else(|_| std::env::var("TERM")).unwrap_or_else(|_| if std::env::var("WT_SESSION").is_ok() { "Windows Terminal".into() } else { "unknown".into() });
+    let truecolor = std::env::var("COLORTERM").is_ok_and(|c| c.contains("truecolor") || c.contains("24bit")) || std::env::var("WT_SESSION").is_ok();
+    line(if truecolor { Some(true) } else { None }, "terminal", format!("{term}{}", if truecolor { ", true colour" } else { " (colours may look off without true colour)" }));
+    if let Ok((w, h)) = crossterm::terminal::size() {
+        line(Some(w >= 100 && h >= 30), "window size", format!("{w}×{h}{}", if w < 100 || h < 30 { " (hydra wants at least 100×30)" } else { "" }));
+    }
+
+    // Data and sync
+    let data = crate::config::data_dir();
+    let writable = std::fs::create_dir_all(&data).is_ok() && std::fs::write(data.join(".doctor"), b"ok").is_ok();
+    let _ = std::fs::remove_file(data.join(".doctor"));
+    line(Some(writable), "data folder", data.display().to_string());
+    line(None, "sync", if crate::sync::enabled() { format!("on ({})", crate::sync::dir().display()) } else { "off (`hydra sync setup` shares config and ideas)".into() });
+    if let Some(ed) = Some(cfg.editor.clone()).filter(|e| !e.is_empty()).or_else(|| std::env::var("VISUAL").ok()).or_else(|| std::env::var("EDITOR").ok()) {
+        line(Some(true), "editor", ed);
+    } else {
+        line(None, "editor", "none set (editor = \"code\" in config, or $EDITOR)".into());
+    }
+
+    println!();
+    if bad == 0 {
+        println!("All good.");
+    } else {
+        println!("{bad} thing(s) to fix above.");
+    }
+    Ok(())
 }
 
 /// `hydra dev [start|stop|restart]`: this checkout's dev server.

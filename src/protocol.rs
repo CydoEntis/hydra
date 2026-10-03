@@ -292,6 +292,9 @@ pub struct TermInfo {
     /// Memory used by what runs in it (bytes).
     #[serde(default)]
     pub mem: u64,
+    /// It rang the bell and you haven't looked yet.
+    #[serde(default)]
+    pub bell: bool,
     /// The agent's last message, if hooks reported it.
     pub said: String,
     /// The git branch the pane is on, if it's in a repo.

@@ -89,6 +89,8 @@ enum Mode {
     Branch(Box<branch::BranchView>),
     /// Memory per session (the selected row).
     Memory { sel: usize },
+    /// Notification history (the selected row, newest first).
+    History { sel: usize },
 }
 
 /// The ship confirm: the branch and what shipping it will do.
@@ -358,6 +360,9 @@ pub struct App {
     theme: Theme,
     keymap: Keymap,
     notice: Option<(String, Instant, bool)>,
+    /// What happened lately, newest last: (unix secs, pane, kind, text). Kinds: '!' needs
+    /// you, '✓' finished, '♪' bell, 'i' a message, 'x' an error.
+    pub(super) history: std::collections::VecDeque<(u64, Option<TermId>, char, String)>,
     snap: Snapshot,
     got_state: bool,
     parsers: HashMap<TermId, vt100::Parser>,
@@ -479,6 +484,7 @@ impl App {
             keymap,
             cfg,
             notice: None,
+            history: Default::default(),
             snap: Snapshot::default(),
             got_state: false,
             parsers: HashMap::new(),
@@ -598,8 +604,49 @@ impl App {
     }
 
     fn notify(&mut self, msg: String, error: bool) {
+        self.remember(None, if error { 'x' } else { 'i' }, msg.clone());
         self.notice = Some((msg, Instant::now(), error));
         self.dirty = true;
+    }
+
+    /// Add to the notification history (Ctrl+Space N).
+    pub(super) fn remember(&mut self, term: Option<TermId>, kind: char, text: String) {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        // The same thing twice in a row is one entry.
+        if self.history.back().is_some_and(|(_, t, k, x)| *t == term && *k == kind && *x == text) {
+            return;
+        }
+        self.history.push_back((now, term, kind, text));
+        while self.history.len() > 300 {
+            self.history.pop_front();
+        }
+    }
+
+    /// Note what changed between two states: agents that now need you or finished, bells.
+    fn remember_changes(&mut self, new: &crate::protocol::Snapshot) {
+        let mut events = Vec::new();
+        for (id, t) in &new.terms {
+            let old = self.snap.terms.get(id);
+            let name = t.display_name();
+            let place = t.top.as_ref().or(t.root.as_ref()).and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let who = if place.is_empty() { name } else { format!("{name} in {place}") };
+            if old.is_some_and(|o| o.status != t.status) {
+                match t.status {
+                    Status::Blocked => events.push((*id, '!', format!("{who} needs you"))),
+                    Status::Done => {
+                        let said = t.said.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
+                        events.push((*id, '✓', if said.is_empty() { format!("{who} finished") } else { format!("{who} finished: {said}") }));
+                    }
+                    _ => {}
+                }
+            }
+            if t.bell && !old.is_some_and(|o| o.bell) {
+                events.push((*id, '♪', format!("{who} rang the bell")));
+            }
+        }
+        for (id, k, text) in events {
+            self.remember(Some(id), k, text);
+        }
     }
 
     fn send(&self, msg: ClientMsg) {
@@ -697,6 +744,9 @@ impl App {
                 }
                 let first = !self.got_state;
                 self.got_state = true;
+                if !first {
+                    self.remember_changes(&s);
+                }
                 self.snap = s;
                 if first {
                     self.on_first_state();
@@ -921,6 +971,7 @@ impl App {
             Mode::Find(v) => self.on_find_key(*v, &k),
             Mode::Branch(v) => self.on_branch_key(*v, &k),
             Mode::Memory { sel } => self.on_memory_key(sel, &k),
+            Mode::History { sel } => self.on_history_key(sel, &k),
             Mode::Ship(ask) => {
                 self.mode = Mode::Normal;
                 if k.code == KeyCode::Enter {
@@ -1758,6 +1809,7 @@ impl App {
             Action::Presets => self.hy_presets(),
             Action::Branches => self.open_branches(None),
             Action::Memory => self.mode = Mode::Memory { sel: 0 },
+            Action::History => self.mode = Mode::History { sel: 0 },
             Action::PullRequest => {
                 if let Some(dir) = self.target_path()
                     && let Some(h) = crate::gitfs::head(&dir)
@@ -2063,7 +2115,7 @@ impl App {
             .snap
             .terms
             .values()
-            .filter(|t| matches!(t.status, Status::Blocked | Status::Done))
+            .filter(|t| matches!(t.status, Status::Blocked | Status::Done) || t.bell)
             .collect();
         if waiting.is_empty() {
             self.notify("no agent is waiting on you".into(), false);
@@ -4068,6 +4120,7 @@ mod design_tests {
             model: String::new(),
             dev: None,
             mem: 0,
+            bell: false,
             id,
             cols: 80,
             rows: 20,
@@ -4735,6 +4788,28 @@ mod hydra_tests {
         let rows = super::hydra::memory_rows(&app);
         assert!(rows.windows(2).all(|w| w[0].3 >= w[1].3), "biggest first");
         assert!(o.contains("Memory ·") && o.contains("in all") && o.contains("MB"));
+    }
+
+    #[test]
+    fn history_keeps_who_finished_asked_and_rang() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let mut next = app.snap.clone();
+        let (a, b) = {
+            let mut ids = next.terms.iter().filter(|(_, t)| t.status != Status::Done).map(|(id, _)| *id);
+            (ids.next().unwrap(), ids.next().unwrap())
+        };
+        next.terms.get_mut(&a).unwrap().status = Status::Done;
+        next.terms.get_mut(&a).unwrap().said = "Fixed it.\nMore".into();
+        next.terms.get_mut(&b).unwrap().bell = true;
+        app.got_state = true;
+        app.on_server(ServerMsg::State(next));
+        let texts: Vec<&str> = app.history.iter().map(|h| h.3.as_str()).collect();
+        assert!(texts.iter().any(|t| t.ends_with("finished: Fixed it.")), "{texts:?}");
+        assert!(texts.iter().any(|t| t.ends_with("rang the bell")), "{texts:?}");
+        app.act(Action::History);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("What happened") && o.contains("rang the bell"));
     }
 
     #[test]
