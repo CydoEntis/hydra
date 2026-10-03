@@ -24,7 +24,6 @@ use tokio::sync::mpsc;
 
 type ClientId = u64;
 
-#[allow(clippy::large_enum_variant)]
 pub enum Ev {
     Connected(ClientId, mpsc::UnboundedSender<ServerMsg>, bool),
     Msg(ClientId, ClientMsg),

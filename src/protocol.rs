@@ -16,6 +16,7 @@ pub type WsId = u32;
 pub type TabId = u32;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum ClientMsg {
     /// First frame of every connection. `attach` clients get replays and live output.
     Hello { version: u32, attach: bool },
