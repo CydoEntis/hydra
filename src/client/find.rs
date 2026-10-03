@@ -236,7 +236,8 @@ impl App {
 pub(super) fn draw_find(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, v: &FindView) {
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let r = panel(app, buf, area, 140, 36, &format!("Find · {}", tilde(&v.dir)), &[], t);
+    let tr = super::hydra::tool_rect(area);
+    let r = panel(app, buf, area, tr.width, tr.height, &format!("Find · {}", tilde(&v.dir)), &[], t);
     let c = Style::default().bg(t.card);
     // Tabs
     let mut x = r.x + 2;

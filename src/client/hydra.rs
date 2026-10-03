@@ -702,25 +702,19 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
     let panes = Rect { x: panes.x + 1, y: panes.y + 1, width: panes.width.saturating_sub(2), height: panes.height.saturating_sub(1) };
     draw_main(app, f, panes, &model, t);
     draw_status(app, f.buffer_mut(), Rect { y: area.bottom().saturating_sub(1), height: 1, ..area }, &model, t);
-    // Diffs and pull requests open over everything, like a tool window; Esc closes.
-    if let Some(view @ (super::View::Changes(_) | super::View::Pr(_))) = app.view.take() {
+    // Files, diffs and pull requests open over everything in one tool-window size; Esc
+    // closes.
+    if let Some(view @ (super::View::Changes(_) | super::View::Pr(_) | super::View::Files(_))) = app.view.take() {
         let buf = f.buffer_mut();
         dim_all(buf, area, t);
-        let m = Rect { x: area.x + 3, y: area.y + 1, width: area.width.saturating_sub(6), height: area.height.saturating_sub(3) };
-        fill(buf, m, t.bg);
-        let edge = Style::default().fg(t.line).bg(t.bg);
-        for x in m.left()..m.right() {
-            buf[(x, m.bottom().saturating_sub(1))].set_symbol("─").set_style(edge);
-        }
-        for y in m.top()..m.bottom() {
-            buf[(m.x, y)].set_symbol("│").set_style(edge);
-            buf[(m.right() - 1, y)].set_symbol("│").set_style(edge);
-        }
-        buf[(m.x, m.bottom() - 1)].set_symbol("└").set_style(edge);
-        buf[(m.right() - 1, m.bottom() - 1)].set_symbol("┘").set_style(edge);
+        let inner = tool_rect(area);
+        fill(buf, inner, t.bg);
         hit(app, area, HyHit::Noop);
-        let inner = Rect { x: m.x + 1, y: m.y, width: m.width.saturating_sub(2), height: m.height.saturating_sub(1) };
         match view {
+            super::View::Files(v) => {
+                super::design::draw_files(app, buf, inner, t, &v);
+                app.view = Some(super::View::Files(v));
+            }
             super::View::Changes(v) => {
                 super::design::draw_changes(app, buf, inner, t, &v);
                 app.view = Some(super::View::Changes(v));
@@ -1168,13 +1162,9 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
         let buf = f.buffer_mut();
         match view {
             // Drawn on top of everything (see draw).
-            v @ (super::View::Changes(_) | super::View::Pr(_)) => {
+            v @ (super::View::Changes(_) | super::View::Pr(_) | super::View::Files(_)) => {
                 app.view = Some(v);
                 let _ = buf;
-            }
-            super::View::Files(v) => {
-                super::design::draw_files(app, buf, area, t, &v);
-                app.view = Some(super::View::Files(v));
             }
             super::View::Map(v) => {
                 draw_map(app, buf, area, t, &v);
@@ -1182,7 +1172,7 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
             }
             other => app.view = Some(other),
         }
-        if app.view.as_ref().is_some_and(|v| !matches!(v, super::View::Changes(_) | super::View::Pr(_))) {
+        if app.view.as_ref().is_some_and(|v| !matches!(v, super::View::Changes(_) | super::View::Pr(_) | super::View::Files(_))) {
             return;
         }
     }
@@ -1492,6 +1482,13 @@ pub(super) fn dim_all(buf: &mut Buffer, area: Rect, t: &Theme) {
 
 /// A centred panel: `card` ground, accent title bar with "Esc close" on the right.
 #[allow(clippy::too_many_arguments)]
+/// The one size every tool window opens at (files, search, changes, pull requests).
+pub(super) fn tool_rect(area: Rect) -> Rect {
+    let w = area.width.saturating_sub(8).min(170);
+    let h = area.height.saturating_sub(4).min(48);
+    Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h }
+}
+
 pub(super) fn panel(app: &mut App, buf: &mut Buffer, area: Rect, w: u16, h: u16, title: &str, right: &[Seg], t: &Theme) -> Rect {
     let w = w.min(area.width.saturating_sub(2));
     let h = h.min(area.height.saturating_sub(2));
@@ -2921,7 +2918,7 @@ impl App {
                 self.hy.cursor = None;
                 self.mode = Mode::Normal;
                 match a {
-                    Action::Files => self.open_find_in(dir, 0),
+                    Action::Files => self.open_files(dir),
                     Action::Changes => self.open_changes(dir),
                     _ => match crate::gitfs::head(&dir) {
                         Some(h) => self.open_pr(h.top, h.branch),
