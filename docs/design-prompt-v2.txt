@@ -1,0 +1,56 @@
+You are designing "hydra", a terminal app (TUI) that is a cockpit for doing software work with AI coding agents (Claude Code, Codex and others). It is NOT another terminal multiplexer. Existing tools (herdr, tmux, zellij) are built around terminals and panes; hydra is built around the work itself.
+
+WHO USES IT
+A developer who runs several AI agents at once, on Windows (Windows Terminal), Linux (Omarchy / Hyprland) and macOS. Their day is: pick up a job (often a Linear ticket) -> hand it to an agent -> answer the agent's questions -> review what it changed -> ship it (commit, merge or open a PR). They also move files around constantly: generated docs, downloads, zips and screenshots that need to go into an agent's prompt.
+
+CORE IDEA: TASKS, NOT PANES
+The main thing on screen is a list of tasks (jobs), not terminals. Starting a task ("fix the flaky checkout test") automatically gives it its own git branch and working copy, starts an agent on it and tracks it. A task moves through clear stages:
+  1. working       - the agent is busy
+  2. needs you     - the agent asked a question or wants permission
+  3. ready         - the agent finished; waiting for review
+  4. shipped       - committed, merged or opened as a PR (or thrown away)
+Terminals still exist, but you open a task's terminal only when you want to look inside it.
+
+KEY SCREENS TO DESIGN
+1. Home: the task list grouped by stage, with the project each task belongs to. Must answer at a glance: what needs me, what's ready to review, what's still running.
+2. New task: one text box ("what should be done?"), with quiet options for which agent, which project and where it runs. This should feel as light as a search box.
+3. Answer inline: when an agent asks something ("Allow running npm test? 1 yes / 2 no"), show the question in the task list and let the user answer from there, without opening the terminal.
+4. Review: for a finished task, the changed files on one side and the diff of the selected file on the other, plus a test/check status. Actions: approve (commit / merge / open PR), reply (send feedback to the agent), discard. This is the screen used most; it must be calm and fast.
+5. Inside a task: the live agent terminal, with the task's name, stage and branch always visible, and a way back to Home.
+6. Files: a finder with two lists. "Recent" shows files that just appeared or changed anywhere relevant (Downloads, Desktop, the project): new docs, zips, screenshots. "Project" is a fuzzy search over the project's files. Picking a file inserts its path into the current agent prompt; other actions open it in its default app, copy its path, or preview it. Aim: never leave the app to find a file again.
+7. Inbox: everything outside the code that asks for attention, so the user never opens a browser to check: their GitHub pull requests (checks passing/failing, review requested, approved, merge conflicts), GitHub issues, and tickets from Linear or Plane assigned to them. Any item can become a task in one key (e.g. a ticket becomes "fix ABC-123" with the ticket's details handed to the agent; a PR with failing checks becomes "fix the failing checks").
+8. Toolbox: what each AI tool (Claude Code, Codex, Cursor, Gemini) is set up with, for the current project versus globally: MCP servers, skills, plugins, hooks, sub-agents and instruction files (CLAUDE.md / AGENTS.md). Show where each comes from (global, project, or a plugin), whether it's on or off, and let the user open its config file. This replaces asking the AI "what tools do you have?".
+9. First run and empty states that teach the idea in place (what a task is, how to start one).
+
+MOUSE: EVERYTHING MUST BE DOABLE WITHOUT THE KEYBOARD
+It's a terminal app, but it must be fully usable with a mouse alone (the keyboard stays the fast path). Terminals can report the mouse precisely, so design for all of these:
+- Click: every item, tab, task, file, PR and setting is clickable. Actions appear as visible text buttons (e.g. [ Approve ] [ Reply ] [ Discard ]), never only as key hints.
+- Hover: the item under the pointer highlights, and hovering a symbol or button can show a one-line explanation in a status line (so ▲ ◆ ● ○ teach themselves).
+- Right-click: a context menu on panes, tasks, files, PRs and workspaces with everything you can do to that thing.
+- Drag: resize split panes by dragging their border; reorder tabs and workspaces; drag a file from the Files list onto a pane to insert its path; drag over text to select and copy it.
+- Scroll wheel: scrolls lists, diffs and terminal history under the pointer.
+- Double-click: opens (a task into review, a file into its app, a PR in the browser).
+- A visible way into every panel (e.g. a small row of clickable entries: Tasks · Files · Inbox · Toolbox · Settings) so nothing depends on remembering a shortcut. Each button also shows its key, so mouse users learn the shortcuts over time.
+Constraints for the designer: a target is at least one row tall and three columns wide; hover and pressed states must be visible using only colour, bold or inverse; the pointer's shape can't be changed, so clickability must be obvious from the look itself.
+
+CONCEPTS TO KEEP TO A MINIMUM
+Project (a code folder or repo), Task (a job with its own branch and agent), Files, Inbox (PRs, issues, tickets) and Toolbox (each AI tool's setup). Tabs, panes and worktrees exist underneath but should only appear when the user goes looking for them.
+
+CONSTRAINTS
+- Terminal cell grid only: monospace characters, 24-bit fg/bg colour per cell, bold/dim/italic/underline, Unicode box-drawing and block characters, Nerd Font glyphs. No images, no variable font sizes.
+- Must work from 100x30 up to 300x80 cells, in Windows Terminal, Ghostty/Alacritty/kitty (Linux) and Ghostty/iTerm2 (macOS).
+- Two equal ways to drive it: one leader key (Ctrl+Space) plus a single letter for every command, and the mouse alone (see MOUSE above).
+- Agent terminals show other programs' colourful output; the app's own chrome must not clash with it.
+- Light and dark themes; colours and glyphs are user-configurable, so deliver a small design system, not one fixed skin.
+
+AVOID
+The look of herdr and other multiplexers: a left list of sessions + tabs + boxed panes as the main view. The home screen should feel like a work queue or inbox, not a terminal manager.
+
+DELIVERABLES
+1. Home (task list) at 100x30, 160x45 and 240x65.
+2. New task, answer-inline, review, inside-a-task, files, inbox and toolbox screens.
+3. First-run and empty states.
+4. Stage indicators (working / needs you / ready / shipped) that read at a glance without being noisy.
+5. Glyph set and colour roles for light and dark.
+6. Mouse behaviour for every screen: what's clickable, hover and pressed states, right-click menus, drag interactions, and the always-visible entry points to each panel.
+Draw mockups as monospace text on an exact character grid so they can be built as-is. Worth studying: lazygit (review/commit flow), k9s, btop, GitHub's PR review, Linear's inbox.

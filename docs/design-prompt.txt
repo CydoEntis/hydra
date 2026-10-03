@@ -1,0 +1,35 @@
+You are designing the interface of "hydra", a terminal app (TUI) for people who run several AI coding agents at once (Claude Code, Codex and others). It shows terminals in split panes, keeps them running when the window closes, and shows which agent needs attention.
+
+CONCEPTS (they nest)
+- Workspace: one project, with a home folder and its own colour. Switching workspace swaps the whole screen.
+- Tab: a page inside a workspace.
+- Pane: one terminal on screen. A tab can be split into many panes. Each pane knows its current folder.
+- Agent: an AI tool running in a pane. Its state is needs-you (waiting on the user), working, done (finished while unseen) or idle.
+- Worktree: a second checkout of the same git repo on another branch, so agents don't collide. It can be its own workspace.
+- Leader key: Ctrl+Space, then one letter, runs any command (e.g. q = give an agent a task, Space = search everything, M = make the current folder a workspace, W = worktrees).
+
+CURRENT SCREEN
+A left sidebar tree (repo > workspaces/worktrees > agents and shells), a top bar (current workspace, its tabs, git branch with changed-file count), the panes (tinted with the workspace colour) and a bottom dock of agent cards (status, workspace, last prompt).
+
+PROBLEM
+The main user finds it overwhelming: five concepts at once, agents listed in two places, hidden shortcuts, cryptic symbols (▲ ◆ ● ○ ±3), status messages easy to miss, no guidance on how to start, and the layout looks too much like another tool (herdr). It needs its own identity.
+
+GOAL
+A screen that explains itself. At a glance: where am I (workspace, tab, folder), what needs me, and how do I start something new. Teach worktrees and the leader key in place, not in docs.
+
+CONSTRAINTS
+- Terminal cell grid only: monospace characters, 24-bit fg/bg colour per cell, bold/dim/italic/underline, Unicode box-drawing and block characters, Nerd Font glyphs. No images or variable font sizes.
+- Must work from 100x30 up to 300x80 cells.
+- Keyboard-first, everything also clickable.
+- Panes contain other programs' colourful output; chrome must not clash.
+- Light and dark themes; colours, icons and layout are user-configurable, so deliver a system.
+- Primary target: Windows Terminal on Windows 11.
+
+DELIVERABLES
+1. Main screen at 100x30, 160x45 and 240x65.
+2. First-run empty state, and a workspace with no agents yet, both teaching the next step.
+3. Agent states, with "needs you" visible but calm.
+4. Popups: shortcut list, command palette, quick prompt, pane menu, settings, worktree picker.
+5. A decision: sidebar vs dock, one home for agents or a distinct job for each.
+6. Glyph set and colour roles (status, workspace colours, chrome) for light and dark.
+Draw mockups as monospace text on an exact character grid so they can be built as-is. Study lazygit, zellij, k9s, btop and nebula; avoid herdr's look.

@@ -1,0 +1,49 @@
+[package]
+name = "hydra"
+version = "0.1.0"
+edition = "2024"
+description = "A customizable, agent-aware terminal multiplexer (herdr-style) for Windows, macOS and Linux"
+license = "MIT"
+
+[[bin]]
+name = "hydra"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+arboard = { version = "3", default-features = false }
+bytes = "1"
+crossterm = { version = "0.29", features = ["event-stream"] }
+clap = { version = "4", features = ["derive"] }
+directories = "6"
+futures-util = { version = "0.3", features = ["sink"] }
+ignore = "0.4"
+interprocess = { version = "2", features = ["tokio"] }
+portable-pty = "0.9"
+ratatui = "0.30"
+regex = "1"
+rmp-serde = "1"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+serde_json = "1"
+sysinfo = "0.37"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+toml = "0.9"
+toml_edit = "0.23"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-width = "0.2"
+vt100 = "0.16"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# The terminal emulator and renderer are the hot path; optimise deps even in dev.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

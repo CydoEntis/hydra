@@ -1,0 +1,127 @@
+# hydra configuration
+# Location: %APPDATA%\hydra\config.toml on Windows, ~/.config/hydra/config.toml elsewhere
+# (override with HYDRA_CONFIG). Every key is optional; reload with <prefix> r.
+
+prefix = "ctrl+space"
+
+# hydra | catppuccin-mocha | catppuccin-latte | tokyo-night | gruvbox | nord | dracula | mono
+theme = "hydra"
+
+# Shell for new panes. Default: pwsh / powershell on Windows, $SHELL elsewhere.
+# shell = "pwsh.exe"
+# shell_args = ["-NoLogo"]
+
+scrollback = 10000          # lines kept per pane in the client
+replay_bytes = 2097152      # output kept per pane by the daemon, replayed on reattach
+
+# Extra environment for every pane.
+[env]
+# EDITOR = "nvim"
+
+# Any theme colour, as "#rrggbb", a 0-255 palette index, or a name.
+[theme_overrides]
+# accent = "#ff9e64"
+# working = "#e0af68"
+# blocked = "#f7768e"
+# done = "#7dcfff"
+# idle = "#9ece6a"
+# border = "#3b4261"
+# border_active = "#7aa2f7"
+# sidebar_bg = "#16161e"
+
+[ui]
+layout = "hydra"            # hydra (projects → worktrees → sessions) | workspaces | tree | dock | sidebar
+attention_sort = true       # sidebar: needs you → done → working → idle
+sidebar = true              # <leader> b
+dock = true                 # agent cards along the bottom; <leader> B
+card_width = 28
+sidebar_width = 30
+sidebar_position = "left"   # left | right
+border_style = "rounded"    # plain | rounded | double | thick
+tab_bar = true
+status_bar = true
+which_key = true
+which_key_delay_ms = 350
+mouse = true
+pane_status = true
+# spinner = []              # empty = static icons.working
+workspace_tint = 0.10       # background wash in the workspace's colour (0 = off)
+workspace_colors = ["#89b4fa", "#a6e3a1", "#cba6f7", "#fab387", "#94e2d5", "#f5c2e7", "#f9e2af", "#f38ba8"]
+agents_scope = "workspace"  # sidebar agents: "workspace" (current one) or "all"
+
+[restore]
+enabled = true              # rebuild workspaces / tabs / panes when the server starts
+agents = true               # resume agents (claude --resume <id>, codex resume --last, ...)
+commands = true             # re-run commands panes were started with
+
+[quick]
+place = "worktree"          # right | down | tab | worktree | here
+agents = [
+  { name = "claude", command = "claude {prompt}" },
+  { name = "codex", command = "codex {prompt}" },
+]
+
+[worktree]
+per_agent = true            # new claude/codex panes get their own worktree in a git repo
+dir = "{repo_parent}/{repo}-worktrees/{branch}"
+command = ""                # e.g. "claude" to start an agent in every new worktree
+
+[icons]
+working = "⠹"
+blocked = "●"
+done = "✓"
+idle = "○"
+shell = "›"
+branch = "\ue0a0 "          # Nerd Font branch glyph; use "" or "on " without one
+
+[notify]
+bell = true                 # bell when an agent blocks or finishes out of view
+
+[detection]
+working_window_ms = 1500
+echo_grace_ms = 300
+scan_interval_ms = 1000
+pattern_rows = 12
+
+# Bindings after the prefix. Merged over the defaults; "none" unbinds a default.
+# Actions: split-right split-down split-left split-up close-pane zoom
+#   focus-{left,right,up,down} focus-next focus-prev resize-{left,right,up,down}
+#   new-tab next-tab prev-tab close-tab rename-tab select-tab-N
+#   new-workspace next-workspace prev-workspace close-workspace rename-workspace select-workspace-N
+#   toggle-sidebar picker next-attention scroll-up scroll-down copy-mode search
+#   new-worktree new-worktree:<cmd> remove-worktree cycle-workspace-color
+#   palette quick-prompt menu settings
+#   jump open-project new-session new-pane close-split side-up side-down talk reply answer:N
+#   detach help reload-config send-prefix kill-server
+#   spawn-right:<cmd> spawn-down:<cmd> spawn-left:<cmd> spawn-up:<cmd> spawn-tab:<cmd>
+[keys.prefix]
+C = "spawn-right:claude"
+O = "spawn-down:codex"
+g = "spawn-tab:lazygit"
+A = "new-worktree:claude"   # worktree picker; whatever you open or create starts claude
+
+# Bindings that work without the prefix (they're taken from the program in the pane).
+[keys.global]
+"alt+h" = "focus-left"
+"alt+j" = "focus-down"
+"alt+k" = "focus-up"
+"alt+l" = "focus-right"
+"alt+a" = "next-attention"
+
+# Agents are detected from the pane's process tree. Entries here merge over the
+# built-ins (claude, codex, gemini, opencode, cursor, copilot, amp, qwen, aider,
+# goose, crush, droid, pi, kiro) by name. Patterns are case-insensitive regexes
+# matched against the bottom of the screen; hooks (`hydra integrate claude`)
+# override them with exact lifecycle events.
+# [[agents]]
+# name = "my-agent"
+# process = ["my-agent"]
+# cmdline = ["my-agent/cli.js"]
+# working_patterns = ["esc to interrupt"]
+# blocked_patterns = ["\\(y/n\\)"]
+# resume = "my-agent --resume {session}"   # {session} comes from hooks
+# resume_last = "my-agent --continue"
+#
+# [[agents]]
+# name = "goose"
+# enabled = false
