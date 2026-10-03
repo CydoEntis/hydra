@@ -1162,7 +1162,7 @@ impl Daemon {
                     self.persist(true);
                 }
                 for t in self.terms.values_mut() {
-                    t.kill();
+                    t.kill_tree();
                 }
                 self.broadcast(|_| true, ServerMsg::Bye);
                 tokio::spawn(async {
@@ -1320,7 +1320,7 @@ impl Daemon {
             if let Some(t) = self.terms.get_mut(&id) {
                 tracing::info!("putting {} to sleep", id);
                 t.asleep = true;
-                t.kill();
+                t.kill_tree();
                 self.dirty = true;
             }
         }
@@ -1402,14 +1402,17 @@ impl Daemon {
 
     fn close_term(&mut self, term: TermId) {
         if let Some(t) = self.terms.get_mut(&term) {
-            t.kill();
+            t.kill_tree();
         }
         self.remove_term(term);
     }
 
     /// Drop a terminal and prune the tree: empty tabs and workspaces disappear.
     fn remove_term(&mut self, term: TermId) {
-        self.terms.remove(&term);
+        // Closing a terminal can block on Windows until its programs let go; never here.
+        if let Some(t) = self.terms.remove(&term) {
+            std::thread::spawn(move || drop(t));
+        }
         self.detach(term);
         if self.terms.is_empty() {
             self.empty_since = Instant::now();

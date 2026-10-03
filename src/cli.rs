@@ -451,6 +451,11 @@ pub fn debug_colors(pane: TermId) -> Result<()> {
                 let mut p = vt100::Parser::new(rows, cols, 0);
                 p.process(&data);
                 let s = p.screen();
+                println!("alternate screen: {}  mouse: {:?} / {:?}", s.alternate_screen(), s.mouse_protocol_mode(), s.mouse_protocol_encoding());
+                let mut h = vt100::Parser::new(rows, cols, 100_000);
+                h.process(&data);
+                h.screen_mut().set_scrollback(usize::MAX);
+                println!("history lines: {} (replay {} bytes)", h.screen().scrollback(), data.len());
                 for row in 0..rows {
                     let mut seen: Vec<String> = Vec::new();
                     for col in 0..cols {

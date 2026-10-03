@@ -574,6 +574,7 @@ impl App {
     // ---- server messages -----------------------------------------------------------
 
     fn on_server(&mut self, msg: ServerMsg) {
+        self.hy_fresh();
         self.dirty = true;
         match msg {
             ServerMsg::State(s) => {
@@ -722,6 +723,7 @@ impl App {
     }
 
     fn on_key(&mut self, k: KeyEvent) {
+        self.hy_fresh();
         let spec = KeySpec::from_event(&k);
         if self.splash {
             self.on_hy_splash_key(&k);
@@ -743,6 +745,7 @@ impl App {
                     self.act(a);
                 } else if self.view.is_some() {
                     self.on_view_key(&k);
+                } else if self.scroll_key(&k) {
                 } else {
                     self.forward_key(&k);
                 }
@@ -1073,6 +1076,29 @@ impl App {
         true
     }
 
+    /// Shift+PageUp / PageDown (and Shift+Up / Down a line) scroll the history, like any
+    /// terminal; full-screen programs get the keys themselves.
+    fn scroll_key(&mut self, k: &KeyEvent) -> bool {
+        if !k.modifiers.contains(KeyModifiers::SHIFT) {
+            return false;
+        }
+        let Some(term) = self.focused() else { return false };
+        let Some(p) = self.parsers.get(&term) else { return false };
+        if p.screen().alternate_screen() {
+            return false;
+        }
+        let page = (p.screen().size().0 / 2).max(1) as i32;
+        let d = match k.code {
+            KeyCode::PageUp => page,
+            KeyCode::PageDown => -page,
+            KeyCode::Up if k.modifiers.contains(KeyModifiers::CONTROL) => 1,
+            KeyCode::Down if k.modifiers.contains(KeyModifiers::CONTROL) => -1,
+            _ => return false,
+        };
+        self.scroll_by(term, d);
+        true
+    }
+
     fn forward_key(&mut self, k: &KeyEvent) {
         let Some(term) = self.focused() else { return };
         let app_cursor = self.parsers.get(&term).is_some_and(|p| p.screen().application_cursor());
@@ -1095,6 +1121,31 @@ impl App {
 
     fn on_mouse(&mut self, m: MouseEvent) {
         let pos = Position::new(m.column, m.row);
+        self.hy_fresh();
+        // Programs that ask for the mouse (Claude Code's full-screen view, vim, lazygit,
+        // htop, …) get it, like in any terminal: clicks, wheel, drags. Shift keeps it for
+        // hydra (select text); right-click stays hydra's menu.
+        if self.hy.drag.is_none()
+            && !self.splash
+            && matches!(self.mode, Mode::Normal)
+            && self.view.is_none()
+            && !m.modifiers.contains(KeyModifiers::SHIFT)
+            && !matches!(m.kind, MouseEventKind::Down(MouseButton::Right) | MouseEventKind::Up(MouseButton::Right) | MouseEventKind::Drag(MouseButton::Right))
+            && let Some((term, inner)) = self.panes.iter().find(|(_, r)| r.contains(pos)).copied()
+            && let Some(bytes) = self.parsers.get(&term).and_then(|p| keys::mouse_bytes(p.screen(), &m, pos.x - inner.x, pos.y - inner.y))
+        {
+            if m.kind == MouseEventKind::Moved && self.hover != Some(pos) {
+                self.hover = Some(pos);
+                self.dirty = true;
+            }
+            if matches!(m.kind, MouseEventKind::Down(_)) && Some(term) != self.focused() {
+                self.cmd(Command::FocusPane { term });
+            }
+            if !bytes.is_empty() {
+                self.send(ClientMsg::Input { term, data: bytes });
+            }
+            return;
+        }
         // Dragging the sidebar edge or the split divider.
         if let Some(d) = self.hy.drag {
             match m.kind {
@@ -2776,6 +2827,7 @@ impl App {
     }
 
     fn on_bg(&mut self, b: Bg) {
+        self.hy_fresh();
         let b = match b {
             Bg::Prs(key, list) => {
                 self.hy.prs.insert(key, list);
@@ -4066,6 +4118,32 @@ mod hydra_tests {
         let buf = term.backend().buffer();
         assert_eq!(buf[(inner.x, inner.y)].bg, app.theme.card2, "not a light grey slab");
         assert_eq!(buf[(inner.x + 13, inner.y)].bg, app.theme.bg);
+    }
+
+    #[test]
+    fn wheel_scrolls_history() {
+        use crossterm::event::{MouseEvent, MouseEventKind};
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let mut p = vt100::Parser::new(40, 120, 1000);
+        for i in 1..=100 {
+            p.process(format!("line {i}
+").as_bytes());
+        }
+        app.parsers.insert(1, p);
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("line 100") && !o.contains("line 40 "), "bottom first");
+        let (_, inner) = app.panes[0];
+        for _ in 0..10 {
+            app.on_mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: inner.x + 5, row: inner.y + 5, modifiers: KeyModifiers::NONE });
+        }
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(!o.contains("line 100"), "scrolled up: {:?}", app.scroll.get(&1));
+        assert!(o.contains("↑ 30 lines up"), "and it says so");
+        app.on_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::SHIFT));
+        app.on_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::SHIFT));
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("line 100") && !o.contains("lines up"), "Shift+PageDown back to the bottom");
     }
 
     #[test]

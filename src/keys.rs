@@ -619,6 +619,65 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
 /// Bindings active without the prefix. Empty by default so nothing is stolen from programs.
 pub const DEFAULT_GLOBAL_KEYS: &[(&str, &str)] = &[];
 
+/// A mouse event as the bytes a program that turned on mouse reporting expects, at (col,
+/// row) inside its screen (0-based). None: the program didn't ask for this kind of event;
+/// empty: it's the program's, but there's nothing to send.
+pub fn mouse_bytes(screen: &vt100::Screen, m: &crossterm::event::MouseEvent, col: u16, row: u16) -> Option<Vec<u8>> {
+    use crossterm::event::{MouseButton as B, MouseEventKind as K};
+    use vt100::{MouseProtocolEncoding as E, MouseProtocolMode as M};
+    let mode = screen.mouse_protocol_mode();
+    if mode == M::None {
+        return None;
+    }
+    let mut mods = 0u32;
+    if m.modifiers.contains(KeyModifiers::SHIFT) {
+        mods |= 4;
+    }
+    if m.modifiers.contains(KeyModifiers::ALT) {
+        mods |= 8;
+    }
+    if m.modifiers.contains(KeyModifiers::CONTROL) {
+        mods |= 16;
+    }
+    let btn = |b: B| match b {
+        B::Left => 0,
+        B::Middle => 1,
+        B::Right => 2,
+    };
+    let (code, release) = match m.kind {
+        K::Down(b) => (btn(b), false),
+        K::Up(_) if mode == M::Press => return Some(Vec::new()),
+        K::Up(b) => (btn(b), true),
+        K::Drag(b) if matches!(mode, M::ButtonMotion | M::AnyMotion) => (32 + btn(b), false),
+        K::Drag(_) => return Some(Vec::new()),
+        K::Moved if mode == M::AnyMotion => (35, false),
+        K::Moved => return None,
+        K::ScrollUp => (64, false),
+        K::ScrollDown => (65, false),
+        K::ScrollLeft => (66, false),
+        K::ScrollRight => (67, false),
+    };
+    let (x, y) = (col as u32 + 1, row as u32 + 1);
+    Some(match screen.mouse_protocol_encoding() {
+        E::Sgr => format!("\x1b[<{};{x};{y}{}", code + mods, if release { 'm' } else { 'M' }).into_bytes(),
+        enc => {
+            // X10 style: release is button 3; values are offset by 32.
+            let c = if release { 3 + mods } else { code + mods };
+            let mut out = b"\x1b[M".to_vec();
+            for v in [c, x, y] {
+                let v = v + 32;
+                if enc == E::Utf8 {
+                    let mut b = [0; 4];
+                    out.extend_from_slice(char::from_u32(v).unwrap_or(' ').encode_utf8(&mut b).as_bytes());
+                } else {
+                    out.push(v.min(255) as u8);
+                }
+            }
+            out
+        }
+    })
+}
+
 /// Encode a key press as the bytes a terminal program expects.
 pub fn encode(ev: &KeyEvent, app_cursor: bool) -> Vec<u8> {
     let m = ev.modifiers;
@@ -735,6 +794,19 @@ mod tests {
         let spec: KeySpec = "alt+left".parse().unwrap();
         assert_eq!(spec, KeySpec::from_event(&ev(KeyCode::Left, KeyModifiers::ALT)));
         assert_eq!("ctrl++".parse::<KeySpec>().unwrap().code, KeyCode::Char('+'));
+        // Mouse: nothing until the program asks; then SGR or X10 like any terminal.
+        use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+        let ev = |kind| MouseEvent { kind, column: 0, row: 0, modifiers: KeyModifiers::NONE };
+        let mut p = vt100::Parser::new(10, 40, 0);
+        assert_eq!(mouse_bytes(p.screen(), &ev(MouseEventKind::ScrollUp), 4, 2), None);
+        p.process(b"[?1002h[?1006h");
+        assert_eq!(mouse_bytes(p.screen(), &ev(MouseEventKind::ScrollUp), 4, 2), Some(b"[<64;5;3M".to_vec()));
+        assert_eq!(mouse_bytes(p.screen(), &ev(MouseEventKind::Down(MouseButton::Left)), 0, 0), Some(b"[<0;1;1M".to_vec()));
+        assert_eq!(mouse_bytes(p.screen(), &ev(MouseEventKind::Up(MouseButton::Left)), 0, 0), Some(b"[<0;1;1m".to_vec()));
+        assert_eq!(mouse_bytes(p.screen(), &ev(MouseEventKind::Moved), 0, 0), None, "plain motion only with any-motion mode");
+        let mut x10 = vt100::Parser::new(10, 40, 0);
+        x10.process(b"[?1000h");
+        assert_eq!(mouse_bytes(x10.screen(), &ev(MouseEventKind::ScrollDown), 0, 0), Some(vec![0x1b, b'[', b'M', 32 + 65, 33, 33]));
         for (_, a) in DEFAULT_PREFIX_KEYS {
             let act: Action = a.parse().unwrap();
             assert_eq!(act.to_config().unwrap().parse::<Action>().unwrap(), act, "{a}");

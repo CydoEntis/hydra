@@ -77,6 +77,8 @@ pub(super) struct Hy {
     pub pr_at: std::collections::HashMap<String, Instant>,
     /// Pull request tags and rows drawn this frame: (folder, number).
     pub pr_keys: Vec<(PathBuf, String)>,
+    /// The sidebar model, built once per event / frame (see `hy_fresh`).
+    pub model_cache: std::cell::RefCell<Option<Vec<Proj>>>,
     /// A recipe's worktree being made: (branch, the commands to start there, since).
     pub pending_recipe: Option<(String, Vec<String>, Instant)>,
     /// Dragging the sidebar edge or the split divider.
@@ -116,6 +118,7 @@ impl Hy {
     }
 
     pub fn save(&self) {
+        *self.model_cache.borrow_mut() = None;
         if cfg!(test) {
             return;
         }
@@ -275,7 +278,22 @@ pub(super) fn options(parser: Option<&vt100::Parser>) -> Vec<String> {
 
 impl App {
     /// Every terminal, by project (repo) and worktree.
+    /// Forget the cached model (things may have changed).
+    pub(super) fn hy_fresh(&self) {
+        *self.hy.model_cache.borrow_mut() = None;
+    }
+
+    /// Every terminal, by project (repo) and worktree. Cached until the next event.
     pub(super) fn hy_model(&self) -> Vec<Proj> {
+        if let Some(m) = self.hy.model_cache.borrow().as_ref() {
+            return m.clone();
+        }
+        let m = self.hy_model_build();
+        *self.hy.model_cache.borrow_mut() = Some(m.clone());
+        m
+    }
+
+    fn hy_model_build(&self) -> Vec<Proj> {
         let mut projs: Vec<Proj> = Vec::new();
         let sort = self.cfg.ui.attention_sort;
         let order = &self.hy.saved.order;
@@ -1139,6 +1157,16 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
                 f.set_cursor_position(Position::new(inner.x + col, inner.y + row));
             }
         }
+    }
+
+    // Scrolled up: say so, and how to get back.
+    if let Some(n) = app.scroll.get(&term).copied() {
+        let note = vec![
+            seg(format!(" ↑ {n} lines up "), Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)),
+            seg(" type, or scroll down, to go back ", Style::default().bg(t.card2).fg(t.text)),
+        ];
+        let w = segs_width(&note);
+        put(f.buffer_mut(), inner.right().saturating_sub(w), inner.y, &note, inner.right());
     }
 
     // Asleep: the last screen stays, dimmed, with a note on how to wake it.

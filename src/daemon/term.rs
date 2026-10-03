@@ -383,8 +383,36 @@ impl Term {
         changed
     }
 
-    pub fn kill(&mut self) {
-        let _ = self.killer.kill();
+    /// Stop everything the pane runs: the shell and what it started (an agent is usually a
+    /// child of the shell, and on Windows it would otherwise keep the terminal open). Runs
+    /// on its own thread so nothing waits on it.
+    pub fn kill_tree(&mut self) {
+        let mut killer = self.killer.clone_killer();
+        let pid = self.pid;
+        std::thread::spawn(move || {
+            if let Some(pid) = pid {
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    let _ = std::process::Command::new("taskkill")
+                        .args(["/PID", &pid.to_string(), "/T", "/F"])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .creation_flags(0x0800_0000)
+                        .status();
+                }
+                #[cfg(not(windows))]
+                {
+                    // The pane's shell leads its own process group.
+                    let _ = std::process::Command::new("kill")
+                        .args(["-KILL", &format!("-{pid}")])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status();
+                }
+            }
+            let _ = killer.kill();
+        });
     }
 
     pub fn title(&self) -> &str {
