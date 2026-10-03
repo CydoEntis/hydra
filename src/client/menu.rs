@@ -38,6 +38,8 @@ pub enum Act {
     CloseSplit,
     CopyMode(TermId),
     Duplicate(TermId),
+    /// Preset i, for this agent.
+    Preset(usize, Option<TermId>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -49,7 +51,7 @@ pub struct HyMenu {
 }
 
 impl App {
-    fn menu(&mut self, title: String, items: Vec<(String, Act)>, at: (u16, u16)) {
+    pub(super) fn menu(&mut self, title: String, items: Vec<(String, Act)>, at: (u16, u16)) {
         self.mode = Mode::HyMenu(Box::new(HyMenu { title, items, sel: 0, at }));
     }
 
@@ -156,6 +158,16 @@ impl App {
                     self.menu_act(a);
                 }
             }
+            // A numbered list (presets): its number picks it.
+            KeyCode::Char(c @ '1'..='9') if m.items.iter().any(|(l, _)| l.starts_with("1 ")) => {
+                let i = c as usize - '1' as usize;
+                if let Some((_, a)) = m.items.get(i).cloned() {
+                    self.mode = Mode::Normal;
+                    self.menu_act(a);
+                } else {
+                    self.mode = Mode::HyMenu(Box::new(m));
+                }
+            }
             _ => self.mode = Mode::HyMenu(Box::new(m)),
         }
     }
@@ -177,6 +189,7 @@ impl App {
             }
             Act::Talk(t) => self.hy_talk(t, false),
             Act::Duplicate(t) => self.hy_duplicate(t),
+            Act::Preset(i, on) => self.hy_run_preset(i, on, None),
             Act::Rename(t) => {
                 if let Some((w, _)) = self.snap.locate(t) {
                     self.mode = Mode::Prompt { kind: PromptKind::RenameWorkspace(w.id), input: w.name.clone() };

@@ -263,6 +263,8 @@ pub enum Action {
     PasteImage,
     /// Find a file (0) or search the code (1).
     Find(u8),
+    /// Pick a saved launch (presets).
+    Presets,
     /// Move the sidebar cursor (-1 up, 1 down); bare keys then work on the sidebar.
     SideMove(i8),
     Detach,
@@ -356,6 +358,7 @@ impl Action {
             Action::Race => "race agents on one task".into(),
             Action::Map => "map of the project".into(),
             Action::PasteImage => "paste the clipboard image".into(),
+            Action::Presets => "run a preset".into(),
             Action::Find(0) => "find a file".into(),
             Action::Find(_) => "search the code".into(),
             Action::SideMove(d) if *d < 0 => "sidebar up".into(),
@@ -438,6 +441,7 @@ impl Action {
             Action::Race => "race".into(),
             Action::Map => "map".into(),
             Action::PasteImage => "paste-image".into(),
+            Action::Presets => "presets".into(),
             Action::Find(0) => "find-file".into(),
             Action::Find(_) => "search-code".into(),
             Action::SideMove(d) if *d < 0 => "side-up".into(),
@@ -546,6 +550,7 @@ impl FromStr for Action {
             "race" => Action::Race,
             "map" => Action::Map,
             "paste-image" => Action::PasteImage,
+            "presets" => Action::Presets,
             "find-file" => Action::Find(0),
             "search-code" => Action::Find(1),
             "side-up" => Action::SideMove(-1),
@@ -610,6 +615,7 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("M", "map"),
     ("V", "paste-image"),
     ("F", "find-file"),
+    (".", "presets"),
     ("G", "search-code"),
     ("ctrl+v", "paste-image"),
     ("f", "files"),

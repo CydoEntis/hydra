@@ -1654,7 +1654,13 @@ pub(super) fn np_agents(app: &App) -> Vec<String> {
     }
     v.push("shell".into());
     v.extend(app.cfg.recipes.iter().filter(|r| !r.run.is_empty()).map(|r| format!("⚙ {}", r.name)));
+    v.extend(app.cfg.presets.iter().map(|p| format!("★ {}", p.name)));
     v
+}
+
+pub(super) fn preset_of<'a>(app: &'a App, run: &str) -> Option<&'a crate::config::Preset> {
+    let name = run.strip_prefix("★ ")?;
+    app.cfg.presets.iter().find(|p| p.name == name)
 }
 
 /// Where a new agent can go in a git project: the three kinds, then its worktrees by name.
@@ -1682,6 +1688,10 @@ pub(super) fn np_models(app: &App, agent: &str) -> Vec<String> {
 pub(super) fn np_command(app: &App, agent: &str, model: usize, task: &str) -> Option<String> {
     if agent == "shell" {
         return None;
+    }
+    if let Some(p) = preset_of(app, agent) {
+        let m = np_models(app, &p.agent).iter().position(|m| *m == p.model).unwrap_or(0);
+        return np_command(app, &p.agent, m, &p.fill(task));
     }
     let q = app.cfg.quick.agents.iter().find(|q| q.name == agent);
     let base = q.map(|q| q.command.clone()).unwrap_or_else(|| agent.to_string());
@@ -1758,7 +1768,12 @@ pub(super) fn draw_new_pane(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
         ts.push(seg("█", s2.fg(t.accent)));
     }
     if np.task.is_empty() {
-        let ph = if agent == "shell" || agent.starts_with('⚙') { " (not used for this)" } else { " what should it do? (optional)" };
+        let ph = match preset_of(app, &agent) {
+            Some(p) if !p.asks() => format!(" (the preset says: {})", truncate(&p.prompt, 50)),
+            Some(_) => " what should it do?".to_string(),
+            None if agent == "shell" || agent.starts_with('⚙') => " (not used for this)".to_string(),
+            None => " what should it do? (optional)".to_string(),
+        };
         ts.push(seg(ph, s2.fg(t.muted)));
     }
     put(buf, tb.x, tb.y, &ts, tb.right());
@@ -1766,8 +1781,11 @@ pub(super) fn draw_new_pane(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
     lab(buf, r.y + 4, "RUN", 1);
     chips(app, buf, r.y + 4, &agents, np.a, HyHit::NpRun);
     lab(buf, r.y + 6, "MODEL", 2);
-    let models = np_models(app, &agent);
-    if models.is_empty() {
+    let models = if agent.starts_with('★') { Vec::new() } else { np_models(app, &agent) };
+    if let Some(p) = preset_of(app, &agent) {
+        let m = if p.model.is_empty() { "its default".to_string() } else { p.model.clone() };
+        put(buf, r.x + 14, r.y + 6, &[seg(format!("{m} (from the preset)"), muted)], r.right());
+    } else if models.is_empty() {
         put(buf, r.x + 14, r.y + 6, &[seg("its default", muted)], r.right());
     } else {
         chips(app, buf, r.y + 6, &models, np.model.min(models.len() - 1), HyHit::NpModel);
@@ -2685,6 +2703,66 @@ impl App {
         }
     }
 
+    /// Ctrl+Space . : your presets, numbered, for the agent you're on.
+    pub(super) fn hy_presets(&mut self) {
+        if self.cfg.presets.is_empty() {
+            self.notify("no presets yet: add [[presets]] to your config (see the example config)".into(), true);
+            return;
+        }
+        let on = self.hy.cursor.or(self.focused());
+        let items = self
+            .cfg
+            .presets
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let how = match p.place.as_str() {
+                    "send" => "tell it",
+                    "worktree" => "new worktree",
+                    _ => "beside",
+                };
+                (format!("{}  {}{}  · {how}", i + 1, p.name, if p.asks() { "…" } else { "" }), super::menu::Act::Preset(i, on))
+            })
+            .collect();
+        self.menu("Presets".into(), items, (self.hy.side_rect.right() + 4, 3));
+    }
+
+    /// Run preset `i` for the agent `on` (its folder, or the agent itself).
+    pub(super) fn hy_run_preset(&mut self, i: usize, on: Option<TermId>, task: Option<String>) {
+        let Some(p) = self.cfg.presets.get(i).cloned() else { return };
+        let model = self.hy_model();
+        let at = on.and_then(|t| self.snap.terms.get(&t)).map(|t| (t.top.clone().unwrap_or_else(|| t.cwd.clone()), t.root.clone()));
+        let pi = at
+            .as_ref()
+            .and_then(|(top, root)| model.iter().position(|m| path_key(&m.path) == path_key(root.as_ref().unwrap_or(top))))
+            .unwrap_or(0);
+        if p.asks() && task.is_none() {
+            // Ask for the task in + New, with the preset picked.
+            let mut np = NewPaneHy::new(pi, p.place == "beside");
+            np.a = np_agents(self).iter().position(|a| *a == format!("★ {}", p.name)).unwrap_or(0);
+            np.place = Some(if p.place == "worktree" { 0 } else { 2 });
+            self.mode = Mode::HyPane(np);
+            return;
+        }
+        let task = task.unwrap_or_default();
+        self.mode = Mode::Normal;
+        match (p.place.as_str(), on, at) {
+            ("send", Some(term), _) => self.send_message(term, &p.fill(&task)),
+            ("worktree", _, _) | (_, None, _) | (_, _, None) => {
+                let cmd = np_command(self, &format!("★ {}", p.name), 0, &task);
+                match model.get(pi) {
+                    Some(proj) if proj.git => self.hy_new_worktree(proj, cmd, false, None),
+                    Some(proj) => self.hy_new_session(proj.path.clone(), cmd, false),
+                    None => self.notify("open a project first".into(), true),
+                }
+            }
+            (_, Some(_), Some((top, _))) => {
+                let cmd = np_command(self, &format!("★ {}", p.name), 0, &task);
+                self.hy_new_session(top, cmd, true);
+            }
+        }
+    }
+
     /// + New for project `p`, with the task you didn't start last time.
     pub(super) fn hy_new(&mut self, p: usize, beside: bool) {
         let mut np = NewPaneHy::new(p, beside);
@@ -2712,7 +2790,7 @@ impl App {
         let agents = np_agents(self);
         let nag = agents.len();
         let agent = agents.get(np.a).cloned().unwrap_or_default();
-        let nmodels = np_models(self, &agent).len();
+        let nmodels = if agent.starts_with('★') { 0 } else { np_models(self, &agent).len() };
         let nplaces = model.get(np.p).map(|p| np_places(p).len()).unwrap_or(3);
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         let d: i32 = match k.code {

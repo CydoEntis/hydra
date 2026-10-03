@@ -24,6 +24,8 @@ pub struct Config {
     pub mcp: Mcp,
     /// Named setups for + New: e.g. a worktree with claude, a dev server and lazygit.
     pub recipes: Vec<Recipe>,
+    /// Saved launches: an agent, a model and a prompt, e.g. "commit and push" (Ctrl+Space .).
+    pub presets: Vec<Preset>,
     /// Put agents to sleep after sitting finished or idle this long ("15m", "1h", "4h",
     /// "never"); they resume where they were when you open them.
     pub sleep_after: String,
@@ -193,6 +195,49 @@ pub struct Recipe {
     pub run: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct Preset {
+    pub name: String,
+    /// Which agent (a name from + New's RUN row).
+    pub agent: String,
+    /// One of the agent's models; empty is its default.
+    pub model: String,
+    /// What to ask. `{task}` is replaced with what you type; with no `{task}` the preset
+    /// starts in one key, without asking.
+    pub prompt: String,
+    /// "send": to the agent you're on; "beside": a new one beside it, in its folder;
+    /// "worktree": a new one in a new worktree.
+    #[serde(rename = "where")]
+    pub place: String,
+}
+
+impl Default for Preset {
+    fn default() -> Self {
+        Preset { name: String::new(), agent: "claude".into(), model: String::new(), prompt: String::new(), place: "beside".into() }
+    }
+}
+
+impl Preset {
+    pub fn asks(&self) -> bool {
+        self.prompt.contains("{task}") || self.prompt.trim().is_empty()
+    }
+
+    /// The prompt with the task in it.
+    pub fn fill(&self, task: &str) -> String {
+        let task = task.trim();
+        if self.prompt.contains("{task}") {
+            self.prompt.replace("{task}", task).trim().to_string()
+        } else if self.prompt.trim().is_empty() {
+            task.to_string()
+        } else if task.is_empty() {
+            self.prompt.trim().to_string()
+        } else {
+            format!("{} {task}", self.prompt.trim())
+        }
+    }
+}
+
 impl Default for Recipe {
     fn default() -> Self {
         Recipe { name: String::new(), worktree: true, run: Vec::new() }
@@ -301,6 +346,7 @@ impl Default for Config {
             teach_agents: true,
             mcp: Mcp::default(),
             recipes: Vec::new(),
+            presets: Vec::new(),
             theme: "hydra".into(),
             theme_overrides: ThemeOverrides::default(),
             shell: None,

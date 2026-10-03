@@ -1743,6 +1743,7 @@ impl App {
             Action::Map => self.open_map(),
             Action::PasteImage => self.paste_image(),
             Action::Find(tab) => self.open_find(tab),
+            Action::Presets => self.hy_presets(),
             Action::PullRequest => {
                 if let Some(dir) = self.target_path()
                     && let Some(h) = crate::gitfs::head(&dir)
@@ -2733,6 +2734,22 @@ impl App {
         true
     }
 
+    /// Type a message into an agent and press Enter. Several lines go as one paste, so they
+    /// arrive as one message.
+    pub(super) fn send_message(&mut self, term: TermId, text: &str) {
+        let bracketed = self.parsers.get(&term).is_some_and(|p| p.screen().bracketed_paste());
+        let data = if text.contains('\n') && bracketed { format!("\x1b[200~{text}\x1b[201~") } else { text.replace('\n', " ") };
+        self.send(ClientMsg::Input { term, data: data.into_bytes() });
+        // Enter a moment later, so the program has taken the text first.
+        let out = self.out.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(60));
+            let _ = out.send(ClientMsg::Input { term, data: b"\r".to_vec() });
+        });
+        let who = self.snap.terms.get(&term).map(|t| t.display_name()).unwrap_or_default();
+        self.notify(format!("sent to {who}"), false);
+    }
+
     fn on_talk_key(&mut self, term: TermId, mut input: String, k: &KeyEvent) {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         // From the sidebar, done means back to the sidebar cursor (next agent: ↓ Space).
@@ -2751,18 +2768,7 @@ impl App {
             KeyCode::Enter => {
                 if !input.trim().is_empty() {
                     let text = std::mem::take(&mut input);
-                    // Several lines go as one paste, so they arrive as one message.
-                    let bracketed = self.parsers.get(&term).is_some_and(|p| p.screen().bracketed_paste());
-                    let data = if text.contains('\n') && bracketed { format!("\x1b[200~{text}\x1b[201~") } else { text.replace('\n', " ") };
-                    self.send(ClientMsg::Input { term, data: data.into_bytes() });
-                    // Enter a moment later, so the program has taken the text first.
-                    let out = self.out.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(Duration::from_millis(60));
-                        let _ = out.send(ClientMsg::Input { term, data: b"\r".to_vec() });
-                    });
-                    let who = self.snap.terms.get(&term).map(|t| t.display_name()).unwrap_or_default();
-                    self.notify(format!("sent to {who}"), false);
+                    self.send_message(term, &text);
                 }
                 self.mode = back;
                 return;
@@ -4596,6 +4602,32 @@ mod hydra_tests {
         app.on_key(key(KeyCode::Esc));
         app.hy_new(0, false);
         assert!(matches!(&app.mode, Mode::HyPane(np) if np.task == "add tests"), "Esc keeps the task as a draft");
+    }
+
+    #[test]
+    fn presets_run_in_one_key_or_ask() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
+        let p = |name: &str, prompt: &str, place: &str| crate::config::Preset {
+            name: name.into(),
+            agent: "claude".into(),
+            model: "sonnet".into(),
+            prompt: prompt.into(),
+            place: place.into(),
+        };
+        app.cfg.presets = vec![p("commit and push", "Commit everything and push.", "send"), p("review", "Review {task} for bugs.", "worktree")];
+        assert_eq!(app.cfg.presets[1].fill("the auth module"), "Review the auth module for bugs.");
+        let cmd = super::hydra::np_command(&app, "★ review", 0, "auth").unwrap();
+        assert!(cmd.starts_with("claude --model sonnet ") && cmd.contains("Review auth for bugs."), "{cmd}");
+        draw(&mut app, 160, 45);
+        app.act(Action::Presets);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("1  commit and push  · tell it") && o.contains("2  review…  · new worktree"));
+        app.on_key(key(KeyCode::Char('2')));
+        assert!(matches!(&app.mode, Mode::HyPane(np) if np.place == Some(0)), "a preset with {{task}} asks for it in + New");
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("★ review") && o.contains("sonnet (from the preset)"));
     }
 
     #[test]
