@@ -13,6 +13,9 @@ pub struct Saved {
     pub workspaces: Vec<SavedWs>,
     /// Index into `workspaces`.
     pub active: usize,
+    /// Worktrees hydra created (the only ones it may remove by itself).
+    #[serde(default)]
+    pub made_worktrees: Vec<PathBuf>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

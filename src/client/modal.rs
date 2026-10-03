@@ -166,7 +166,11 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "shell_integration", label: "PowerShell folder tracking", kind: Kind::Bool, cat: Cat::General, help: "Lets hydra see where PowerShell sessions cd to." },
     // Sessions
     Setting { path: "ui.attention_sort", label: "Sort sidebar by attention", kind: Kind::Bool, cat: Cat::Sessions, help: "Sessions that need you float to the top, then done, then working, then idle." },
-    Setting { path: "notify.bell", label: "Bell when one needs you", kind: Kind::Bool, cat: Cat::Sessions, help: "Rings the terminal bell when a session you're not looking at needs you or finishes." },
+    Setting { path: "notify.desktop", label: "Desktop notifications", kind: Kind::Bool, cat: Cat::Sessions, help: "A notification when an agent you're not looking at needs you or finishes, even with hydra closed." },
+    Setting { path: "notify.sound_needs", label: "Sound when one needs you", kind: Kind::Choice(crate::alert::SOUNDS), cat: Cat::Sessions, help: "Or set a path to your own sound file in config.toml." },
+    Setting { path: "notify.sound_done", label: "Sound when one finishes", kind: Kind::Choice(crate::alert::SOUNDS), cat: Cat::Sessions, help: "Or set a path to your own sound file in config.toml." },
+    Setting { path: "notify.bell", label: "Terminal bell too", kind: Kind::Bool, cat: Cat::Sessions, help: "Also rings the terminal bell (some terminals flash or bounce the window)." },
+    Setting { path: "worktree.delete_with_last", label: "Remove a worktree with its last agent", kind: Kind::Bool, cat: Cat::Sessions, help: "Closing the last thing in a worktree hydra made removes its folder; the branch is kept. Never with uncommitted changes." },
     Setting { path: "restore.enabled", label: "Bring sessions back after a restart", kind: Kind::Bool, cat: Cat::Sessions, help: "Agents keep going in the background; after a reboot hydra rebuilds your sessions." },
     Setting { path: "restore.agents", label: "Resume agents", kind: Kind::Bool, cat: Cat::Sessions, help: "Restart agents in their last conversation (claude --resume, codex resume)." },
     Setting { path: "restore.commands", label: "Re-run commands", kind: Kind::Bool, cat: Cat::Sessions, help: "Run again the commands sessions were started with (lazygit, a dev server, ...)." },

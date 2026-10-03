@@ -40,6 +40,8 @@ pub enum Ev {
         result: Result<(PathBuf, String), String>,
     },
     WorktreeRemoved { client: ClientId, path: PathBuf, result: Result<(), String> },
+    /// A worktree removed (or kept) after its last pane closed.
+    WorktreeAutoRemoved { client: ClientId, path: PathBuf, result: Result<(), String> },
     WorktreeList { client: ClientId, result: Result<Vec<WorktreeEntry>, String> },
 }
 
@@ -95,6 +97,8 @@ struct Daemon {
     last_git: Instant,
     last_save: Instant,
     last_saved: String,
+    /// Worktrees hydra created; closing the last thing in one removes it.
+    made_worktrees: Vec<PathBuf>,
     /// The last automatic workspace move, for undo.
     auto_undo: Option<AutoUndo>,
     /// Panes whose process ended on its own, recently. Several at once means a crash,
@@ -162,6 +166,7 @@ pub fn run() -> Result<()> {
             last_git: Instant::now() - Duration::from_secs(60),
             last_save: Instant::now(),
             last_saved: String::new(),
+            made_worktrees: Vec::new(),
             natural_exits: Vec::new(),
             auto_undo: None,
         };
@@ -339,7 +344,7 @@ impl Daemon {
             })
             .collect();
         let active = self.workspaces.iter().position(|w| Some(w.id) == self.active_ws).unwrap_or(0);
-        persist::Saved { workspaces, active }
+        persist::Saved { workspaces, active, made_worktrees: self.made_worktrees.clone() }
     }
 
     /// The command that brings a saved pane back: an agent's resume command, the pane's
@@ -358,7 +363,8 @@ impl Daemon {
         if self.cfg.restore.commands { p.cmd.clone() } else { None }
     }
 
-    fn restore(&mut self, saved: persist::Saved) {
+    fn restore(&mut self, mut saved: persist::Saved) {
+        self.made_worktrees = std::mem::take(&mut saved.made_worktrees);
         let mut restored = 0;
         for sw in saved.workspaces {
             let mut tabs = Vec::new();
@@ -573,6 +579,9 @@ impl Daemon {
                     }
                     Ok(path)
                 });
+                if let Ok(p) = &opened {
+                    self.made_worktrees.push(p.clone());
+                }
                 match opened {
                     Ok(path) => {
                         if as_pane.is_none()
@@ -592,6 +601,16 @@ impl Daemon {
                 Ok(list) => self.send(client, ServerMsg::Reply(Reply::Worktrees(list))),
                 Err(e) => self.send(client, ServerMsg::Error(e)),
             },
+            Ev::WorktreeAutoRemoved { client, path, result } => {
+                self.pending_ops -= 1;
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let msg = match result {
+                    Ok(()) => format!("removed worktree {name} (its branch is kept)"),
+                    Err(_) => format!("kept worktree {name}: it has uncommitted changes"),
+                };
+                self.send(client, ServerMsg::Notice(msg));
+                self.dirty = true;
+            }
             Ev::WorktreeRemoved { client, path, result } => {
                 self.pending_ops -= 1;
                 match result {
@@ -732,6 +751,18 @@ impl Daemon {
         self.dirty = true;
         if matches!(new, Status::Blocked | Status::Done) {
             self.broadcast(|c| c.attach, ServerMsg::Attention { term, status: new });
+            // No window open: the server tells you itself.
+            if !self.has_viewer()
+                && let Some(t) = self.terms.get(&term)
+            {
+                let agent = t.agent.clone().unwrap_or_else(|| "an agent".into());
+                let place = t.head.as_ref().map(|h| h.top.clone()).unwrap_or_else(|| t.cwd.clone());
+                let place = place.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let summary = t.summary.trim();
+                let body = if summary.is_empty() { place } else { format!("{place} · {summary}") };
+                let (kind, what) = if new == Status::Blocked { (crate::alert::Kind::Needs, "needs you") } else { (crate::alert::Kind::Done, "finished") };
+                crate::alert::alert(&self.cfg.notify, kind, &format!("{agent} {what}"), &body);
+            }
         }
     }
 
@@ -889,9 +920,11 @@ impl Daemon {
                     .filter(|w| w.id == ws)
                     .flat_map(|w| w.tabs.iter().flat_map(|t| t.layout.leaves()))
                     .collect();
+                let tops = self.worktrees_of(&terms);
                 for t in terms {
                     self.close_term(t);
                 }
+                self.cleanup_worktrees(client, tops);
             }
             Command::RenameWorkspace { ws, name } => self.ws_mut(ws)?.name = name,
             Command::SetGroup { ws, group } => self.ws_mut(ws)?.group = group.filter(|g| !g.trim().is_empty()),
@@ -952,7 +985,11 @@ impl Daemon {
                     t.focus = new;
                 }
             }
-            Command::ClosePane { term } => self.close_term(term),
+            Command::ClosePane { term } => {
+                let tops = self.worktrees_of(&[term]);
+                self.close_term(term);
+                self.cleanup_worktrees(client, tops);
+            }
             Command::PaneToWorkspace { term } => {
                 let (ws, _) = self.locate(term).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?;
                 let cwd = self.terms.get(&term).map(|t| t.cwd.clone()).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?;
@@ -1237,6 +1274,40 @@ impl Daemon {
         }
         self.last_git = Instant::now() - Duration::from_secs(60);
         Ok(())
+    }
+
+    /// The linked worktrees these terminals are in.
+    fn worktrees_of(&self, terms: &[TermId]) -> Vec<PathBuf> {
+        terms
+            .iter()
+            .filter_map(|t| self.terms.get(t))
+            .filter_map(|t| t.head.as_ref().filter(|h| h.linked).map(|h| h.top.clone()))
+            .collect()
+    }
+
+    /// After you close something: remove worktrees hydra made that nothing runs in any
+    /// more. Git refuses if there are uncommitted changes, and the branch is always kept.
+    fn cleanup_worktrees(&mut self, client: ClientId, tops: Vec<PathBuf>) {
+        if !self.cfg.worktree.delete_with_last {
+            return;
+        }
+        for top in tops {
+            if !self.made_worktrees.iter().any(|m| same_path(m, &top)) {
+                continue;
+            }
+            if self.terms.values().any(|t| t.head.as_ref().is_some_and(|h| same_path(&h.top, &top))) {
+                continue;
+            }
+            self.made_worktrees.retain(|m| !same_path(m, &top));
+            let tx = self.tx.clone();
+            self.pending_ops += 1;
+            tokio::task::spawn_blocking(move || {
+                // Give the closed programs a moment to let go of the folder (Windows locks it).
+                std::thread::sleep(Duration::from_millis(800));
+                let result = git::remove_worktree(&top, false, false).map_err(|e| format!("{e:#}"));
+                let _ = tx.blocking_send(Ev::WorktreeAutoRemoved { client, path: top, result });
+            });
+        }
     }
 
     fn close_term(&mut self, term: TermId) {

@@ -106,6 +106,9 @@ pub struct Worktree {
     pub command: String,
     /// New agent panes (+ Pane, quick prompt) get their own worktree when they start in a repo.
     pub per_agent: bool,
+    /// Closing the last thing running in a worktree hydra made removes its folder (the
+    /// branch is kept; a worktree with uncommitted changes is left alone).
+    pub delete_with_last: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,6 +170,12 @@ pub struct Detection {
 pub struct Notify {
     /// Ring the terminal bell when an agent becomes blocked or finishes out of view.
     pub bell: bool,
+    /// A desktop notification when an agent you're not looking at needs you or finishes
+    /// (also when no hydra window is open).
+    pub desktop: bool,
+    /// Sounds: glass, ping, chime, pop, off, or a path to a sound file.
+    pub sound_needs: String,
+    pub sound_done: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -259,7 +268,7 @@ impl Default for Restore {
 
 impl Default for Worktree {
     fn default() -> Self {
-        Worktree { dir: "{repo_parent}/{repo}-worktrees/{branch}".into(), command: String::new(), per_agent: true }
+        Worktree { dir: "{repo_parent}/{repo}-worktrees/{branch}".into(), command: String::new(), per_agent: true, delete_with_last: true }
     }
 }
 
@@ -285,7 +294,7 @@ impl Default for Detection {
 
 impl Default for Notify {
     fn default() -> Self {
-        Notify { bell: true }
+        Notify { bell: false, desktop: true, sound_needs: "ping".into(), sound_done: "glass".into() }
     }
 }
 

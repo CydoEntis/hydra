@@ -317,6 +317,8 @@ pub struct App {
     splash: bool,
     /// The hydra layout's own state.
     hy: hydra::Hy,
+    /// The terminal window has focus (for alerts about the session you're looking at).
+    window_focused: bool,
 }
 
 pub fn run(opts: Options) -> Result<()> {
@@ -399,6 +401,7 @@ impl App {
             side_target: None,
             splash: false,
             hy: hydra::Hy::load(),
+            window_focused: true,
         };
         app.splash = app.cfg.ui.splash;
         if !crate::theme::BUILTIN.contains(&app.cfg.theme.as_str()) {
@@ -571,6 +574,12 @@ impl App {
                 }
             }
             ServerMsg::Attention { term, status } => {
+                if self.focused() == Some(term) && self.window_focused {
+                    return;
+                }
+                let (title, body) = self.alert_text(term, status);
+                let kind = if status == Status::Blocked { crate::alert::Kind::Needs } else { crate::alert::Kind::Done };
+                crate::alert::alert(&self.cfg.notify, kind, &title, &body);
                 if self.focused() == Some(term) {
                     return;
                 }
@@ -639,6 +648,8 @@ impl App {
         match ev {
             Event::Key(k) if k.kind != KeyEventKind::Release => self.on_key(k),
             Event::Paste(s) => self.on_paste(s),
+            Event::FocusGained => self.window_focused = true,
+            Event::FocusLost => self.window_focused = false,
             Event::Mouse(m) => self.on_mouse(m),
             _ => {}
         }
@@ -2305,6 +2316,19 @@ impl App {
             _ => {}
         }
         true
+    }
+
+    /// "claude needs you" / "shop-api · Fix flaky checkout test".
+    fn alert_text(&self, term: TermId, status: Status) -> (String, String) {
+        let t = self.snap.terms.get(&term);
+        let agent = t.and_then(|t| t.agent.clone()).unwrap_or_else(|| "an agent".into());
+        let what = if status == Status::Blocked { "needs you" } else { "finished" };
+        let place = t
+            .and_then(|t| t.top.as_ref().or(Some(&t.cwd)).and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_default();
+        let summary = t.map(|t| t.summary.trim().to_string()).unwrap_or_default();
+        let body = if summary.is_empty() { place } else { format!("{place} · {summary}") };
+        (format!("{agent} {what}"), body)
     }
 
     /// Clicks on chips and buttons. Returns true if handled.

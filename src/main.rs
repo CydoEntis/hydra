@@ -1,3 +1,4 @@
+mod alert;
 mod cli;
 mod client;
 mod config;
@@ -117,6 +118,8 @@ enum Cmd {
         #[arg(long)]
         forget: bool,
     },
+    /// Show a desktop notification and play the needs-you and done sounds, to check them.
+    TestAlert,
 }
 
 #[derive(Subcommand)]
@@ -173,6 +176,23 @@ fn main() {
         Some(Cmd::Worktree { branch, base, ws, command }) => cli::worktree(branch, base, ws, command),
         Some(Cmd::WorktreeRemove { ws, force }) => cli::worktree_remove(ws, force),
         Some(Cmd::KillServer { forget }) => cli::kill_server(forget),
+        Some(Cmd::TestAlert) => {
+            let (cfg, _) = config::Config::load_or_default();
+            println!("notification: {}", if cfg.notify.desktop { "on" } else { "off (notify.desktop)" });
+            if cfg.notify.desktop {
+                alert::notify("claude needs you", "hydra · this is a test");
+            }
+            for (what, sound) in [("needs you", &cfg.notify.sound_needs), ("done", &cfg.notify.sound_done)] {
+                match alert::sound_file(sound) {
+                    Some(f) => {
+                        println!("{what} sound: {sound} ({})", f.display());
+                        alert::play(sound);
+                    }
+                    None => println!("{what} sound: {sound} (off or not found)"),
+                }
+            }
+            Ok(())
+        }
     };
     if let Err(e) = result {
         eprintln!("hydra: {e:#}");
