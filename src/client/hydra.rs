@@ -216,6 +216,9 @@ impl NewPaneHy {
 #[derive(Debug, Clone)]
 pub(super) struct Session {
     pub term: TermId,
+    /// What the row says: your name for it, else its worktree, else repo/branch on a
+    /// feature branch, else the folder it's in.
+    pub name: String,
     pub title: String,
     pub agent: String,
     pub status: Status,
@@ -381,6 +384,7 @@ impl App {
             p.wts.len() - 1
         };
 
+        let mut defaults: HashMap<String, Option<String>> = HashMap::new();
         for w in &self.snap.workspaces {
             let leaves: Vec<TermId> = w.tabs.iter().flat_map(|t| t.layout.leaves()).collect();
             for id in &leaves {
@@ -395,12 +399,14 @@ impl App {
                         (cwd.clone(), cwd, String::new(), true, false)
                     }
                 };
+                let name = row_name(t, &root, &top, &branch, main, git, &mut defaults);
                 let pi = add_proj(&mut projs, &root, git);
                 let wi = add_wt(&mut projs[pi], &top, branch, main);
                 let title = session_title(t, if leaves.len() == 1 { &w.name } else { "" }, &top);
                 let question = (t.status == Status::Blocked).then(|| self.parsers.get(id).and_then(question)).flatten();
                 projs[pi].wts[wi].sessions.push(Session {
                     term: *id,
+                    name,
                     title,
                     agent: match &t.agent {
                         Some(a) => a.clone(),
@@ -523,6 +529,53 @@ impl App {
 
 /// What to call a session: its name if renamed, else the agent's last prompt, else where a
 /// shell is (inside its worktree), else the program.
+/// A session's row name: what you renamed it to; else the worktree it's in; else
+/// repo/branch when the repo folder is on a feature branch; else the folder it's in.
+fn row_name(t: &TermInfo, root: &Path, top: &Path, branch: &str, main: bool, git: bool, defaults: &mut HashMap<String, Option<String>>) -> String {
+    if !t.label.trim().is_empty() {
+        return t.label.trim().to_string();
+    }
+    let repo = folder_name(root);
+    if git && !main {
+        return folder_name(top);
+    }
+    if git && !branch.is_empty() {
+        let default = defaults.entry(path_key(root)).or_insert_with(|| crate::gitfs::main_branch(root)).clone();
+        let feature = match default.as_deref() {
+            Some(d) => d != branch,
+            None => !["main", "master"].contains(&branch),
+        };
+        if feature {
+            return format!("{repo}/{branch}");
+        }
+    }
+    let cwd = if t.cwd.as_os_str().is_empty() { top } else { t.cwd.as_path() };
+    match cwd.strip_prefix(root) {
+        Ok(rel) if !rel.as_os_str().is_empty() => format!("{repo}/{}", rel.display().to_string().replace('\\', "/")),
+        Ok(_) => repo,
+        Err(_) => folder_name(cwd),
+    }
+}
+
+/// The icon for what runs in a pane.
+pub(super) fn kind_icon(app: &App, agent: &str, is_agent: bool) -> String {
+    if !is_agent {
+        return app.cfg.icons.shell.clone();
+    }
+    match agent {
+        "claude" => "✻",
+        "codex" => "◇",
+        "gemini" => "✦",
+        "opencode" => "◈",
+        "cursor" => "▲",
+        "copilot" => "◎",
+        "aider" => "◆",
+        "grok" => "✕",
+        _ => "◆",
+    }
+    .to_string()
+}
+
 fn session_title(t: &TermInfo, name: &str, top: &Path) -> String {
     if !t.label.trim().is_empty() {
         return t.label.trim().to_string();
@@ -764,7 +817,8 @@ fn crumb(app: &App, model: &[Proj], t: &Theme, bg: Color) -> Vec<Seg> {
             },
             st.fg(t.text),
         ),
-        seg(format!("{}  ", s.agent), st.fg(t.strong).add_modifier(Modifier::BOLD)),
+        seg(format!("{} ", s.agent), st.fg(t.strong).add_modifier(Modifier::BOLD)),
+        seg(if s.model.is_empty() { " ".to_string() } else { format!("{}  ", s.model) }, st.fg(t.muted)),
         seg(if s.is_agent { format!("{} {}", glyph(app, s.status), state_label(s.status)) } else { String::new() }, st.fg(t.status(s.status))),
         seg(if s.is_agent && s.title != WAITING { format!("  ·  {}", s.title) } else { String::new() }, st.fg(t.text)),
     ]
@@ -823,7 +877,7 @@ fn session_lines(s: &Session, t: &Theme, out: &mut Vec<Line>) {
     let notes_c = t.muted;
     if let Some(q) = &s.question {
         out.push(Line::Note(q.clone(), blend(t.blocked, t.sidebar_bg, 0.25), s.term));
-    } else if s.is_agent && s.title != WAITING {
+    } else if s.is_agent && s.title != WAITING && s.title.trim() != s.name.trim() && !s.title.trim().is_empty() {
         out.push(Line::Note(s.title.clone(), notes_c, s.term));
     }
     for sub in &s.subagents {
@@ -992,9 +1046,9 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 let (gl, gc) = if s.asleep {
                     ("☾".to_string(), t.muted)
                 } else if s.is_agent || s.status != Status::None {
-                    (glyph(app, s.status), t.status(s.status))
+                    (kind_icon(app, &s.agent, s.is_agent), t.status(s.status))
                 } else {
-                    (app.cfg.icons.shell.clone(), t.muted)
+                    (kind_icon(app, &s.agent, false), t.muted)
                 };
                 let (gl, gc) = match &s.dev {
                     Some(d) => ("▶".to_string(), if d.ready { t.done } else { t.muted }),
@@ -1005,32 +1059,20 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 if s.status == Status::Blocked {
                     gs = gs.add_modifier(Modifier::BOLD);
                 }
-                // Agent and state on the left; age (or the talk chip) on the right.
-                let mut left = vec![seg(format!("{gl} "), gs), seg(s.agent.clone(), st.fg(ink.unwrap_or(t.strong)).add_modifier(Modifier::BOLD))];
+                // What it is (the icon, coloured by status) and its name; state on the right.
                 let wt = &model[*pi].wts[*wi];
-                if wt.main && model[*pi].git && !wt.branch.is_empty() {
-                    // In the repo folder itself, on its branch (not a worktree of its own).
-                    left.push(seg(format!(" ⎇ {}", wt.branch), st.fg(ink.unwrap_or(t.muted))));
-                } else if !wt.main {
-                    // ⚑ when it's racing others on the same task.
-                    let racing = app.hy.saved.races.iter().any(|r| r.entries.iter().any(|(_, b)| *b == wt.branch));
-                    left.push(seg(format!(" {} {}", if racing { "⚑" } else { "⑂" }, wt.name), st.fg(ink.unwrap_or(t.accent))));
+                let racing = !wt.main && app.hy.saved.races.iter().any(|r| r.entries.iter().any(|(_, b)| *b == wt.branch));
+                let mut left = vec![seg(format!("{gl} "), gs)];
+                if racing {
+                    left.push(seg("⚑ ", st.fg(ink.unwrap_or(t.accent))));
                 }
+                left.push(seg(s.name.clone(), st.fg(ink.unwrap_or(t.strong)).add_modifier(Modifier::BOLD)));
                 if let Some(d) = &s.dev {
                     let port = d.port.map(|p| format!(" :{p}")).unwrap_or_default();
                     let state = if d.ready { "ready" } else { "starting…" };
                     left.truncate(1);
                     left.push(seg(format!("dev{port}"), st.fg(ink.unwrap_or(t.strong)).add_modifier(Modifier::BOLD)));
                     left.push(seg(format!("  {state}"), st.fg(ink.unwrap_or(if d.ready { t.done } else { t.muted }))));
-                } else if !s.model.is_empty() && w > 34 {
-                    left.push(seg(format!(" {}", s.model), st.fg(ink.unwrap_or(t.muted))));
-                }
-                if s.asleep {
-                    left.push(seg("  asleep", st.fg(ink.unwrap_or(t.muted))));
-                } else if s.is_agent {
-                    left.push(seg(format!("  {}", state_label(s.status)), st.fg(ink.unwrap_or(gc))));
-                } else {
-                    left.push(seg(format!("  {}", truncate(&s.title, w.saturating_sub(16) as usize)), st.fg(ink.unwrap_or(t.muted))));
                 }
                 // The branch's pull request, on its first session.
                 let pr = (*si == 0).then(|| model[*pi].prs.iter().find(|p| p.branch == wt.branch)).flatten();
@@ -1043,8 +1085,11 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                     let tw = segs_width(&tg);
                     hit(app, Rect { x: right.saturating_sub(tw) + 1, y, width: tw, height: 1 }, HyHit::Pr(k2));
                     tg
-                } else if s.is_agent && !s.asleep {
-                    vec![seg(age(s.since), st.fg(ink.unwrap_or(t.muted)))]
+                } else if s.asleep {
+                    vec![seg("asleep", st.fg(ink.unwrap_or(t.muted)))]
+                } else if s.is_agent {
+                    let spin = if s.status == Status::Working { format!("{} ", glyph(app, s.status)) } else { String::new() };
+                    vec![seg(format!("{spin}{} ", state_label(s.status)), st.fg(ink.unwrap_or(gc))), seg(age(s.since), st.fg(ink.unwrap_or(t.muted)))]
                 } else {
                     vec![]
                 };
