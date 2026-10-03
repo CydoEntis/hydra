@@ -1113,19 +1113,50 @@ pub(super) fn draw_files(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme,
     let px = body.x + fw + 3;
     if let Some((path, lines)) = &v.preview {
         let rel = path.strip_prefix(&v.root).map(|p| p.display().to_string()).unwrap_or_else(|_| tilde(path));
+        #[allow(unused_assignments)]
         let mut header = vec![seg(rel, Style::default().fg(t.strong).add_modifier(Modifier::BOLD))];
         if let Some(who) = v.editing_by(path) {
             header.push(seg(format!("   {who} is editing this file"), Style::default().fg(t.muted).add_modifier(Modifier::ITALIC)));
         }
-        put(buf, px, body.y + 1, &header, body.right());
-        for (k, l) in lines.iter().enumerate() {
-            let yy = body.y + 3 + k as u16;
-            if yy >= body.bottom() {
-                break;
+        let prect = Rect { x: px, y: body.y + 3, width: body.right().saturating_sub(px + 1), height: body.bottom().saturating_sub(body.y + 3) };
+        app.hy.preview_rect = prect;
+        match &v.edit {
+            Some(ed) => {
+                header = vec![
+                    seg(ed.path.strip_prefix(&v.root).map(|p| p.display().to_string()).unwrap_or_default(), Style::default().fg(t.strong).add_modifier(Modifier::BOLD)),
+                    seg(if ed.dirty { "  ● unsaved" } else { "  editing" }, Style::default().fg(if ed.dirty { t.blocked } else { t.accent })),
+                    seg("   Ctrl+S save · Esc done", Style::default().fg(t.muted)),
+                ];
+                put(buf, px, body.y + 1, &header, body.right());
+                for (k, l) in ed.lines.iter().enumerate().skip(v.scroll).take(prect.height as usize) {
+                    let yy = prect.y + (k - v.scroll) as u16;
+                    let num = Style::default().fg(if k == ed.row { t.accent } else { t.muted });
+                    let mut segs = vec![seg(format!("{:>4}  ", k + 1), num)];
+                    segs.extend(super::views::highlight(&l.replace('\t', "    "), t));
+                    put(buf, px, yy, &segs, prect.right());
+                    if k == ed.row {
+                        let cx = px + 6 + ed.cursor_x() as u16;
+                        if cx < prect.right() {
+                            let cell = &mut buf[(cx, yy)];
+                            let sym = if cell.symbol().trim().is_empty() { " ".to_string() } else { cell.symbol().to_string() };
+                            cell.set_symbol(&sym).set_style(Style::default().bg(t.accent).fg(t.acc_ink));
+                        }
+                    }
+                }
             }
-            let mut segs = vec![seg(format!("{:>4}  ", k + 1), Style::default().fg(t.muted))];
-            segs.extend(super::views::highlight(l, t));
-            put(buf, px, yy, &segs, body.right().saturating_sub(1));
+            None => {
+                put(buf, px, body.y + 1, &header, body.right());
+                for (k, l) in lines.iter().enumerate().skip(v.scroll).take(prect.height as usize) {
+                    let yy = prect.y + (k - v.scroll) as u16;
+                    let mut segs = vec![seg(format!("{:>4}  ", k + 1), Style::default().fg(t.muted))];
+                    segs.extend(super::views::highlight(l, t));
+                    put(buf, px, yy, &segs, prect.right());
+                }
+                if lines.len() > prect.height as usize {
+                    let at = format!(" {}–{} of {} ", v.scroll + 1, (v.scroll + prect.height as usize).min(lines.len()), lines.len());
+                    put(buf, body.right().saturating_sub(at.width() as u16 + 1), body.y + 1, &[seg(at, Style::default().fg(t.muted))], body.right());
+                }
+            }
         }
     }
     let who = app.focused().and_then(|id| app.snap.terms.get(&id)).map(pane_name).unwrap_or_else(|| "the pane".into());
@@ -1137,12 +1168,13 @@ pub(super) fn draw_files(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme,
         t,
         &[
             (&insert, "Enter", BtnKind::Primary, Hit::Button(super::Btn::ViewKey('\n'))),
+            ("Edit here", "i", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('i'))),
             ("Editor", "e", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('e'))),
             ("Open", "o", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('o'))),
             ("Copy path", "y", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('y'))),
             ("Show diff", "d", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('d'))),
         ],
-        &[seg("or drag a file onto a pane", Style::default().fg(t.muted))],
+        &[seg("PgUp PgDn / wheel scroll", Style::default().fg(t.muted))],
     );
 }
 

@@ -1716,6 +1716,14 @@ impl App {
             }
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 let up = m.kind == MouseEventKind::ScrollUp;
+                if self.hy.preview_rect.contains(pos)
+                    && let Some(View::Files(v)) = &mut self.view
+                {
+                    let n = v.edit.as_ref().map(|e| e.lines.len()).or_else(|| v.preview.as_ref().map(|(_, l)| l.len())).unwrap_or(0);
+                    v.scroll = if up { v.scroll.saturating_sub(3) } else { (v.scroll + 3).min(n.saturating_sub(1)) };
+                    self.dirty = true;
+                    return;
+                }
                 if self.hy.side_rect.contains(pos) {
                     self.hy.side_scroll = if up { self.hy.side_scroll.saturating_sub(3) } else { self.hy.side_scroll + 3 };
                     self.dirty = true;
@@ -2832,6 +2840,56 @@ impl App {
     /// Returns false when the view closes.
     fn on_files_tree_key(&mut self, v: &mut views::FilesTree, k: &KeyEvent) -> bool {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        let page = self.hy.preview_rect.height.saturating_sub(4).max(5) as usize;
+        // Editing the file in the preview.
+        if let Some(ed) = v.edit.as_mut() {
+            match k.code {
+                KeyCode::Char('s') if ctrl => match ed.save() {
+                    Ok(()) => self.notify(format!("saved {}", ed.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), false),
+                    Err(e) => self.notify(e, true),
+                },
+                KeyCode::Esc if ed.dirty && !ed.warned => {
+                    ed.warned = true;
+                    self.notify("unsaved changes: Ctrl+S saves, Esc again throws them away".into(), true);
+                }
+                KeyCode::Esc => {
+                    v.edit = None;
+                    // Show what's on disk now.
+                    v.preview = None;
+                    v.refresh_preview();
+                    return true;
+                }
+                KeyCode::Up => ed.go(-1, 0),
+                KeyCode::Down => ed.go(1, 0),
+                KeyCode::Left => ed.go(0, -1),
+                KeyCode::Right => ed.go(0, 1),
+                KeyCode::PageUp => ed.go(-(page as isize), 0),
+                KeyCode::PageDown => ed.go(page as isize, 0),
+                KeyCode::Home => ed.home(),
+                KeyCode::End => ed.end(),
+                KeyCode::Enter => ed.newline(),
+                KeyCode::Backspace => ed.backspace(),
+                KeyCode::Delete => ed.delete(),
+                KeyCode::Tab => {
+                    for _ in 0..4 {
+                        ed.insert(' ');
+                    }
+                }
+                KeyCode::Char(c) if !ctrl => {
+                    ed.warned = false;
+                    ed.insert(c);
+                }
+                _ => {}
+            }
+            // Keep the cursor on screen.
+            let row = ed.row;
+            if row < v.scroll {
+                v.scroll = row;
+            } else if row >= v.scroll + page {
+                v.scroll = row + 1 - page;
+            }
+            return true;
+        }
         if v.filtering {
             match k.code {
                 KeyCode::Esc => {
@@ -2854,8 +2912,26 @@ impl App {
             return true;
         }
         let node = v.selected();
+        let lines = v.preview.as_ref().map(|(_, l)| l.len()).unwrap_or(0);
         match k.code {
             KeyCode::Esc => return false,
+            // Read the preview: page, or a line at a time with Shift.
+            KeyCode::PageDown => v.scroll = (v.scroll + page).min(lines.saturating_sub(1)),
+            KeyCode::PageUp => v.scroll = v.scroll.saturating_sub(page),
+            KeyCode::Down if k.modifiers.contains(KeyModifiers::SHIFT) => v.scroll = (v.scroll + 1).min(lines.saturating_sub(1)),
+            KeyCode::Up if k.modifiers.contains(KeyModifiers::SHIFT) => v.scroll = v.scroll.saturating_sub(1),
+            // Edit it right here.
+            KeyCode::Char('i') => {
+                if let Some(n) = node.as_ref().filter(|n| !n.is_dir) {
+                    match views::Edit::open(&n.path) {
+                        Ok(mut ed) => {
+                            ed.row = v.scroll.min(ed.lines.len().saturating_sub(1));
+                            v.edit = Some(ed);
+                        }
+                        Err(e) => self.notify(e, true),
+                    }
+                }
+            }
             KeyCode::Char('/') => {
                 v.filtering = true;
                 v.sel = 0;

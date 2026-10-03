@@ -144,7 +144,7 @@ pub fn scan_project(root: &Path) -> Vec<FileEntry> {
 pub fn preview(path: &Path) -> Vec<String> {
     use std::io::Read;
     let Ok(mut f) = std::fs::File::open(path) else { return vec!["(can't open)".into()] };
-    let mut buf = vec![0u8; 32 * 1024];
+    let mut buf = vec![0u8; 2 * 1024 * 1024];
     let n = f.read(&mut buf).unwrap_or(0);
     buf.truncate(n);
     if buf.contains(&0) {
@@ -152,7 +152,7 @@ pub fn preview(path: &Path) -> Vec<String> {
         let kind = path.extension().map(|e| e.to_string_lossy().to_uppercase()).unwrap_or_else(|| "binary".into());
         return vec![format!("{kind} file, {}", human_size(size)), String::new(), "Enter puts its path in your prompt.".into()];
     }
-    String::from_utf8_lossy(&buf).lines().take(200).map(|l| l.replace('\t', "    ")).collect()
+    String::from_utf8_lossy(&buf).lines().take(50_000).map(|l| l.replace('\t', "    ")).collect()
 }
 
 pub fn human_size(n: u64) -> String {

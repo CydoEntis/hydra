@@ -70,6 +70,8 @@ pub(super) struct Hy {
     pub split_dir: Option<crate::layout::Dir>,
     /// Where the bottom bar's "where you are" starts (lined up with the panes).
     pub crumb_x: u16,
+    /// Where the file preview was drawn (wheel scrolls it; paging uses its height).
+    pub preview_rect: Rect,
     pub tab: usize,
     /// The next session that opens goes in a new tab (Ctrl+Space w), until this time.
     pub new_tab: Option<Instant>,

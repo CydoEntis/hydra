@@ -144,6 +144,137 @@ pub struct FilesTree {
     pub recent: bool,
     pub recent_list: Option<Vec<FileEntry>>,
     pub loading: bool,
+    /// How far the preview is scrolled (lines).
+    pub scroll: usize,
+    /// Editing the previewed file right here.
+    pub edit: Option<Edit>,
+}
+
+/// A small editor for the file in the preview.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Edit {
+    pub path: PathBuf,
+    pub lines: Vec<String>,
+    /// Cursor: line, and character in it.
+    pub row: usize,
+    pub col: usize,
+    pub dirty: bool,
+    /// Esc once with unsaved changes: the next Esc throws them away.
+    pub warned: bool,
+    crlf: bool,
+    trailing_newline: bool,
+}
+
+impl Edit {
+    pub fn open(path: &Path) -> Result<Edit, String> {
+        let bytes = std::fs::read(path).map_err(|e| format!("can't read it: {e}"))?;
+        if bytes.len() > 4 * 1024 * 1024 || bytes.contains(&0) {
+            return Err("not a text file hydra can edit (too big or binary); press e for your editor".into());
+        }
+        let text = String::from_utf8(bytes).map_err(|_| "not UTF-8 text; press e for your editor".to_string())?;
+        let crlf = text.contains("\r\n");
+        let trailing_newline = text.ends_with('\n');
+        let mut lines: Vec<String> = text.lines().map(|l| l.trim_end_matches('\r').to_string()).collect();
+        if lines.is_empty() {
+            lines.push(String::new());
+        }
+        Ok(Edit { path: path.to_path_buf(), lines, row: 0, col: 0, dirty: false, warned: false, crlf, trailing_newline })
+    }
+
+    pub fn save(&mut self) -> Result<(), String> {
+        let nl = if self.crlf { "\r\n" } else { "\n" };
+        let mut text = self.lines.join(nl);
+        if self.trailing_newline {
+            text.push_str(nl);
+        }
+        std::fs::write(&self.path, text).map_err(|e| format!("couldn't save: {e}"))?;
+        self.dirty = false;
+        self.warned = false;
+        Ok(())
+    }
+
+    fn len(&self, row: usize) -> usize {
+        self.lines.get(row).map(|l| l.chars().count()).unwrap_or(0)
+    }
+
+    fn byte(&self, row: usize, col: usize) -> usize {
+        self.lines[row].char_indices().nth(col).map(|(i, _)| i).unwrap_or(self.lines[row].len())
+    }
+
+    pub fn insert(&mut self, c: char) {
+        let at = self.byte(self.row, self.col);
+        self.lines[self.row].insert(at, c);
+        self.col += 1;
+        self.dirty = true;
+    }
+
+    pub fn newline(&mut self) {
+        let at = self.byte(self.row, self.col);
+        let rest = self.lines[self.row].split_off(at);
+        // Keep the line's indent.
+        let indent: String = self.lines[self.row].chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+        self.row += 1;
+        self.col = indent.chars().count();
+        self.lines.insert(self.row, format!("{indent}{rest}"));
+        self.dirty = true;
+    }
+
+    pub fn backspace(&mut self) {
+        if self.col > 0 {
+            let at = self.byte(self.row, self.col - 1);
+            self.lines[self.row].remove(at);
+            self.col -= 1;
+        } else if self.row > 0 {
+            let line = self.lines.remove(self.row);
+            self.row -= 1;
+            self.col = self.len(self.row);
+            self.lines[self.row].push_str(&line);
+        } else {
+            return;
+        }
+        self.dirty = true;
+    }
+
+    pub fn delete(&mut self) {
+        if self.col < self.len(self.row) {
+            let at = self.byte(self.row, self.col);
+            self.lines[self.row].remove(at);
+        } else if self.row + 1 < self.lines.len() {
+            let next = self.lines.remove(self.row + 1);
+            self.lines[self.row].push_str(&next);
+        } else {
+            return;
+        }
+        self.dirty = true;
+    }
+
+    pub fn go(&mut self, drow: isize, dcol: isize) {
+        if dcol < 0 && self.col == 0 && self.row > 0 {
+            self.row -= 1;
+            self.col = self.len(self.row);
+            return;
+        }
+        if dcol > 0 && self.col >= self.len(self.row) && self.row + 1 < self.lines.len() {
+            self.row += 1;
+            self.col = 0;
+            return;
+        }
+        self.row = (self.row as isize + drow).clamp(0, self.lines.len() as isize - 1) as usize;
+        self.col = ((self.col as isize + dcol).max(0) as usize).min(self.len(self.row));
+    }
+
+    pub fn home(&mut self) {
+        self.col = 0;
+    }
+
+    pub fn end(&mut self) {
+        self.col = self.len(self.row);
+    }
+
+    /// The cursor's screen column within its line (tabs are four wide).
+    pub fn cursor_x(&self) -> usize {
+        self.lines[self.row].chars().take(self.col).map(|c| if c == '\t' { 4 } else { 1 }).sum()
+    }
 }
 
 impl FilesTree {
@@ -162,6 +293,8 @@ impl FilesTree {
             recent: false,
             recent_list: None,
             loading: true,
+            scroll: 0,
+            edit: None,
         }
     }
 
@@ -228,6 +361,7 @@ impl FilesTree {
         if self.preview.as_ref().is_some_and(|(p, _)| *p == n.path) {
             return;
         }
+        self.scroll = 0;
         self.preview = Some((n.path.clone(), super::files::preview(&n.path)));
     }
 }
@@ -389,6 +523,31 @@ pub fn highlight(line: &str, t: &Theme) -> Vec<(String, Style)> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn edit_a_file_in_place() {
+        let dir = std::env::temp_dir().join(format!("hydra-edit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.ts");
+        std::fs::write(&f, "const a = 1;\r\n  if (x) {\r\n").unwrap();
+        let mut ed = Edit::open(&f).unwrap();
+        ed.end();
+        ed.backspace();
+        for c in "2;".chars() {
+            ed.insert(c);
+        }
+        ed.go(1, 0);
+        ed.end();
+        ed.newline();
+        ed.insert('y');
+        assert!(ed.dirty);
+        ed.save().unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "const a = 12;\r\n  if (x) {\r\n  y\r\n", "edits, the indent kept, CRLF kept");
+        ed.go(0, -100);
+        ed.backspace();
+        assert_eq!(ed.lines[1], "  if (x) {  y", "backspace at a line's start joins it to the one above");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn a_review_mark_clears_when_the_file_changes() {
