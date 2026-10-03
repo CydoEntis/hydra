@@ -1,11 +1,11 @@
 //! Right-click menus for the hydra layout: a pane, an agent row, a project, a branch or a
 //! worktree. Short, hoverable, and every item does something.
 
-use super::design::{fill, path_key, put, seg, segs_width};
+use super::design::{fill, put, seg, segs_width};
 use super::hydra::{HyHit, find, hit, hovered};
 use super::render::truncate;
 use super::{App, Mode};
-use crate::protocol::{ClientMsg, Command, TermId};
+use crate::protocol::{Command, TermId};
 use crate::theme::Theme;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::Frame;
@@ -16,22 +16,13 @@ use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Act {
-    Focus(TermId),
     Beside(TermId),
     Talk(TermId),
-    Interrupt(TermId),
     /// End these (stops what runs in them).
     End(Vec<TermId>),
-    StartAgent(PathBuf),
-    StartShell(PathBuf),
-    Files(PathBuf),
     Changes(PathBuf),
-    Ship(PathBuf),
-    RemoveWorktree(PathBuf),
-    Duplicate(TermId),
     /// Preset i, for this agent.
     Preset(usize, Option<TermId>),
-    SwitchBranch(PathBuf),
     RenamePane(TermId),
     Split(TermId, crate::layout::Dir),
     Zoom(TermId),
@@ -136,17 +127,30 @@ impl App {
         let model = self.hy_model();
         let Some((_, _, s)) = find(&model, term) else { return };
         let agent = s.agent.clone();
-        let mut items = vec![("Open".to_string(), Act::Focus(term))];
-        if self.focused().is_some_and(|f| f != term) {
-            items.push(("Open beside this one".into(), Act::Beside(term)));
+        let dir = find(&model, term).map(|(_, w, _)| w.path.clone());
+        if let (Some(_), Some(d)) = (&s.dev, &dir) {
+            use crate::protocol::DevAction;
+            let items = vec![
+                ("Restart".to_string(), Act::Dev(d.clone(), DevAction::Restart)),
+                ("Stop".to_string(), Act::Dev(d.clone(), DevAction::Stop)),
+            ];
+            self.menu("dev server".into(), items, at);
+            return;
         }
-        items.extend([
-            (format!("Message {agent}…"), Act::Talk(term)),
-            ("Duplicate (same task, new worktree)…".to_string(), Act::Duplicate(term)),
-            ("Rename".to_string(), Act::RenamePane(term)),
-            ("Interrupt (Ctrl+C)".to_string(), Act::Interrupt(term)),
-            ("Close".to_string(), Act::End(vec![term])),
-        ]);
+        let mut items = vec![(format!("Message {agent}…"), Act::Talk(term))];
+        if self.focused().is_some_and(|f| f != term) {
+            items.push(("Open beside".into(), Act::Beside(term)));
+        }
+        items.push(("Rename".to_string(), Act::RenamePane(term)));
+        if let Some(d) = dir.filter(|d| crate::gitfs::head(d).is_some()) {
+            items.push(("Changes".to_string(), Act::Changes(d)));
+        }
+        if let Some(d) = find(&model, term).filter(|(_, w, _)| !w.main && !w.sessions.iter().any(|x| x.dev.is_some())).map(|(_, w, _)| w.path.clone())
+            && crate::project::load(&d).dev.is_some_and(|x| !x.run.trim().is_empty())
+        {
+            items.push(("▶ Run dev server here".to_string(), Act::Dev(d, crate::protocol::DevAction::Start)));
+        }
+        items.push(("Close".to_string(), Act::End(vec![term])));
         self.menu(format!("{agent} · {}", truncate(&s.title, 30)), items, at);
     }
 
@@ -159,43 +163,13 @@ impl App {
             items.push(("New worktree".to_string(), Act::NewWorktree(pi)));
             items.push(("Open worktree…".to_string(), Act::OpenWorktree(pi)));
         }
+        if let Some(main) = p.wts.iter().find(|w| w.main)
+            && crate::project::load(&main.path).dev.is_some_and(|d| !d.run.trim().is_empty())
+            && !main.sessions.iter().any(|s| s.dev.is_some())
+        {
+            items.push(("▶ Run dev server".to_string(), Act::Dev(main.path.clone(), crate::protocol::DevAction::Start)));
+        }
         self.menu(p.name.clone(), items, at);
-    }
-
-    /// Right-click on a branch (the repo folder) or worktree row.
-    pub(super) fn menu_for_place(&mut self, key: String, at: (u16, u16)) {
-        let model = self.hy_model();
-        let Some(w) = model.iter().flat_map(|p| p.wts.iter()).find(|w| w.key == key).cloned() else { return };
-        let all: Vec<TermId> = w.sessions.iter().map(|s| s.term).collect();
-        let agent = self.hy_agent();
-        let mut items = vec![
-            (format!("+ {agent} here"), Act::StartAgent(w.path.clone())),
-            ("+ Shell here".to_string(), Act::StartShell(w.path.clone())),
-            ("Files".to_string(), Act::Files(w.path.clone())),
-            ("Changes".to_string(), Act::Changes(w.path.clone())),
-            ("Switch branch…".to_string(), Act::SwitchBranch(w.path.clone())),
-            ("Ship (commit, push, PR)".to_string(), Act::Ship(w.path.clone())),
-        ];
-        // The dev server, when the repo says how to run one.
-        if crate::project::load(&w.path).dev.is_some_and(|d| !d.run.trim().is_empty()) {
-            use crate::protocol::DevAction;
-            match w.sessions.iter().find(|s| s.dev.is_some()) {
-                Some(s) => items.extend([
-                    ("Dev server: show its output".to_string(), Act::Focus(s.term)),
-                    ("Dev server: restart".to_string(), Act::Dev(w.path.clone(), DevAction::Restart)),
-                    ("Dev server: stop".to_string(), Act::Dev(w.path.clone(), DevAction::Stop)),
-                ]),
-                None => items.push(("▶ Run dev server".to_string(), Act::Dev(w.path.clone(), DevAction::Start))),
-            }
-        }
-        if !all.is_empty() {
-            items.push((format!("End everything here ({})", all.len()), Act::End(all)));
-        }
-        if !w.main {
-            items.push(("Remove worktree (branch kept)".into(), Act::RemoveWorktree(w.path.clone())));
-        }
-        let title = if w.main { format!("⎇ {}", w.branch) } else { format!("⑂ {}", w.name) };
-        self.menu(title, items, at);
     }
 
     pub(super) fn on_hy_menu_key(&mut self, mut m: HyMenu, k: &KeyEvent) {
@@ -250,7 +224,6 @@ impl App {
                 let n = p.sessions().count();
                 ("Close project?".to_string(), format!("{} — {n} pane{}", p.name, if n == 1 { "" } else { "s" }))
             }),
-            Act::RemoveWorktree(p) => Some(("Remove worktree?".to_string(), format!("{} (its branch is kept)", super::design::tilde(p)))),
             _ => None,
         };
         match ask {
@@ -313,7 +286,6 @@ impl App {
                     None => self.notify("start something in this project first".into(), true),
                 }
             }
-            Act::Focus(t) => self.hy_focus(t),
             Act::Beside(t) => {
                 if let Some(f) = self.focused() {
                     self.hy_unshow(t);
@@ -322,48 +294,14 @@ impl App {
                 }
             }
             Act::Talk(t) => self.hy_talk(t, false),
-            Act::Duplicate(t) => self.hy_duplicate(t),
             Act::Preset(i, on) => self.hy_run_preset(i, on, None),
-            Act::SwitchBranch(p) => self.open_branches(Some(p)),
             Act::Dev(dir, action) => self.cmd(Command::Dev { dir, action }),
-            Act::Interrupt(t) => self.send(ClientMsg::Input { term: t, data: vec![3] }),
             Act::End(ts) => {
                 for t in ts {
                     self.cmd(Command::ClosePane { term: t });
                 }
             }
-            Act::StartAgent(p) => {
-                let agent = self.hy_agent();
-                self.hy_new_session(p, Some(agent), false);
-            }
-            Act::StartShell(p) => self.hy_new_session(p, None, false),
-            Act::Files(p) => self.open_files(p),
             Act::Changes(p) => self.open_changes(p),
-            Act::Ship(p) => self.ask_ship(p),
-            Act::RemoveWorktree(p) => {
-                let ws = self
-                    .snap
-                    .terms
-                    .values()
-                    .find(|t| t.top.as_ref().is_some_and(|x| path_key(x) == path_key(&p)))
-                    .and_then(|t| self.snap.locate(t.id))
-                    .map(|(w, _)| w.id);
-                match ws {
-                    Some(ws) => self.cmd(Command::RemoveWorktree { ws, force: false, delete_branch: false }),
-                    None => {
-                        let dir = p.clone();
-                        self.spawn_bg(move || {
-                            let out = std::process::Command::new("git").arg("-C").arg(&dir).args(["worktree", "remove", "."]).output();
-                            let r = match out {
-                                Ok(o) if o.status.success() => Ok(format!("removed worktree {}", dir.display())),
-                                Ok(o) => Err(String::from_utf8_lossy(&o.stderr).lines().next().unwrap_or("git failed").to_string()),
-                                Err(e) => Err(e.to_string()),
-                            };
-                            super::Bg::Done(r, false)
-                        });
-                    }
-                }
-            }
         }
     }
 }
@@ -398,7 +336,7 @@ pub(super) fn draw_menu(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, m: 
         let on = i == m.sel || hovered(app, row);
         let bg = if on { t.hov } else { t.card };
         fill(f.buffer_mut(), row, bg);
-        let danger = matches!(act, Act::End(_) | Act::RemoveWorktree(_) | Act::CloseProject(_));
+        let danger = matches!(act, Act::End(_) | Act::CloseProject(_));
         let fg = if danger { t.err } else if on { t.strong } else { t.text };
         let segs = vec![seg(if i == m.sel { "›" } else { " " }, Style::default().fg(t.accent).bg(bg)), seg(format!(" {label}"), Style::default().fg(fg).bg(bg))];
         let _ = segs_width(&segs);

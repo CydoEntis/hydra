@@ -1602,11 +1602,6 @@ impl App {
             match hit {
                 Some(Hit::Hy(hydra::HyHit::Session(t))) => self.menu_for_session(t, at),
                 Some(Hit::Hy(hydra::HyHit::ToggleProj(pi))) => self.menu_for_project(pi, at),
-                Some(Hit::Hy(hydra::HyHit::Wt(i))) => {
-                    if let Some((key, _)) = self.hy.wt_keys.get(i).cloned() {
-                        self.menu_for_place(key, at);
-                    }
-                }
                 _ => {
                     if let Some((term, _)) = self.pane_frames.iter().find(|(_, r)| r.contains(pos)).copied() {
                         self.menu_for_pane(term, at);
@@ -4514,28 +4509,24 @@ mod hydra_tests {
         let (text, mut app) = super::design_tests::render_with("hydra", 160, 45);
         show(&text);
         let lines: Vec<&str> = text.lines().collect();
-        assert!(lines[0].starts_with(" >_ hydra"), "top bar: {}", lines[0]);
-        assert!(lines[0].contains("shop-api  ›  ⎇ main  ›  claude  ● needs you  ·  Fix flaky checkout test"), "crumb: {}", lines[0]);
+        assert!(lines[0].starts_with(" >_ hydra"), "logo: {}", lines[0]);
+        let bottom = lines.iter().rev().find(|l| !l.trim().is_empty()).unwrap();
+        assert!(bottom.contains("shop-api  ›  ⎇ main  ›  claude  ● needs you  ·  Fix flaky checkout test"), "crumb at the bottom: {bottom}");
         assert!(lines[2].contains("+ New n") && lines[2].contains("Jump ●1"), "+ New and Jump at the top of the sidebar: {}", lines[2]);
-        // One tree: project → BRANCHES (what runs in the repo folder) → WORKTREES.
-        assert!(text.contains("▾ ▌shop-api") && text.contains("BRANCHES") && text.contains("⎇ main") && text.contains("WORKTREES"));
+        // Projects and their sessions, nothing in between.
+        assert!(text.contains("▾ ▌shop-api") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
         assert!(!text.contains("main folder"), "no 'main folder' wording");
         assert!(text.contains("+ open a project"));
-        let branches = text.find("BRANCHES").unwrap();
-        let worktrees = text.find("WORKTREES").unwrap();
-        assert!(branches < worktrees, "branches first");
         // Rows: agent and state, then what it's on (or its question) underneath.
         assert!(text.contains("● claude  needs you") && text.contains("3m"));
         assert!(text.contains("Run npm test -- checkout?"), "the question under the agent");
         assert!(text.contains("↳ Explore"), "subagents under their agent");
-        assert!(text.contains("⑂ rate · rate-limit") && text.contains("⠋ codex  working") && text.contains("Rate limit /login"));
-        assert!(text.contains("⑂ orders") && text.contains("nothing running"), "worktrees with nothing running");
+        assert!(text.contains("⠋ codex ⑂ rate  working") && text.contains("Rate limit /login"), "a worktree's session says which worktree");
         assert!(text.contains("› shell  shop-api") && !text.contains("shell 2"), "shells: where they are, no age");
         assert!(!text.contains("session"), "no 'session' wording on screen");
         assert!(text.contains("● claude is waiting") && text.contains(" Yes 1 ") && text.contains(" Always 2 ") && text.contains(" No 3 "));
         assert!(!text.contains("click or press T"), "no footer under the pane");
-        assert!(lines[2].contains("> fix the flaky checkout test"), "one pane: no title bar of its own, a row of air under the top bar");
-        assert!(lines[44].contains("● 1 need you") && !lines[44].contains("across"), "status: {}", lines[44]);
+        assert!(lines[1].contains("> fix the flaky checkout test"), "one pane: the full height, a row of air at the top");
         // Overlays are centred over a dimmed screen.
         for (mode, needle) in [
             (Mode::Jump { sel: 0 }, "NEEDS YOU"),
@@ -4595,7 +4586,7 @@ mod hydra_tests {
         );
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("#412 ✕±"), "PR tag on the worktree row");
+        assert!(o.contains("#412 ✕±"), "PR tag on the worktree's session");
         app.mode = Mode::Jump { sel: 0 };
         let o = draw(&mut app, 160, 45);
         assert!(o.contains("PULL REQUESTS") && o.contains("checks failing"), "failing PRs in Jump");
@@ -4710,7 +4701,7 @@ mod hydra_tests {
         app.menu_for_session(1, (10, 10));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("Message claude…") && o.contains("Interrupt (Ctrl+C)") && o.contains("Close"));
+        assert!(o.contains("Message claude…") && o.contains("Rename") && o.contains("Close"));
         let Mode::HyMenu(m) = &app.mode else { panic!("a menu") };
         let talk = m.items.iter().position(|(l, _)| l.starts_with("Message")).unwrap();
         app.menu_pick(talk);
@@ -4737,11 +4728,10 @@ mod hydra_tests {
         assert!(o.contains("↵ confirm") && o.contains("esc cancel"));
         app.on_key(key(KeyCode::Esc));
         assert!(matches!(app.mode, Mode::Normal), "Esc keeps it");
-        let wt = app.hy_model()[0].wts.iter().find(|w| !w.main).unwrap().key.clone();
-        app.menu_for_place(wt, (5, 5));
+        // The sidebar: sessions right under their project, worktree sessions tagged.
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains("+ claude here") && o.contains("Remove worktree (branch kept)"));
-        app.mode = Mode::Normal;
+        assert!(!o.contains("WORKTREES") && !o.contains("BRANCHES"), "no folder headings");
+        assert!(o.contains("⑂ rate"), "a worktree session says which worktree");
 
         // Resizing the sidebar, within its limits.
         let before = app.hy.side_rect.width;
@@ -4932,7 +4922,7 @@ mod hydra_tests {
         show(&o);
         assert!(o.contains("claude opus 4.5"), "the model beside the agent");
         assert!(o.contains("Fix the login flow"), "its name stays");
-        assert!(o.contains("› now add a test for it"), "the latest prompt under it");
+        assert!(!o.contains("› now add a test for it"), "one line under a row, no more");
     }
 
     #[test]

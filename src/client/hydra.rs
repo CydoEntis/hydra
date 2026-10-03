@@ -221,8 +221,6 @@ pub(super) struct Session {
     pub asleep: bool,
     /// Subagents it's running right now.
     pub subagents: Vec<String>,
-    /// The latest prompt, when it's not the title already.
-    pub latest: String,
     pub model: String,
     /// A dev server, not an agent or a shell.
     pub dev: Option<crate::protocol::DevInfo>,
@@ -413,7 +411,6 @@ impl App {
                     subagents: t.subagents.clone(),
                     dev: t.dev.clone(),
                     bell: t.bell,
-                    latest: if t.agent.is_some() && !t.name.trim().is_empty() && t.name.trim() != t.summary.trim() { t.summary.trim().to_string() } else { String::new() },
                     model: t.model.clone(),
                 });
             }
@@ -554,8 +551,6 @@ pub(super) enum HyHit {
     /// The + on a project row: new, in that project.
     NewIn(usize),
     OpenFolder,
-    /// A main folder or worktree row (index into `wt_keys`).
-    Wt(usize),
     Session(TermId),
     Talk(TermId),
     Settings,
@@ -566,7 +561,6 @@ pub(super) enum HyHit {
     Divider(usize),
     /// The ⋯ on a hovered sidebar row: its menu.
     RowMenuSess(TermId),
-    RowMenuWt(usize),
     RowMenuProj(usize),
     ConfirmYes,
     ConfirmNo,
@@ -675,7 +669,8 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
         0
     };
     let right_side = app.cfg.ui.sidebar_position == "right";
-    let mid = Rect { x: area.x, y: area.y + 1, width: area.width, height: area.height.saturating_sub(2) };
+    // The panes get the full height; the sidebar sits under the logo.
+    let mid = Rect { x: area.x, y: area.y, width: area.width, height: area.height.saturating_sub(1) };
     let (side, panes) = if sw == 0 {
         (Rect { width: 0, ..mid }, mid)
     } else if right_side {
@@ -686,7 +681,12 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
     } else {
         (Rect { width: sw, ..mid }, Rect { x: mid.x + sw + 1, width: mid.width.saturating_sub(sw + 1), ..mid })
     };
-    draw_top(app, f.buffer_mut(), area, panes.x, &model, t);
+    let side = if sw > 0 {
+        draw_top(app, f.buffer_mut(), Rect { height: 1, ..side }, t);
+        Rect { y: side.y + 1, height: side.height.saturating_sub(1), ..side }
+    } else {
+        side
+    };
     if sw > 0 {
         draw_side(app, f.buffer_mut(), side, &model, t);
         // The edge between sidebar and panes: drag it.
@@ -733,31 +733,26 @@ pub(super) fn find(model: &[Proj], term: TermId) -> Option<(&Proj, &Wt, &Session
     model.iter().find_map(|p| p.wts.iter().find_map(|w| w.sessions.iter().find(|s| s.term == term).map(|s| (p, w, s))))
 }
 
-fn draw_top(app: &mut App, buf: &mut Buffer, area: Rect, crumb_x: u16, model: &[Proj], t: &Theme) {
-    let y = area.y;
-    let x = put(buf, area.x + 1, y, &[seg(">_ hydra", Style::default().fg(t.accent).bg(t.bg).add_modifier(Modifier::BOLD))], area.right());
-    hit(app, Rect { x: area.x, y, width: x - area.x, height: 1 }, HyHit::Splash);
-    let _ = model;
-    let jx = area.right().saturating_sub(1);
-    // Crumb: ▌project › worktree › session
-    if let Some((p, w, s)) = app.focused().and_then(|f| find(model, f)) {
-        put(
-            buf,
-            crumb_x,
-            y,
-            &[
-                seg("▌", Style::default().fg(p.color)),
-                seg(p.name.clone(), Style::default().fg(t.strong).add_modifier(Modifier::BOLD)),
-                seg("  ›  ", Style::default().fg(t.muted)),
-                seg(if w.main { format!("⎇ {}", w.branch) } else { format!("⑂ {}", w.name) }, Style::default().fg(t.text)),
-                seg("  ›  ", Style::default().fg(t.muted)),
-                seg(format!("{}  ", s.agent), Style::default().fg(t.strong).add_modifier(Modifier::BOLD)),
-                seg(if s.is_agent { format!("{} {}", glyph(app, s.status), state_label(s.status)) } else { String::new() }, Style::default().fg(t.status(s.status))),
-                seg(if s.is_agent && s.title != WAITING { format!("  ·  {}", s.title) } else { String::new() }, Style::default().fg(t.text)),
-            ],
-            jx.saturating_sub(2),
-        );
-    }
+/// The logo over the sidebar (the panes use the whole height beside it).
+fn draw_top(app: &mut App, buf: &mut Buffer, r: Rect, t: &Theme) {
+    let x = put(buf, r.x + 1, r.y, &[seg(">_ hydra", Style::default().fg(t.accent).bg(t.bg).add_modifier(Modifier::BOLD))], r.right());
+    hit(app, Rect { x: r.x, y: r.y, width: x - r.x, height: 1 }, HyHit::Splash);
+}
+
+/// Where you are: ▌project › ⑂ worktree › agent ● state · what it's on.
+fn crumb(app: &App, model: &[Proj], t: &Theme, bg: Color) -> Vec<Seg> {
+    let Some((p, w, s)) = app.focused().and_then(|f| find(model, f)) else { return Vec::new() };
+    let st = Style::default().bg(bg);
+    vec![
+        seg("▌", st.fg(p.color)),
+        seg(p.name.clone(), st.fg(t.strong).add_modifier(Modifier::BOLD)),
+        seg("  ›  ", st.fg(t.muted)),
+        seg(if w.main { format!("⎇ {}", w.branch) } else { format!("⑂ {}", w.name) }, st.fg(t.text)),
+        seg("  ›  ", st.fg(t.muted)),
+        seg(format!("{}  ", s.agent), st.fg(t.strong).add_modifier(Modifier::BOLD)),
+        seg(if s.is_agent { format!("{} {}", glyph(app, s.status), state_label(s.status)) } else { String::new() }, st.fg(t.status(s.status))),
+        seg(if s.is_agent && s.title != WAITING { format!("  ·  {}", s.title) } else { String::new() }, st.fg(t.text)),
+    ]
 }
 
 /// `●1 ✓1 ⠹2`: counts of a list of sessions by state.
@@ -794,9 +789,6 @@ fn hline(buf: &mut Buffer, x: u16, y: u16, w: u16, t: &Theme, bg: Color) {
 enum Line {
     Proj(usize),
     /// A heading: BRANCHES or WORKTREES.
-    Label(&'static str),
-    /// The branch the repo folder is on, or a linked worktree (pi, wi).
-    Place(usize, usize),
     /// An agent or shell (pi, wi, si).
     Sess(usize, usize, usize),
     /// A dim line under an agent: what it's on, its question, a subagent. Shares the
@@ -817,10 +809,7 @@ fn session_lines(s: &Session, t: &Theme, out: &mut Vec<Line>) {
     if let Some(q) = &s.question {
         out.push(Line::Note(q.clone(), blend(t.blocked, t.sidebar_bg, 0.25), s.term));
     } else if s.is_agent && s.title != WAITING {
-        out.push(Line::Note(s.title.clone(), t.text, s.term));
-        if !s.latest.is_empty() {
-            out.push(Line::Note(format!("› {}", s.latest), notes_c, s.term));
-        }
+        out.push(Line::Note(s.title.clone(), notes_c, s.term));
     }
     for sub in &s.subagents {
         out.push(Line::Note(format!("↳ {sub}"), notes_c, s.term));
@@ -838,47 +827,21 @@ fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec<Line> {
         for r in app.hy.saved.races.iter().filter(|r| path_key(&r.project) == p.key) {
             out.push(Line::Race(r.id));
         }
-        if !p.git {
-            let mut any = false;
-            for (wi, w) in p.wts.iter().enumerate() {
-                for (si, s) in w.sessions.iter().enumerate() {
-                    any = true;
-                    out.push(Line::Sess(pi, wi, si));
-                    session_lines(s, t, &mut out);
-                }
-            }
-            if !any {
-                out.push(Line::Empty);
-            }
-            out.push(Line::Gap);
-            continue;
-        }
-        // BRANCHES: what runs in the repo folder itself, under the branch it's on.
-        if let Some(wi) = p.wts.iter().position(|w| w.main) {
-            out.push(Line::Label("BRANCHES"));
-            out.push(Line::Place(pi, wi));
+        // Just the sessions: the repo folder's first, then the worktrees' (their rows carry
+        // the worktree's name).
+        let mut order: Vec<usize> = (0..p.wts.len()).collect();
+        order.sort_by_key(|&i| !p.wts[i].main);
+        let mut any = false;
+        for wi in order {
             for (si, s) in p.wts[wi].sessions.iter().enumerate() {
+                any = true;
                 out.push(Line::Sess(pi, wi, si));
                 session_lines(s, t, &mut out);
             }
         }
-        // WORKTREES: everything started in its own worktree.
-        let linked: Vec<usize> = (0..p.wts.len()).filter(|&i| !p.wts[i].main).collect();
-        if !linked.is_empty() {
-            out.push(Line::Gap);
-            out.push(Line::Label("WORKTREES"));
-            for (n, wi) in linked.into_iter().enumerate() {
-                if n > 0 {
-                    out.push(Line::Gap);
-                }
-                out.push(Line::Place(pi, wi));
-                for (si, s) in p.wts[wi].sessions.iter().enumerate() {
-                    out.push(Line::Sess(pi, wi, si));
-                    session_lines(s, t, &mut out);
-                }
-            }
+        if !any {
+            out.push(Line::Empty);
         }
-        out.push(Line::Gap);
         out.push(Line::Gap);
     }
     out.push(Line::OpenProject);
@@ -997,48 +960,6 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                     hit(app, Rect { x: right.saturating_sub(2), y, width: 3, height: 1 }, HyHit::NewIn(*pi));
                 }
             }
-            Line::Label(text) => {
-                put(buf, x0 + 3, y, &[seg(*text, plain.fg(t.muted).add_modifier(Modifier::BOLD))], r.right());
-            }
-            Line::Place(pi, wi) => {
-                let p = &model[*pi];
-                let wt = &p.wts[*wi];
-                let idx = app.hy.wt_keys.len();
-                app.hy.wt_keys.push((wt.key.clone(), wt.path.clone()));
-                let hov = hovered(app, row);
-                let bg = if hov { t.hov } else { surf };
-                fill(buf, row, bg);
-                let s = Style::default().bg(bg);
-                let racing = app.hy.saved.races.iter().any(|r| r.entries.iter().any(|(_, b)| *b == wt.branch));
-                let (icon, name) = if wt.main { ("⎇ ", wt.branch.clone()) } else { (if racing { "⚑ " } else { "⑂ " }, wt.name.clone()) };
-                let tag = p.prs.iter().find(|pr| pr.branch == wt.branch).map(|pr| (pr_tag(t, pr), pr.number));
-                let ext: Vec<String> = app.ext_labels.iter().filter(|((k, _), (txt, _))| *k == wt.key && !txt.is_empty()).map(|(_, (txt, _))| txt.clone()).collect();
-                let tail: Vec<Seg> = match &tag {
-                    Some((tg, _)) => tg.iter().map(|(x, st)| (x.clone(), st.bg(bg))).collect(),
-                    None if !ext.is_empty() => vec![seg(ext.join(" · "), s.fg(t.muted))],
-                    None if wt.sessions.is_empty() && hov => vec![seg(format!("+ {}", if wt.main { "shell".into() } else { app.hy_agent() }), s.fg(t.accent))],
-                    None if wt.sessions.is_empty() => vec![seg("nothing running", s.fg(t.muted))],
-                    None => vec![],
-                };
-                let tw = segs_width(&tail);
-                let mut label = vec![seg(icon, s.fg(if racing { t.accent } else { t.muted })), seg(name, s.fg(t.text).add_modifier(Modifier::BOLD))];
-                // A worktree on a branch of another name says so.
-                if !wt.main && !wt.branch.is_empty() && wt.branch != wt.name && tag.is_none() {
-                    label.push(seg(format!(" · {}", wt.branch), s.fg(t.muted)));
-                }
-                put(buf, x0 + 3, y, &label, right.saturating_sub(tw + 1));
-                put(buf, right.saturating_sub(tw) + 1, y, &tail, r.right());
-                hit(app, row, HyHit::Wt(idx));
-                if hov {
-                    row_menu_button(app, buf, Rect { x: r.right().saturating_sub(2), y, width: 2, height: 1 }, bg, t, HyHit::RowMenuWt(idx));
-                }
-                if let Some((tg, n)) = tag {
-                    let k2 = app.hy.pr_keys.len();
-                    app.hy.pr_keys.push((wt.path.clone(), n.to_string()));
-                    let tw = segs_width(&tg);
-                    hit(app, Rect { x: right.saturating_sub(tw) + 1, y, width: tw, height: 1 }, HyHit::Pr(k2));
-                }
-            }
             Line::Sess(pi, wi, si) => {
                 let s = &model[*pi].wts[*wi].sessions[*si];
                 app.hy.row_y.insert(s.term, y);
@@ -1063,6 +984,12 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 }
                 // Agent and state on the left; age (or the talk chip) on the right.
                 let mut left = vec![seg(format!("{gl} "), gs), seg(s.agent.clone(), st.fg(ink.unwrap_or(t.strong)).add_modifier(Modifier::BOLD))];
+                let wt = &model[*pi].wts[*wi];
+                if !wt.main {
+                    // ⚑ when it's racing others on the same task.
+                    let racing = app.hy.saved.races.iter().any(|r| r.entries.iter().any(|(_, b)| *b == wt.branch));
+                    left.push(seg(format!(" {} {}", if racing { "⚑" } else { "⑂" }, wt.name), st.fg(ink.unwrap_or(t.accent))));
+                }
                 if let Some(d) = &s.dev {
                     let port = d.port.map(|p| format!(" :{p}")).unwrap_or_default();
                     let state = if d.ready { "ready" } else { "starting…" };
@@ -1079,8 +1006,17 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 } else {
                     left.push(seg(format!("  {}", truncate(&s.title, w.saturating_sub(16) as usize)), st.fg(ink.unwrap_or(t.muted))));
                 }
+                // The branch's pull request, on its first session.
+                let pr = (*si == 0).then(|| model[*pi].prs.iter().find(|p| p.branch == wt.branch)).flatten();
                 let tail: Vec<Seg> = if sel {
                     vec![seg(format!(" {tk} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD))]
+                } else if let Some(p) = pr {
+                    let k2 = app.hy.pr_keys.len();
+                    app.hy.pr_keys.push((wt.path.clone(), p.number.to_string()));
+                    let tg: Vec<Seg> = pr_tag(t, p).into_iter().map(|(x, s2)| (x, s2.bg(bg))).collect();
+                    let tw = segs_width(&tg);
+                    hit(app, Rect { x: right.saturating_sub(tw) + 1, y, width: tw, height: 1 }, HyHit::Pr(k2));
+                    tg
                 } else if s.is_agent && !s.asleep {
                     vec![seg(age(s.since), st.fg(ink.unwrap_or(t.muted)))]
                 } else {
@@ -1428,21 +1364,13 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
 fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
     let surf = t.sidebar_bg;
     fill(buf, r, surf);
-    let all: Vec<&Session> = model.iter().flat_map(|p| p.sessions()).collect();
-    let n = |st: Status| all.iter().filter(|s| s.status == st).count();
     let s = Style::default().bg(surf);
     let left = match &app.notice {
         Some((msg, at, err)) if at.elapsed().as_millis() < 4500 => vec![
             seg(if *err { "✕ " } else { "✓ " }, s.fg(if *err { t.err } else { t.done }).add_modifier(Modifier::BOLD)),
             seg(msg.clone(), s.fg(t.strong)),
         ],
-        _ => vec![
-            seg(format!("{} {} need you", app.cfg.icons.blocked, n(Status::Blocked)), s.fg(t.blocked).add_modifier(Modifier::BOLD)),
-            seg("   ", s),
-            seg(format!("{} {} done", app.cfg.icons.done, n(Status::Done)), s.fg(t.done)),
-            seg("   ", s),
-            seg(format!("{} {} working", glyph(app, Status::Working), n(Status::Working)), s.fg(t.text)),
-        ],
+        _ => crumb(app, model, t, surf),
     };
     let lead = app.keymap.prefix.to_string().replace("C-", "Ctrl+");
     let hk = k(app, &Action::Help);
@@ -3211,20 +3139,6 @@ impl App {
         self.mode = Mode::HyPane(np);
     }
 
-    /// + New filled in like an agent that's running: same project, agent, model and task.
-    pub(super) fn hy_duplicate(&mut self, term: TermId) {
-        let model = self.hy_model();
-        let Some(pi) = model.iter().position(|p| p.wts.iter().any(|w| w.sessions.iter().any(|s| s.term == term))) else { return };
-        let Some((_, _, s)) = find(&model, term) else { return };
-        let mut np = NewPaneHy::new(pi, false);
-        np.a = np_agents(self).iter().position(|a| *a == s.agent).unwrap_or(0);
-        if let Some(t) = self.snap.terms.get(&term) {
-            np.task = t.summary.clone();
-        }
-        np.place = Some(0);
-        self.mode = Mode::HyPane(np);
-    }
-
     pub(super) fn on_hy_pane_key(&mut self, mut np: NewPaneHy, k: &KeyEvent) {
         let model = self.hy_model();
         let nproj = model.len() + 1;
@@ -3349,25 +3263,6 @@ impl App {
                 }
             }
             HyHit::NewIn(i) => self.hy_new(i, false),
-            HyHit::Wt(i) => {
-                let Some((key, path)) = self.hy.wt_keys.get(i).cloned() else { return };
-                let model = self.hy_model();
-                let wt = model.iter().flat_map(|p| p.wts.iter()).find(|w| w.key == key).cloned();
-                match wt {
-                    Some(w) if !w.sessions.is_empty() => {
-                        let best = w.sessions.iter().min_by_key(|s| (rank(s.status), s.term)).map(|s| s.term);
-                        if let Some(t) = best {
-                            self.hy_focus(t);
-                        }
-                    }
-                    // Nothing running: a shell in the main folder, your agent in a worktree.
-                    Some(w) if w.main => self.hy_new_session(path, None, false),
-                    _ => {
-                        let agent = self.hy_agent();
-                        self.hy_new_session(path, Some(agent), false);
-                    }
-                }
-            }
             HyHit::OpenFolder => self.hy_open_finder(),
             HyHit::Session(t) => self.hy_focus(t),
             HyHit::Talk(t) => self.hy_talk(t, false),
@@ -3382,12 +3277,6 @@ impl App {
             HyHit::RowMenuSess(t) => {
                 let at = self.hover.map(|p| (p.x, p.y)).unwrap_or((0, 0));
                 self.menu_for_session(t, at);
-            }
-            HyHit::RowMenuWt(i) => {
-                let at = self.hover.map(|p| (p.x, p.y)).unwrap_or((0, 0));
-                if let Some((key, _)) = self.hy.wt_keys.get(i).cloned() {
-                    self.menu_for_place(key, at);
-                }
             }
             HyHit::RowMenuProj(i) => {
                 let at = self.hover.map(|p| (p.x, p.y)).unwrap_or((0, 0));
