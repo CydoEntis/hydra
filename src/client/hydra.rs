@@ -557,6 +557,8 @@ pub(super) enum HyHit {
     SplitEdge,
     /// A pane's scrollbar (click or drag).
     ScrollBar(TermId),
+    FindTab(u8),
+    FindRow(usize),
 }
 
 pub(super) fn hit(app: &mut App, r: Rect, h: HyHit) {
@@ -2828,6 +2830,25 @@ impl App {
             }
             HyHit::RaceOpen(id) => self.open_race(id),
             HyHit::MenuPick(i) => self.menu_pick(i),
+            HyHit::FindTab(i) => {
+                if let Mode::Find(v) = &self.mode
+                    && v.tab != i
+                {
+                    let v = (**v).clone();
+                    self.on_find_key(v, &KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+                }
+            }
+            HyHit::FindRow(i) => {
+                if let Mode::Find(v) = &mut self.mode {
+                    let again = v.sel == i;
+                    v.sel = i;
+                    v.refresh_preview();
+                    if again || double {
+                        let v = (**v).clone();
+                        self.on_find_key(v, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    }
+                }
+            }
             HyHit::SideEdge => self.hy.drag = Some(Drag::Side),
             HyHit::SplitEdge => self.hy.drag = Some(Drag::Split),
             HyHit::ScrollBar(term) => {

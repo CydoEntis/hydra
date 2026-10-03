@@ -4,6 +4,7 @@
 mod copy;
 mod design;
 mod files;
+mod find;
 mod hydra;
 mod inbox;
 mod menu;
@@ -81,6 +82,8 @@ enum Mode {
     Race(Box<work::RaceView>),
     /// A right-click menu (hydra layout).
     HyMenu(Box<menu::HyMenu>),
+    /// Find a file / search the code.
+    Find(Box<find::FindView>),
 }
 
 /// The ship confirm: the branch and what shipping it will do.
@@ -157,6 +160,10 @@ pub(super) enum Bg {
     RaceStat(u64, usize, String),
     /// Pulled a shared setup from another machine.
     Synced(bool),
+    /// Every file under a folder (Find).
+    FindFiles(PathBuf, Vec<String>),
+    /// A code search's results: (folder, which search, hits).
+    Grep(PathBuf, u64, Result<Vec<find::GrepHit>, String>),
 }
 
 /// The pull request checks for a branch, if it has a pull request: "✓ checks 14/14" or
@@ -836,6 +843,7 @@ impl App {
             // Hydra's own text boxes take the paste, not the pane behind them.
             Mode::Talk { input, .. } => input.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
             Mode::Ideas(v) => v.input.push_str(s.lines().next().unwrap_or("")),
+            Mode::Find(v) => v.query.push_str(s.lines().next().unwrap_or("")),
             Mode::Tickets(v) => v.query.push_str(s.lines().next().unwrap_or("")),
             Mode::RaceNew(v) => v.text.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
             Mode::Finder(fd) => {
@@ -900,6 +908,7 @@ impl App {
             Mode::RaceNew(v) => self.on_race_new_key(*v, &k),
             Mode::Race(v) => self.on_race_key(*v, &k),
             Mode::HyMenu(m) => self.on_hy_menu_key(*m, &k),
+            Mode::Find(v) => self.on_find_key(*v, &k),
             Mode::Ship(ask) => {
                 self.mode = Mode::Normal;
                 if k.code == KeyCode::Enter {
@@ -1733,6 +1742,7 @@ impl App {
             Action::Race => self.open_race_new(),
             Action::Map => self.open_map(),
             Action::PasteImage => self.paste_image(),
+            Action::Find(tab) => self.open_find(tab),
             Action::PullRequest => {
                 if let Some(dir) = self.target_path()
                     && let Some(h) = crate::gitfs::head(&dir)
@@ -2485,13 +2495,26 @@ impl App {
     /// Open a file in your editor: terminal editors inside hydra beside what you're on,
     /// others (VS Code, …) as their own window.
     pub(super) fn open_in_editor(&mut self, path: &std::path::Path) {
+        self.open_in_editor_at(path, None);
+    }
+
+    /// Open a file in your editor, at a line if given.
+    pub(super) fn open_in_editor_at(&mut self, path: &std::path::Path, at: Option<u32>) {
         let ed = [self.cfg.editor.clone(), std::env::var("VISUAL").unwrap_or_default(), std::env::var("EDITOR").unwrap_or_default()]
             .into_iter()
             .find(|e| !e.trim().is_empty())
             .unwrap_or_else(|| "code".into());
         let exe = ed.split_whitespace().next().unwrap_or("code");
         let name = std::path::Path::new(exe).file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
-        let line = format!("{ed} {}", files::quote_path(path));
+        let q = files::quote_path(path);
+        let line = match (at, name.as_str()) {
+            (None, _) => format!("{ed} {q}"),
+            (Some(l), "code" | "code-insiders" | "cursor" | "windsurf") => {
+                format!("{ed} -g {}", files::quote_path(std::path::Path::new(&format!("{}:{l}", path.display()))))
+            }
+            (Some(l), "hx" | "helix" | "zed") => format!("{ed} {}:{l}", q),
+            (Some(l), _) => format!("{ed} +{l} {q}"),
+        };
         let dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| self.here_dir());
         if ["nvim", "vim", "vi", "hx", "helix", "nano", "micro", "kak", "emacs", "ne"].contains(&name.as_str()) {
             if self.cfg.ui.layout == "hydra" {
@@ -3170,6 +3193,28 @@ impl App {
                     && let Some(slot) = v.stats.get_mut(i)
                 {
                     *slot = Some(text);
+                }
+                self.dirty = true;
+                return;
+            }
+            Bg::FindFiles(dir, list) => {
+                if let Mode::Find(v) = &mut self.mode
+                    && v.dir == dir
+                {
+                    v.files = Some(list);
+                    v.refresh_preview();
+                }
+                self.dirty = true;
+                return;
+            }
+            Bg::Grep(dir, seq, hits) => {
+                if let Mode::Find(v) = &mut self.mode
+                    && v.dir == dir
+                    && v.seq == seq
+                {
+                    v.hits = Some(hits);
+                    v.sel = 0;
+                    v.refresh_preview();
                 }
                 self.dirty = true;
                 return;
