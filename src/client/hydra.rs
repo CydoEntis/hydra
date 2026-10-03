@@ -563,6 +563,8 @@ pub(super) enum HyHit {
     Divider(usize),
     /// The ⋯ on a hovered sidebar row: its menu.
     RowMenuSess(TermId),
+    /// Start a shell in this project (its "nothing running" line).
+    ShellIn(usize),
     RowMenuProj(usize),
     ConfirmYes,
     ConfirmNo,
@@ -707,7 +709,9 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
     draw_status(app, f.buffer_mut(), Rect { y: area.bottom().saturating_sub(1), height: 1, ..area }, &model, t);
     // Files, diffs and pull requests open over everything in one tool-window size; Esc
     // closes.
-    if let Some(view @ (super::View::Changes(_) | super::View::Pr(_) | super::View::Files(_))) = app.view.take() {
+    if matches!(app.view, Some(super::View::Changes(_) | super::View::Pr(_) | super::View::Files(_)))
+        && let Some(view) = app.view.take()
+    {
         let buf = f.buffer_mut();
         dim_all(buf, area, t);
         let inner = tool_rect(area);
@@ -806,7 +810,7 @@ enum Line {
     /// A race in this project (race id).
     Race(u64),
     /// Nothing running in a folder project.
-    Empty,
+    Empty(usize),
     OpenProject,
     Gap,
 }
@@ -849,7 +853,7 @@ fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec<Line> {
             }
         }
         if !any {
-            out.push(Line::Empty);
+            out.push(Line::Empty(pi));
         }
         out.push(Line::Gap);
     }
@@ -942,7 +946,6 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     for (i, line) in lines.iter().enumerate().skip(scroll).take(list_h) {
         let y = r.y + (i - scroll) as u16;
         let row = Rect { x: x0, y, width: w, height: 1 };
-        let plain = Style::default().bg(surf);
         match line {
             Line::Proj(pi) => {
                 let p = &model[*pi];
@@ -1081,8 +1084,14 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 );
                 hit(app, row, HyHit::RaceOpen(*id));
             }
-            Line::Empty => {
-                put(buf, x0 + 5, y, &[seg("nothing running", plain.fg(t.muted))], r.right());
+            // Nothing running: one click starts a shell there.
+            Line::Empty(pi) => {
+                let hov = hovered(app, row);
+                let bg = if hov { super::render::blend(t.text, surf, 0.10) } else { surf };
+                fill(buf, row, bg);
+                let st = Style::default().bg(bg);
+                put(buf, x0 + 5, y, &[seg("nothing running", st.fg(t.muted)), seg("  + shell", st.fg(if hov { t.accent } else { t.muted }))], r.right());
+                hit(app, row, HyHit::ShellIn(*pi));
             }
             Line::OpenProject => {
                 let bg = if hovered(app, row) { t.hov } else { surf };
@@ -2706,9 +2715,8 @@ impl App {
                 if is_new {
                     self.hy.fresh.insert(key);
                 }
-                let agent = self.hy_agent();
-                self.hy_new_session(root.clone(), Some(agent), false);
-                self.notify(format!("Opened {} as a project with a new session", folder_name(&root)), false);
+                self.hy_new_session(root.clone(), None, false);
+                self.notify(format!("Opened {} with a shell; + New starts an agent", folder_name(&root)), false);
             }
         }
     }
@@ -3296,6 +3304,12 @@ impl App {
                 self.hy_unshow(t);
             }
             HyHit::Divider(i) => self.hy.drag = Some(Drag::Divider(i)),
+            HyHit::ShellIn(pi) => {
+                if let Some(p) = self.hy_model().get(pi) {
+                    let dir = p.wts.iter().find(|w| w.main).map(|w| w.path.clone()).unwrap_or_else(|| p.path.clone());
+                    self.hy_new_session(dir, None, false);
+                }
+            }
             HyHit::RowMenuSess(t) => {
                 let at = self.hover.map(|p| (p.x, p.y)).unwrap_or((0, 0));
                 self.menu_for_session(t, at);

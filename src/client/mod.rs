@@ -5003,6 +5003,18 @@ mod hydra_tests {
     }
 
     #[test]
+    fn map_opens_from_its_key() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        draw(&mut app, 160, 45);
+        app.on_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL));
+        app.on_key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::SHIFT));
+        eprintln!("view after key: {:?}", app.view.as_ref().map(|v| std::mem::discriminant(v)));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(matches!(app.view, Some(View::Map(_))), "the map is open");
+    }
+
+    #[test]
     fn quick_follow_up_from_the_sidebar() {
         let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
