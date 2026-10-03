@@ -8,6 +8,7 @@ mod ipc;
 mod keys;
 mod layout;
 mod protocol;
+mod sync;
 mod theme;
 
 use clap::{Parser, Subcommand};
@@ -120,6 +121,12 @@ enum Cmd {
     },
     /// Show a desktop notification and play the needs-you and done sounds, to check them.
     TestAlert,
+    /// Share your config and ideas between machines through a private GitHub repo:
+    /// `hydra sync setup [repo]`, `hydra sync` (pull + push now), `hydra sync off`.
+    Sync {
+        action: Option<String>,
+        name: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -176,6 +183,7 @@ fn main() {
         Some(Cmd::Worktree { branch, base, ws, command }) => cli::worktree(branch, base, ws, command),
         Some(Cmd::WorktreeRemove { ws, force }) => cli::worktree_remove(ws, force),
         Some(Cmd::KillServer { forget }) => cli::kill_server(forget),
+        Some(Cmd::Sync { action, name }) => sync::command(action.as_deref(), name.as_deref()),
         Some(Cmd::TestAlert) => {
             let (cfg, _) = config::Config::load_or_default();
             println!("notification: {}", if cfg.notify.desktop { "on" } else { "off (notify.desktop)" });

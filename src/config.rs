@@ -16,6 +16,10 @@ pub const EXAMPLE: &str = include_str!("../config.example.toml");
 pub struct Config {
     /// Key that arms command mode, tmux style.
     pub prefix: String,
+    /// Where tickets come from (Ctrl+Space i).
+    pub tickets: Tickets,
+    /// Named setups for + New: e.g. a worktree with claude, a dev server and lazygit.
+    pub recipes: Vec<Recipe>,
     /// Put agents to sleep after sitting finished or idle this long ("15m", "1h", "4h",
     /// "never"); they resume where they were when you open them.
     pub sleep_after: String,
@@ -119,6 +123,53 @@ pub struct Worktree {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+pub struct Tickets {
+    /// Tabs, in order: "github", "linear", "plane".
+    pub sources: Vec<String>,
+    /// Keys: better in config.local.toml (never synced) or the LINEAR_API_KEY /
+    /// PLANE_API_KEY environment variables.
+    pub linear_key: String,
+    pub plane_key: String,
+    /// Plane's API and web addresses (change both for self-hosted) and your workspace slug.
+    pub plane_url: String,
+    pub plane_app_url: String,
+    pub plane_workspace: String,
+    /// Which source a project opens on, by project (repo folder) name: shop-api = "linear".
+    pub projects: std::collections::BTreeMap<String, String>,
+}
+
+impl Default for Tickets {
+    fn default() -> Self {
+        Tickets {
+            sources: vec!["github".into(), "linear".into(), "plane".into()],
+            linear_key: String::new(),
+            plane_key: String::new(),
+            plane_url: "https://api.plane.so".into(),
+            plane_app_url: "https://app.plane.so".into(),
+            plane_workspace: String::new(),
+            projects: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Recipe {
+    pub name: String,
+    /// Start in its own worktree (in a git project).
+    pub worktree: bool,
+    /// Commands: the first is the main one; the rest start beside it in the same folder.
+    pub run: Vec<String>,
+}
+
+impl Default for Recipe {
+    fn default() -> Self {
+        Recipe { name: String::new(), worktree: true, run: Vec::new() }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Quick {
     /// Agents the quick prompt can launch; Tab cycles through them.
     pub agents: Vec<QuickAgent>,
@@ -210,6 +261,8 @@ impl Default for Config {
             prefix: "ctrl+space".into(),
             editor: String::new(),
             sleep_after: "never".into(),
+            tickets: Tickets::default(),
+            recipes: Vec::new(),
             theme: "hydra".into(),
             theme_overrides: ThemeOverrides::default(),
             shell: None,
@@ -384,6 +437,18 @@ pub fn data_dir() -> PathBuf {
         .unwrap_or_else(std::env::temp_dir)
 }
 
+/// Lay `over` on top of `base`: tables merge key by key, anything else is replaced.
+fn merge(base: &mut toml::Table, over: toml::Table) {
+    for (k, v) in over {
+        match (base.get_mut(&k), v) {
+            (Some(toml::Value::Table(b)), toml::Value::Table(o)) => merge(b, o),
+            (_, v) => {
+                base.insert(k, v);
+            }
+        }
+    }
+}
+
 /// The app used to be called drover: bring its config and saved sessions over once,
 /// the first time hydra runs without its own. The old files are left in place.
 pub fn migrate_from_drover() {
@@ -436,11 +501,20 @@ impl Config {
     /// Load the config file; a missing file is the defaults, a broken one is an error.
     pub fn load() -> Result<Config> {
         let path = config_path();
-        match std::fs::read_to_string(&path) {
-            Ok(s) => toml::from_str(&s).with_context(|| format!("parsing {}", path.display())),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
-            Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+        let mut value: toml::Table = match std::fs::read_to_string(&path) {
+            Ok(s) => toml::from_str(&s).with_context(|| format!("parsing {}", path.display()))?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => toml::Table::new(),
+            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+        };
+        // This machine's own settings (never synced) win over the shared ones.
+        let local = path.with_file_name("config.local.toml");
+        if std::env::var_os("HYDRA_CONFIG").is_none()
+            && let Ok(s) = std::fs::read_to_string(&local)
+        {
+            let over: toml::Table = toml::from_str(&s).with_context(|| format!("parsing {}", local.display()))?;
+            merge(&mut value, over);
         }
+        toml::Value::Table(value).try_into().with_context(|| format!("parsing {}", path.display()))
     }
 
     /// Load, falling back to defaults and returning the error message for display.
@@ -601,6 +675,17 @@ fn which(exe: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_settings_win() {
+        let mut base: toml::Table = toml::from_str("theme = 'hydra'\n[ui]\nmouse = true\nsplash = true\n").unwrap();
+        let over: toml::Table = toml::from_str("shell = 'zsh'\n[ui]\nsplash = false\n").unwrap();
+        merge(&mut base, over);
+        let cfg: Config = toml::Value::Table(base).try_into().unwrap();
+        assert_eq!(cfg.shell.as_deref(), Some("zsh"));
+        assert!(cfg.ui.mouse && !cfg.ui.splash, "tables merge key by key");
+        assert_eq!(cfg.theme, "hydra");
+    }
 
     #[test]
     fn sleep_after_parses() {

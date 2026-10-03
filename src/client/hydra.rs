@@ -41,6 +41,8 @@ pub(super) struct Saved {
     pub closed: Vec<String>,
     /// Projects whose BRANCHES list is unfolded.
     pub open_branches: Vec<String>,
+    /// Races in progress.
+    pub races: Vec<super::work::Race>,
 }
 
 #[derive(Debug, Default)]
@@ -75,6 +77,8 @@ pub(super) struct Hy {
     pub pr_at: std::collections::HashMap<String, Instant>,
     /// Pull request tags and rows drawn this frame: (folder, number).
     pub pr_keys: Vec<(PathBuf, String)>,
+    /// A recipe's worktree being made: (branch, the commands to start there, since).
+    pub pending_recipe: Option<(String, Vec<String>, Instant)>,
 }
 
 fn saved_path() -> PathBuf {
@@ -191,7 +195,7 @@ pub(super) fn rank(s: Status) -> u8 {
     }
 }
 
-fn folder_name(p: &Path) -> String {
+pub(super) fn folder_name(p: &Path) -> String {
     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.display().to_string())
 }
 
@@ -400,6 +404,7 @@ impl App {
         if self.hy.proj.as_ref().is_none_or(|k| !model.iter().any(|p| &p.key == k)) {
             self.hy.proj = focus.and_then(proj_of).or_else(|| model.first().map(|p| p.key.clone()));
         }
+        self.recipe_followup();
         // Your pull requests, every two minutes per repo.
         if !cfg!(test) {
             for p in model.iter().filter(|p| p.git) {
@@ -504,19 +509,28 @@ pub(super) enum HyHit {
     ViewKey(char),
     /// The Ship button.
     ShipGo,
+    IdeaRow(usize),
+    TicketTab(usize),
+    TicketRow(usize),
+    RaceAgent(usize),
+    RaceGo,
+    RaceRow(usize),
+    RaceKey(char),
+    /// A race line in the sidebar (race id).
+    RaceOpen(u64),
 }
 
-fn hit(app: &mut App, r: Rect, h: HyHit) {
+pub(super) fn hit(app: &mut App, r: Rect, h: HyHit) {
     app.hits.push((r, Hit::Hy(h)));
 }
 
-fn hovered(app: &App, r: Rect) -> bool {
+pub(super) fn hovered(app: &App, r: Rect) -> bool {
     app.hover.is_some_and(|p| r.contains(p))
 }
 
 /// A design button (" Label key "), hovered with `hov`; records its hit.
 #[allow(clippy::too_many_arguments)]
-fn btn(app: &mut App, buf: &mut Buffer, x: u16, y: u16, label: &str, key: &str, kind: BtnKind, h: HyHit, max_x: u16) -> u16 {
+pub(super) fn btn(app: &mut App, buf: &mut Buffer, x: u16, y: u16, label: &str, key: &str, kind: BtnKind, h: HyHit, max_x: u16) -> u16 {
     let t = app.theme.clone();
     let w = segs_width(&button(&t, label, key, kind, false));
     let r = Rect { x, y, width: w.min(max_x.saturating_sub(x)), height: 1 };
@@ -527,7 +541,7 @@ fn btn(app: &mut App, buf: &mut Buffer, x: u16, y: u16, label: &str, key: &str, 
 }
 
 /// The key bound to an action after the leader, as the design shows it ("j", "Space").
-fn k(app: &App, a: &Action) -> String {
+pub(super) fn k(app: &App, a: &Action) -> String {
     let s = super::design::key_of(app, a);
     match s.as_str() {
         "Space" | " " => "Space".into(),
@@ -574,7 +588,7 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
     panes
 }
 
-fn find(model: &[Proj], term: TermId) -> Option<(&Proj, &Wt, &Session)> {
+pub(super) fn find(model: &[Proj], term: TermId) -> Option<(&Proj, &Wt, &Session)> {
     model.iter().find_map(|p| p.wts.iter().find_map(|w| w.sessions.iter().find(|s| s.term == term).map(|s| (p, w, s))))
 }
 
@@ -617,7 +631,7 @@ fn draw_top(app: &mut App, buf: &mut Buffer, area: Rect, crumb_x: u16, model: &[
 }
 
 /// `●1 ✓1 ⠹2`: counts of a list of sessions by state.
-fn counts<'a>(app: &App, t: &Theme, list: impl Iterator<Item = &'a Session>, ink: Option<Color>) -> Vec<Seg> {
+pub(super) fn counts<'a>(app: &App, t: &Theme, list: impl Iterator<Item = &'a Session>, ink: Option<Color>) -> Vec<Seg> {
     let mut c = [0usize; 4];
     for s in list {
         if s.is_agent || s.status != Status::None {
@@ -661,6 +675,8 @@ enum Line {
     /// BRANCHES (pi, count, open).
     Branches(usize, usize, bool),
     Branch(usize, String),
+    /// A race in this project (race id).
+    Race(u64),
     OpenProject,
     Gap,
 }
@@ -694,6 +710,9 @@ fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec<Line> {
             }
             out.push(Line::Gap);
             continue;
+        }
+        for r in app.hy.saved.races.iter().filter(|r| path_key(&r.project) == p.key) {
+            out.push(Line::Race(r.id));
         }
         if let Some(wi) = p.wts.iter().position(|w| w.main) {
             out.push(Line::Main(pi, wi));
@@ -890,7 +909,8 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 let tag = model[*pi].prs.iter().find(|p| p.branch == wt.branch).map(|p| (pr_tag(t, p), p.number));
                 // With a PR tag the branch name is implied; keep the row short so the tag shows.
                 let name = if tag.is_some() { truncate(&wt.name, w.saturating_sub(26) as usize) } else { wt.name.clone() };
-                let mut label = vec![seg("⑂ ", Style::default().fg(t.muted)), seg(name, Style::default().fg(t.strong))];
+                let racing = app.hy.saved.races.iter().any(|r| r.entries.iter().any(|(_, b)| *b == wt.branch));
+                let mut label = vec![seg(if racing { "⚑ " } else { "⑂ " }, Style::default().fg(if racing { t.accent } else { t.muted })), seg(name, Style::default().fg(t.strong))];
                 if tag.is_none() && wt.branch != wt.name && !wt.branch.is_empty() {
                     label.push(seg(format!(" · {}", wt.branch), Style::default().fg(t.muted)));
                 }
@@ -954,6 +974,21 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 put(buf, x0 + 5, y, &[seg("⎇ ", s.fg(t.muted)), seg(name.clone(), s.fg(t.text))], right.saturating_sub(tw + 1));
                 put(buf, right.saturating_sub(tw), y, &tail, right + 1);
                 hit(app, row, HyHit::Branch(idx));
+            }
+            Line::Race(id) => {
+                let Some(race) = app.hy.saved.races.iter().find(|r| r.id == *id).cloned() else { continue };
+                let bg = if hovered(app, row) { t.hov } else { surf };
+                fill(buf, row, bg);
+                let s = Style::default().bg(bg);
+                let n = race.entries.len();
+                put(
+                    buf,
+                    x0 + 3,
+                    y,
+                    &[seg("⚑ race ", s.fg(t.accent).add_modifier(Modifier::BOLD)), seg(truncate(&race.prompt, w.saturating_sub(18) as usize), s.fg(t.text)), seg(format!("  {n}"), s.fg(t.muted))],
+                    right,
+                );
+                hit(app, row, HyHit::RaceOpen(*id));
             }
             Line::OpenProject => {
                 let bg = if hovered(app, row) { t.hov } else { surf };
@@ -1228,7 +1263,7 @@ pub(super) fn dim_all(buf: &mut Buffer, area: Rect, t: &Theme) {
 
 /// A centred panel: `card` ground, accent title bar with "Esc close" on the right.
 #[allow(clippy::too_many_arguments)]
-fn panel(app: &mut App, buf: &mut Buffer, area: Rect, w: u16, h: u16, title: &str, right: &[Seg], t: &Theme) -> Rect {
+pub(super) fn panel(app: &mut App, buf: &mut Buffer, area: Rect, w: u16, h: u16, title: &str, right: &[Seg], t: &Theme) -> Rect {
     let w = w.min(area.width.saturating_sub(2));
     let h = h.min(area.height.saturating_sub(2));
     let r = Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h };
@@ -1250,7 +1285,7 @@ fn panel(app: &mut App, buf: &mut Buffer, area: Rect, w: u16, h: u16, title: &st
     r
 }
 
-fn sel_row(app: &App, buf: &mut Buffer, r: Rect, y: u16, sel: bool, t: &Theme) -> Color {
+pub(super) fn sel_row(app: &App, buf: &mut Buffer, r: Rect, y: u16, sel: bool, t: &Theme) -> Color {
     let row = Rect { x: r.x + 1, y, width: r.width.saturating_sub(2), height: 1 };
     if sel || hovered(app, row) {
         fill(buf, row, t.hov);
@@ -1263,7 +1298,7 @@ fn sel_row(app: &App, buf: &mut Buffer, r: Rect, y: u16, sel: bool, t: &Theme) -
     }
 }
 
-fn hints(t: &Theme, pairs: &[(&str, &str)]) -> Vec<Seg> {
+pub(super) fn hints(t: &Theme, pairs: &[(&str, &str)]) -> Vec<Seg> {
     cap_hints(t, t.card, pairs)
 }
 
@@ -1569,6 +1604,7 @@ pub(super) fn np_agents(app: &App) -> Vec<String> {
         }
     }
     v.push("shell".into());
+    v.extend(app.cfg.recipes.iter().filter(|r| !r.run.is_empty()).map(|r| format!("⚙ {}", r.name)));
     v
 }
 
@@ -1626,6 +1662,13 @@ pub(super) fn draw_new_pane(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
     let what = match model.get(np.p) {
         None => "Pick a folder; it becomes a project.".to_string(),
         Some(p) if agent == "shell" => format!("A shell in {}'s main folder.", p.name),
+        Some(p) if agent.starts_with('⚙') => {
+            let r = app.cfg.recipes.iter().find(|r| Some(r.name.as_str()) == agent.strip_prefix("⚙ "));
+            match r {
+                Some(r) => format!("{}{}", if r.worktree && p.git { "A new worktree running " } else { "Runs " }, r.run.join(" + ")),
+                None => String::new(),
+            }
+        }
         Some(p) if !p.git => format!("{} isn't a git repo, so {agent} runs in the folder.", p.name),
         Some(p) if app.cfg.worktree.per_agent => format!("{agent} gets its own new worktree in {}, named for you.", p.name),
         Some(p) => format!("{agent} runs in {}'s main folder.", p.name),
@@ -2052,7 +2095,7 @@ const WT_NAMES: [&str; 16] = [
 ];
 
 impl App {
-    fn hy_agent(&self) -> String {
+    pub(super) fn hy_agent(&self) -> String {
         self.cfg.quick.agents.first().map(|a| a.name.clone()).unwrap_or_else(|| "claude".into())
     }
 
@@ -2095,6 +2138,11 @@ impl App {
         self.mode = Mode::Normal;
         self.notify(format!("new worktree {branch} in {}", proj.name), false);
         self.cmd(Command::NewWorktree { ws, branch, base: None, cmd, split: None, from: Some(proj.path.clone()) });
+    }
+
+    /// A new worktree running `cmd` (on `branch` if given), full screen.
+    pub(super) fn hy_start_worktree(&mut self, proj: &Proj, cmd: Option<String>, branch: Option<String>) {
+        self.hy_new_worktree(proj, cmd, false, branch);
     }
 
     /// Open a folder as a project: switch to it, or start a session there if nothing runs.
@@ -2207,6 +2255,9 @@ impl App {
                 }
             }
             Action::SideMove(d) => self.hy_side_move(*d),
+            Action::Ideas => self.open_ideas(),
+            Action::Inbox => self.open_tickets(),
+            Action::Race => self.open_race_new(),
             Action::Ship => {
                 let dir = self.hy_target_dir();
                 self.hy.cursor = None;
@@ -2361,7 +2412,10 @@ impl App {
         let agents = np_agents(self);
         let agent = agents.get(np.a).cloned().unwrap_or_else(|| "shell".into());
         let main = p.wts.iter().find(|w| w.main).map(|w| w.path.clone()).unwrap_or_else(|| p.path.clone());
-        if agent == "shell" {
+        if let Some(recipe) = agent.strip_prefix("⚙ ") {
+            self.mode = Mode::Normal;
+            self.run_recipe(&p, recipe);
+        } else if agent == "shell" {
             self.hy_new_session(main, None, np.beside);
         } else if p.git && self.cfg.worktree.per_agent {
             self.hy_new_worktree(&p, Some(agent), np.beside, None);
@@ -2556,6 +2610,64 @@ impl App {
                 self.splash = false;
                 self.hy_splash_action(c);
             }
+            HyHit::IdeaRow(i) => {
+                if let Mode::Ideas(v) = &mut self.mode {
+                    let again = v.sel == i && v.input.is_empty();
+                    v.sel = i;
+                    v.input.clear();
+                    if again || double {
+                        let v = (**v).clone();
+                        self.on_ideas_key(v, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    }
+                }
+            }
+            HyHit::TicketTab(i) => {
+                if let Mode::Tickets(v) = &self.mode {
+                    let mut v = (**v).clone();
+                    let n = v.tabs.len();
+                    v.tab = (i + n - 1) % n;
+                    self.on_tickets_key(v, &KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+                }
+            }
+            HyHit::TicketRow(i) => {
+                if let Mode::Tickets(v) = &mut self.mode {
+                    let again = v.sel == i;
+                    v.sel = i;
+                    if again || double {
+                        let v = (**v).clone();
+                        self.on_tickets_key(v, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    }
+                }
+            }
+            HyHit::RaceAgent(i) => {
+                if let Mode::RaceNew(v) = &mut self.mode {
+                    v.row = 1;
+                    v.cur = i;
+                    if let Some(p) = v.picked.get_mut(i) {
+                        *p = !*p;
+                    }
+                }
+            }
+            HyHit::RaceGo => {
+                if let Mode::RaceNew(v) = &self.mode {
+                    let v = (**v).clone();
+                    self.on_race_new_key(v, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                }
+            }
+            HyHit::RaceRow(i) => {
+                if let Mode::Race(v) = &mut self.mode {
+                    v.sel = i;
+                    v.confirm = false;
+                }
+            }
+            HyHit::RaceKey(c) => {
+                if let Mode::Race(v) = &self.mode {
+                    let v = (**v).clone();
+                    let code = if c == '\n' { KeyCode::Enter } else { KeyCode::Char(c) };
+                    self.on_race_key(v, &KeyEvent::new(code, KeyModifiers::NONE));
+                }
+            }
+            HyHit::RaceOpen(id) => self.open_race(id),
             HyHit::ShipGo => {
                 if let Mode::Ship(ask) = std::mem::replace(&mut self.mode, Mode::Normal) {
                     let task = ask.task.clone();

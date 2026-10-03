@@ -12,6 +12,7 @@ mod render;
 mod tasks;
 mod toolbox;
 mod views;
+mod work;
 
 use crate::config::{Config, Keymap};
 use crate::ipc;
@@ -72,6 +73,10 @@ enum Mode {
     Side,
     /// Ship this branch? (what will happen, then Enter)
     Ship(Box<ShipAsk>),
+    Ideas(Box<work::IdeasView>),
+    Tickets(Box<work::TicketsView>),
+    RaceNew(Box<work::RaceNew>),
+    Race(Box<work::RaceView>),
 }
 
 /// The ship confirm: the branch and what shipping it will do.
@@ -143,6 +148,12 @@ pub(super) enum Bg {
     /// One pull request (by number or branch), and its diff.
     Pr(String, Result<pr::PrInfo, String>),
     PrDiff(String, Result<String, String>),
+    /// Tickets for a folder, from the source at this tab.
+    Tickets(PathBuf, usize, Result<Vec<work::Ticket>, String>),
+    /// A race entry's diff stat: (race, entry, text).
+    RaceStat(u64, usize, String),
+    /// Pulled a shared setup from another machine.
+    Synced(bool),
 }
 
 /// The pull request checks for a branch, if it has a pull request: "✓ checks 14/14" or
@@ -357,6 +368,9 @@ async fn run_async(opts: Options) -> Result<()> {
     let (cfg, err) = Config::load_or_default();
     let (bg_tx, mut bg_rx) = mpsc::unbounded_channel::<Bg>();
     let mut app = App::new(cfg, out_tx, opts.open, bg_tx);
+    if crate::sync::enabled() {
+        app.spawn_bg(|| Bg::Synced(crate::sync::pull().unwrap_or(false)));
+    }
     if let Some(e) = err {
         app.notify(format!("config error: {e}"), true);
     }
@@ -730,6 +744,10 @@ impl App {
             Mode::HyPane(np) => self.on_hy_pane_key(np, &k),
             Mode::HySettings(_) => self.hy_settings_key(&k),
             Mode::Side => self.on_side_key(&k),
+            Mode::Ideas(v) => self.on_ideas_key(*v, &k),
+            Mode::Tickets(v) => self.on_tickets_key(*v, &k),
+            Mode::RaceNew(v) => self.on_race_new_key(*v, &k),
+            Mode::Race(v) => self.on_race_key(*v, &k),
             Mode::Ship(ask) => {
                 self.mode = Mode::Normal;
                 if k.code == KeyCode::Enter {
@@ -1299,6 +1317,8 @@ impl App {
                     self.ask_ship(dir);
                 }
             }
+            Action::Ideas => self.open_ideas(),
+            Action::Race => self.open_race_new(),
             Action::PullRequest => {
                 if let Some(dir) = self.target_path()
                     && let Some(h) = crate::gitfs::head(&dir)
@@ -2707,6 +2727,33 @@ impl App {
                 self.dirty = true;
                 return;
             }
+            Bg::Tickets(dir, tab, list) => {
+                if let Mode::Tickets(v) = &mut self.mode
+                    && v.dir == dir
+                    && let Some(slot) = v.lists.get_mut(tab)
+                {
+                    *slot = Some(list);
+                }
+                self.dirty = true;
+                return;
+            }
+            Bg::RaceStat(id, i, text) => {
+                if let Mode::Race(v) = &mut self.mode
+                    && v.id == id
+                    && let Some(slot) = v.stats.get_mut(i)
+                {
+                    *slot = Some(text);
+                }
+                self.dirty = true;
+                return;
+            }
+            Bg::Synced(changed) => {
+                if changed {
+                    self.reload_config();
+                    self.notify("pulled your setup from another machine".into(), false);
+                }
+                return;
+            }
             Bg::PrDiff(which, d) => {
                 if let Some(View::Pr(v)) = &mut self.view
                     && v.which == which
@@ -3822,6 +3869,56 @@ mod hydra_tests {
         app.mode = Mode::Ship(Box::new(ShipAsk { task, changed: 0, pr: Some("412".into()) }));
         let o = draw(&mut app, 160, 45);
         assert!(o.contains("nothing new to commit") && o.contains("update pull request #412"));
+    }
+
+    #[test]
+    fn ideas_tickets_and_races() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let root = app.hy_model()[0].path.clone();
+        let ideas = vec![
+            work::Idea { text: "dark mode for the dashboard".into(), project: Some(root.clone()), at: 0 },
+            work::Idea { text: "a CLI for exports".into(), project: None, at: 0 },
+        ];
+        app.mode = Mode::Ideas(Box::new(work::IdeasView { ideas, input: String::new(), sel: 0, tag: 0 }));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("Ideas") && o.contains("for ▌shop-api") && o.contains("SHOP-API") && o.contains("✦ dark mode for the dashboard"));
+        assert!(o.contains("ANY PROJECT") && o.contains("start claude on it"));
+
+        let t = work::Ticket { key: "ENG-123".into(), title: "Checkout fails on Safari".into(), url: "u".into(), state: "Todo".into(), meta: "High · ENG".into(), body: "Steps to reproduce".into() };
+        app.mode = Mode::Tickets(Box::new(work::TicketsView {
+            dir: root.clone(),
+            tabs: vec![("github".into(), "GitHub issues".into()), ("linear".into(), "Linear".into()), ("plane".into(), "Plane".into())],
+            tab: 1,
+            lists: vec![None, Some(Ok(vec![t])), Some(Err("Set PLANE_API_KEY".into()))],
+            query: String::new(),
+            sel: 0,
+        }));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains(" GitHub issues ") && o.contains(" Linear ") && o.contains(" Plane"));
+        assert!(o.contains("ENG-123") && o.contains("Checkout fails on Safari") && o.contains("Todo · High · ENG") && o.contains("claude on it, own worktree"));
+
+        app.mode = Mode::RaceNew(Box::new(work::RaceNew { text: "add rate limiting".into(), picked: vec![true, true, false], row: 0, cur: 0 }));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("Race agents") && o.contains("✓ claude") && o.contains("✓ codex") && o.contains("2 agents, each in its own worktree of shop-api"));
+
+        app.hy.saved.races.push(work::Race {
+            id: 7,
+            project: root.clone(),
+            prompt: "add rate limiting".into(),
+            base: "main".into(),
+            entries: vec![("claude".into(), "race-add-rate-limiting-claude".into()), ("codex".into(), "rate-limit".into())],
+        });
+        app.mode = Mode::Normal;
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("⚑ race add rate limiting") && o.contains("⚑ rate"), "race line and race worktree in the sidebar");
+        app.mode = Mode::Race(Box::new(work::RaceView { id: 7, sel: 1, stats: vec![None, Some("+42 −7 · 3 files".into())], confirm: true }));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("Race · add rate limiting") && o.contains("+42 −7 · 3 files") && o.contains("not running"));
+        assert!(o.contains("Keep codex's rate-limit and delete the other 1?"));
     }
 
     #[test]

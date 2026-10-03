@@ -54,50 +54,113 @@ cargo install --path .
 ## Use
 
 ```sh
-hydra            # attach (starts the server if needed); opens a session in the current dir
-hydra ~/code/api # open or switch to a session in that directory
+hydra            # attach (starts the server if needed); opens the current dir
+hydra ~/code/api # open or switch to that directory
 ```
 
-The screen is **projects → worktrees → sessions**:
+The sidebar is one tree of your **projects** (git repos, found from where things run plus any
+folder you open with `o`):
 
-- **Projects** (top of the sidebar) are git repos. They appear by themselves from where your
-  sessions run, plus any folder you open (`o`). Each shows how many sessions need you (`●1 ✓1 ⠹2`).
-- **Worktrees** of the selected project, each with its **sessions** (agents and shells) under it,
-  sorted by attention: needs you → done → working → idle. A session that needs you shows its
-  question under it; subagents show as `↳ Explore`.
-- The **main area** is the focused session, full size, or two side by side (stacked on narrow
-  windows). Its title bar shows the agent, the session and its state; an agent that's waiting gets
-  an answer bar with its own numbered choices.
+```
+▾ ▌shop-api                       ●1 ⠹1
+   ⚑ race add rate limiting  2
+   ◉ main folder · main  #412 ✓
+     › shell
+   WORKTREES
+   ⑂ calm-heron           ⠹ claude 2m
+       Rate limit /login
+   ⑂ quick-fox            ● codex 40s
+       Allow running npm test?
+   BRANCHES ▸ 6
+▸ ▌web-shop                         ✓1
+  + open a project  o
+```
+
+- **main folder** is the repo itself on whatever branch it's on; shells open here.
+- **WORKTREES**: every new claude / codex gets its own (named for you), so agents never edit the
+  same files. One agent per worktree is one row; what it's on, or the question it's asking, is
+  under it.
+- **BRANCHES** (folded): recent branches not checked out anywhere; click one to open it in a new
+  worktree with an agent.
+- `#412 ✓` / `#412 ✕±`: the branch's pull request, its checks, and review state. Click it.
+- Things that need you sort to the top. Agents asleep (see Settings) show `☾ asleep`.
 
 The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 
 | keys (after the leader) | action |
 |---|---|
-| `↑` `↓` | move through the sidebar's sessions; then Enter opens one, and bare keys work (`T`, `n`, …) until Esc |
-| `j` | **Jump**: everything that needs you, then what finished, across all projects (`1`–`9` to go) |
-| `T` / `r` | message the session (under the cursor, or the focused one) / reply to the focused one |
-| `1` `2` `3` | answer the focused agent's numbered prompt |
-| `n` | new session (your first agent) in this worktree |
-| `p` | **New pane**: project, worktree (or *+ new worktree*, named for you), what to run; opens beside |
-| `o` | **Open a project**: type a path, `cd ..`, fuzzy (`~\c\sa` → `~\code\shop-api`); Tab completes |
-| `x` / `X` | close the split (both keep running) / end the focused session |
-| `%` `\|` / `"` `-` | a shell beside this session |
-| `←` `→` | the other session of a split |
-| `$` | rename the session |
-| `d` / `f` / `v` | changes (review, commit, PR) / files / tasks & review |
-| `i` / `b` | inbox (PRs, issues, tickets) / toolbox (MCP, skills, plugins) |
-| `q` | quick prompt: type a task, an agent starts on it |
-| `Space` or `:` | command palette |
-| `z` or `B` | hide / show the sidebar |
-| `[` / `/` | copy mode / search history |
-| `W` / `R` | worktree picker / remove worktree |
-| `m` | menu |
-| `,` / `?` | settings / every key |
-| `D` / `Ctrl+R` | detach / reload config |
+| `n` / `p` | **+ New**: what to run (agents, shell, your recipes) and which project; full screen / beside |
+| `↑` `↓` | walk the sidebar; Enter opens, bare keys work until Esc |
+| `j` | **Jump**: what needs you, what finished, PRs with failing checks or changes asked |
+| `T` / `r` / `1` `2` `3` | message an agent / reply to the focused one / answer its prompt |
+| `o` | open a project (type a path, `cd ..`, fuzzy; Tab completes) |
+| `f` / `d` / `P` | **Files** / **Changes** / the branch's **pull request** |
+| `s` | **Ship**: commit, push, open (or update) the pull request, after one Enter |
+| `I` | **Ideas**: jot one down; later, Enter starts an agent on it in its own worktree |
+| `i` | **Tickets** from GitHub issues, Linear and Plane; Enter starts an agent on one |
+| `c` | **Race**: one task, two or three agents, each in a worktree; compare and keep the best |
+| `x` / `X` | close the split / end the focused one |
+| `%` `\|` `"` `-` | a shell beside this one |
+| `←` `→` | the other half of a split |
+| `v` / `b` / `q` | tasks & review / toolbox / quick prompt |
+| `Space` / `m` | command palette / menu |
+| `z` `B` / `[` `/` | hide the sidebar / copy mode, search |
+| `,` / `?` / `D` | settings / every key / detach |
 
-Everything also works with the mouse: projects, worktrees (click to fold), sessions, ` T `, the
-answer buttons, Jump, + Pane, ✕ and Settings are all buttons. Hold Shift to select text with your
-terminal.
+In **Files**: Enter puts the path in the agent's prompt, `e` opens it in your editor (`editor`
+in config; nvim, helix … open inside hydra), `y` copies the path. In **Changes**: `c` commit,
+`p` open a PR, `v` the PR, `e` editor, `r` reply to the agent. In a **pull request**: Tab for the
+diff, `f` hands failing checks and review comments to the branch's agent, `o` opens it on GitHub.
+
+Everything also works with the mouse. Hold Shift to select text with your terminal.
+
+## Alerts
+
+A desktop notification and a sound when an agent you're not looking at needs you or finishes,
+also when no hydra window is open (the server sends it). Sounds: glass, ping, chime, pop, off,
+or a path to your own file (`[notify] sound_needs`, `sound_done`). `hydra test-alert` tries them.
+
+## Sleep
+
+`sleep_after = "1h"` (Settings → Sessions) stops agents that have sat finished or idle that long,
+to save memory. They keep their place; open one and it resumes its conversation
+(`claude --resume`, `codex resume`).
+
+## Tickets
+
+```toml
+[tickets]
+sources = ["github", "linear", "plane"]   # tabs, in order
+plane_workspace = "my-team"                # Plane's workspace slug
+# plane_url / plane_app_url for self-hosted Plane
+[tickets.projects]
+shop-api = "linear"                        # which tab a project opens on
+```
+
+Keys come from `LINEAR_API_KEY` / `PLANE_API_KEY`, or `linear_key` / `plane_key` in
+`config.local.toml` (never synced). A new tracker is one more `Source` in `src/client/work.rs`.
+
+## Recipes
+
+```toml
+[[recipes]]
+name = "feature"
+worktree = true                           # its own worktree
+run = ["claude", "npm run dev", "lazygit"] # the first is the main one
+```
+
+They show up in + New as `⚙ feature`.
+
+## Sync between machines
+
+```sh
+hydra sync setup          # first machine: makes a private GitHub repo hydra-config
+hydra sync setup          # other machines: picks it up (your old config is kept as a backup)
+hydra sync                # pull + push now (it also happens on its own)
+```
+
+Shared: `config.toml` and `ideas.json`. Anything for one machine only (a shell path, keys) goes in
+`config.local.toml` next to it, which is never synced and wins over `config.toml`.
 
 ## Splash and settings
 

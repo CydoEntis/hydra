@@ -439,6 +439,22 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, panes: Rect, t: &crat
             let (term, input) = (*term, input.clone());
             super::hydra::draw_talk(app, f, area, &t, term, &input);
         }
+        Mode::Ideas(v) => {
+            let v = (**v).clone();
+            super::work::draw_ideas(app, f, area, &t, &v);
+        }
+        Mode::Tickets(v) => {
+            let v = (**v).clone();
+            super::work::draw_tickets(app, f, area, &t, &v);
+        }
+        Mode::RaceNew(v) => {
+            let v = (**v).clone();
+            super::work::draw_race_new(app, f, area, &t, &v);
+        }
+        Mode::Race(v) => {
+            let v = (**v).clone();
+            super::work::draw_race(app, f, area, &t, &v);
+        }
         Mode::Ship(ask) => {
             let ask = (**ask).clone();
             super::hydra::draw_ship(app, f, area, &t, &ask);
@@ -1102,6 +1118,9 @@ pub(super) fn mode_label(app: &App, t: &crate::theme::Theme) -> (&'static str, C
         Mode::HyPane(_) => ("NEW", t.accent),
         Mode::Side => ("SIDEBAR", t.accent),
         Mode::Ship(_) => ("SHIP", t.accent),
+        Mode::Ideas(_) => ("IDEAS", t.accent),
+        Mode::Tickets(_) => ("TICKETS", t.accent),
+        Mode::RaceNew(_) | Mode::Race(_) => ("RACE", t.accent),
         Mode::Tree { .. } => ("BROWSE", t.accent),
         Mode::Talk { .. } => ("TALK", t.accent),
         Mode::NewPane(_) => ("NEW PANE", t.accent),

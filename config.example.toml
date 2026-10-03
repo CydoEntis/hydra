@@ -125,3 +125,26 @@ A = "new-worktree:claude"   # worktree picker; whatever you open or create start
 # [[agents]]
 # name = "goose"
 # enabled = false
+
+# Put agents to sleep after sitting idle this long: "15m", "1h", "4h" or "never".
+# sleep_after = "never"
+
+# Editor for "open in editor" (e). Empty: $VISUAL, $EDITOR, then code.
+# editor = "nvim"
+
+[notify]
+desktop = true          # a desktop notification when an agent you're not looking at needs you
+sound_needs = "ping"    # glass | ping | chime | pop | off | a path to a sound file
+sound_done = "glass"
+bell = false
+
+[tickets]
+sources = ["github", "linear", "plane"]
+# plane_workspace = "my-team"
+# Keys: LINEAR_API_KEY / PLANE_API_KEY, or linear_key / plane_key in config.local.toml.
+
+# [[recipes]]
+# name = "feature"
+# worktree = true
+# run = ["claude", "npm run dev", "lazygit"]
+

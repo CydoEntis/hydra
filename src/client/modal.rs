@@ -272,6 +272,7 @@ pub fn write_at(parts: &[&str], value: toml_edit::Value) -> Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     std::fs::write(&file, doc.to_string()).context("writing config")?;
+    crate::sync::push_soon();
     Ok(())
 }
 
