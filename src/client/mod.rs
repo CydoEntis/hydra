@@ -2913,7 +2913,30 @@ impl App {
         }
         let node = v.selected();
         let lines = v.preview.as_ref().map(|(_, l)| l.len()).unwrap_or(0);
+        // In the preview: the arrows read the file; ← (or Esc) goes back to the tree.
+        if v.in_preview {
+            match k.code {
+                KeyCode::Left | KeyCode::Esc | KeyCode::Char('h') => v.in_preview = false,
+                KeyCode::Down | KeyCode::Char('j') => v.scroll = (v.scroll + 1).min(lines.saturating_sub(1)),
+                KeyCode::Up | KeyCode::Char('k') => v.scroll = v.scroll.saturating_sub(1),
+                KeyCode::PageDown | KeyCode::Char(' ') => v.scroll = (v.scroll + page).min(lines.saturating_sub(1)),
+                KeyCode::PageUp => v.scroll = v.scroll.saturating_sub(page),
+                KeyCode::Home | KeyCode::Char('g') => v.scroll = 0,
+                KeyCode::End | KeyCode::Char('G') => v.scroll = lines.saturating_sub(page),
+                // Everything else (i, e, y, o, d, Enter) works as from the tree.
+                _ => {
+                    v.in_preview = false;
+                    let keep = self.on_files_tree_key(v, k);
+                    if v.edit.is_none() && !matches!(k.code, KeyCode::Enter) {
+                        v.in_preview = true;
+                    }
+                    return keep;
+                }
+            }
+            return true;
+        }
         match k.code {
+            KeyCode::Right if node.as_ref().is_some_and(|n| !n.is_dir) && lines > 0 => v.in_preview = true,
             KeyCode::Esc => return false,
             // Read the preview: page, or a line at a time with Shift.
             KeyCode::PageDown => v.scroll = (v.scroll + page).min(lines.saturating_sub(1)),

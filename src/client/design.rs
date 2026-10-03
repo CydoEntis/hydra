@@ -1145,7 +1145,16 @@ pub(super) fn draw_files(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme,
                 }
             }
             None => {
+                if v.in_preview {
+                    header.push(seg("   ↑↓ PgUp PgDn read · i edit · ← back", Style::default().fg(t.accent)));
+                }
                 put(buf, px, body.y + 1, &header, body.right());
+                // The side the arrows are on gets the accent line.
+                if v.in_preview {
+                    for yy in body.top()..body.bottom() {
+                        buf[(body.x + fw, yy)].set_symbol("┃").set_style(Style::default().fg(t.accent).bg(t.bg));
+                    }
+                }
                 for (k, l) in lines.iter().enumerate().skip(v.scroll).take(prect.height as usize) {
                     let yy = prect.y + (k - v.scroll) as u16;
                     let mut segs = vec![seg(format!("{:>4}  ", k + 1), Style::default().fg(t.muted))];

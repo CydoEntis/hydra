@@ -148,6 +148,8 @@ pub struct FilesTree {
     pub scroll: usize,
     /// Editing the previewed file right here.
     pub edit: Option<Edit>,
+    /// The arrows are in the preview (→ on a file), not the tree.
+    pub in_preview: bool,
 }
 
 /// A small editor for the file in the preview.
@@ -295,6 +297,7 @@ impl FilesTree {
             loading: true,
             scroll: 0,
             edit: None,
+            in_preview: false,
         }
     }
 
