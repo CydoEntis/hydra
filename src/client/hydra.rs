@@ -2539,11 +2539,12 @@ impl App {
         let new_tab = self.hy.new_tab.take().is_some_and(|at| at.elapsed().as_secs() < 60);
         let take_out = |tabs: &mut Vec<HyTab>, f: TermId| {
             for tab in tabs.iter_mut() {
-                if tab.layout.contains(f) && tab.layout.leaves().len() > 1 {
-                    if let Some(l) = tab.layout.clone().remove(f) {
-                        tab.layout = l;
-                        tab.focus = tab.layout.first_leaf();
-                    }
+                if tab.layout.contains(f)
+                    && tab.layout.leaves().len() > 1
+                    && let Some(l) = tab.layout.clone().remove(f)
+                {
+                    tab.layout = l;
+                    tab.focus = tab.layout.first_leaf();
                 }
             }
             tabs.retain(|t| !(t.layout == Node::Leaf(f)));
