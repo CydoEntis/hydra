@@ -2782,8 +2782,16 @@ impl App {
         match a {
             Action::Settings => self.hy_settings(),
             Action::NewPane => self.hy_open_new_pane(false),
+            // A plain shell in the project's own folder (the repo itself, not a worktree).
             Action::ShellHere => {
-                let dir = self.hy_target_dir();
+                let dir = self
+                    .hy
+                    .cursor
+                    .or(self.focused())
+                    .and_then(|t| self.snap.terms.get(&t))
+                    .map(|t| t.root.clone().unwrap_or_else(|| t.cwd.clone()))
+                    .or_else(|| self.hy_model().iter().find(|p| Some(&p.key) == self.hy.proj.as_ref()).map(|p| p.path.clone()))
+                    .unwrap_or_else(|| self.here_dir());
                 self.hy.cursor = None;
                 self.hy_new_session(dir, None, false);
             }

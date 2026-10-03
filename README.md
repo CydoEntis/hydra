@@ -89,7 +89,7 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 
 | keys (after the leader) | action |
 |---|---|
-| `n` | a new **shell** right away, where the session you're on is |
+| `n` | a new **shell** right away in the project's folder (no agent, no worktree) |
 | `p` / `o` | open a **project** |
 | `t` | **+ New**: type the task, pick the agent, model, project and worktree; full screen / beside |
 | `.` | **presets**: saved launches ("commit and push", "review {task}"), by number |
