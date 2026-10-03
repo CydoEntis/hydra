@@ -31,6 +31,8 @@ pub enum Act {
     /// End everything in a project and forget it.
     CloseProject(usize),
     NewWorktree(usize),
+    /// git init and a first commit, so agents there can get worktrees.
+    GitInit(PathBuf),
     OpenWorktree(usize),
     Dev(PathBuf, crate::protocol::DevAction),
 }
@@ -162,6 +164,8 @@ impl App {
         if p.git {
             items.push(("New worktree".to_string(), Act::NewWorktree(pi)));
             items.push(("Open worktree…".to_string(), Act::OpenWorktree(pi)));
+        } else {
+            items.push(("Make it a git repo…".to_string(), Act::GitInit(p.path.clone())));
         }
         if let Some(main) = p.wts.iter().find(|w| w.main)
             && crate::project::load(&main.path).dev.is_some_and(|d| !d.run.trim().is_empty())
@@ -220,6 +224,10 @@ impl App {
                 Some(("Close pane?".to_string(), format!("{name}{}", if running { " — still working" } else { "" })))
             }
             Act::End(ts) => Some(("Close all of these?".to_string(), format!("{} panes", ts.len()))),
+            Act::GitInit(p) => Some((
+                format!("Make {} a git repo?", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
+                "git init, then everything there as the first commit; new agents get their own worktrees".to_string(),
+            )),
             Act::CloseProject(pi) => model.get(*pi).map(|p| {
                 let n = p.sessions().count();
                 ("Close project?".to_string(), format!("{} — {n} pane{}", p.name, if n == 1 { "" } else { "s" }))
@@ -246,6 +254,18 @@ impl App {
                 }
                 self.hy.pending_split = Some((t, std::time::Instant::now()));
                 self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd: None });
+            }
+            Act::GitInit(dir) => {
+                let run = |args: &[&str]| std::process::Command::new("git").arg("-C").arg(&dir).args(args).output();
+                let ok = run(&["init", "-q"]).is_ok_and(|o| o.status.success())
+                    && run(&["add", "-A"]).is_ok_and(|o| o.status.success())
+                    && run(&["commit", "-q", "-m", "Initial commit"]).is_ok_and(|o| o.status.success());
+                if ok {
+                    self.notify("it's a git repo now; new agents get their own worktree".into(), false);
+                } else {
+                    self.notify("git init or the first commit failed (is git set up with your name and email?)".into(), true);
+                }
+                self.hy_fresh();
             }
             Act::Zoom(t) => self.hy.zoom = if self.hy.zoom == Some(t) { None } else { Some(t) },
             Act::RightClicks(t) => {

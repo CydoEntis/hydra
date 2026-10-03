@@ -941,6 +941,9 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                     seg("▌", s.fg(p.color)),
                     seg(p.name.clone(), s.fg(t.strong).add_modifier(Modifier::BOLD)),
                 ];
+                if !p.git {
+                    left.push(seg("  no git", s.fg(t.muted)));
+                }
                 if p.fresh {
                     left.push(seg(" ", s));
                     left.push(seg(" NEW ", Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)));
@@ -985,7 +988,10 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 // Agent and state on the left; age (or the talk chip) on the right.
                 let mut left = vec![seg(format!("{gl} "), gs), seg(s.agent.clone(), st.fg(ink.unwrap_or(t.strong)).add_modifier(Modifier::BOLD))];
                 let wt = &model[*pi].wts[*wi];
-                if !wt.main {
+                if wt.main && model[*pi].git && !wt.branch.is_empty() {
+                    // In the repo folder itself, on its branch (not a worktree of its own).
+                    left.push(seg(format!(" ⎇ {}", wt.branch), st.fg(ink.unwrap_or(t.muted))));
+                } else if !wt.main {
                     // ⚑ when it's racing others on the same task.
                     let racing = app.hy.saved.races.iter().any(|r| r.entries.iter().any(|(_, b)| *b == wt.branch));
                     left.push(seg(format!(" {} {}", if racing { "⚑" } else { "⑂" }, wt.name), st.fg(ink.unwrap_or(t.accent))));

@@ -4518,11 +4518,11 @@ mod hydra_tests {
         assert!(!text.contains("main folder"), "no 'main folder' wording");
         assert!(text.contains("+ open a project"));
         // Rows: agent and state, then what it's on (or its question) underneath.
-        assert!(text.contains("● claude  needs you") && text.contains("3m"));
+        assert!(text.contains("● claude ⎇ main  needs you") && text.contains("3m"), "the repo folder's branch on its sessions");
         assert!(text.contains("Run npm test -- checkout?"), "the question under the agent");
         assert!(text.contains("↳ Explore"), "subagents under their agent");
         assert!(text.contains("⠋ codex ⑂ rate  working") && text.contains("Rate limit /login"), "a worktree's session says which worktree");
-        assert!(text.contains("› shell  shop-api") && !text.contains("shell 2"), "shells: where they are, no age");
+        assert!(text.contains("› shell ⎇ main  shop-api") && !text.contains("shell 2"), "shells: where they are, no age");
         assert!(!text.contains("session"), "no 'session' wording on screen");
         assert!(text.contains("● claude is waiting") && text.contains(" Yes 1 ") && text.contains(" Always 2 ") && text.contains(" No 3 "));
         assert!(!text.contains("click or press T"), "no footer under the pane");
@@ -4920,7 +4920,7 @@ mod hydra_tests {
         app.hy_fresh();
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("claude opus 4.5"), "the model beside the agent");
+        assert!(o.contains("claude ⎇ main opus 4.5"), "where it runs, then the model");
         assert!(o.contains("Fix the login flow"), "its name stays");
         assert!(!o.contains("› now add a test for it"), "one line under a row, no more");
     }
