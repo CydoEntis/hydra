@@ -16,6 +16,9 @@ pub const EXAMPLE: &str = include_str!("../config.example.toml");
 pub struct Config {
     /// Key that arms command mode, tmux style.
     pub prefix: String,
+    /// Put agents to sleep after sitting finished or idle this long ("15m", "1h", "4h",
+    /// "never"); they resume where they were when you open them.
+    pub sleep_after: String,
     /// Editor for "open in editor" (Files, Changes). Empty: $VISUAL, $EDITOR, then `code`.
     /// Terminal editors (nvim, vim, hx, nano, micro, …) open inside hydra beside the agent.
     pub editor: String,
@@ -206,6 +209,7 @@ impl Default for Config {
         Config {
             prefix: "ctrl+space".into(),
             editor: String::new(),
+            sleep_after: "never".into(),
             theme: "hydra".into(),
             theme_overrides: ThemeOverrides::default(),
             shell: None,
@@ -416,6 +420,19 @@ pub fn migrate_from_drover() {
 }
 
 impl Config {
+    /// `sleep_after` in seconds; None for never.
+    pub fn sleep_secs(&self) -> Option<u64> {
+        let s = self.sleep_after.trim().to_lowercase();
+        let (num, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len()));
+        let n: u64 = num.parse().ok().filter(|n| *n > 0)?;
+        Some(match unit.trim() {
+            "s" => n,
+            "" | "m" | "min" => n * 60,
+            "h" => n * 3600,
+            _ => return None,
+        })
+    }
+
     /// Load the config file; a missing file is the defaults, a broken one is an error.
     pub fn load() -> Result<Config> {
         let path = config_path();
@@ -584,6 +601,16 @@ fn which(exe: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sleep_after_parses() {
+        let mut c = Config::default();
+        assert_eq!(c.sleep_secs(), None);
+        for (v, want) in [("15m", Some(900)), ("1h", Some(3600)), ("30s", Some(30)), ("20", Some(1200)), ("never", None), ("0m", None)] {
+            c.sleep_after = v.into();
+            assert_eq!(c.sleep_secs(), want, "{v}");
+        }
+    }
 
     #[test]
     fn example_config_parses_and_binds() {

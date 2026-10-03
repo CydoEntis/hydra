@@ -139,6 +139,7 @@ pub(super) struct Session {
     pub since: u64,
     pub question: Option<String>,
     pub is_agent: bool,
+    pub asleep: bool,
     /// Subagents it's running right now.
     pub subagents: Vec<String>,
 }
@@ -306,6 +307,7 @@ impl App {
                     since: t.since,
                     question,
                     is_agent: t.agent.is_some(),
+                    asleep: t.asleep,
                     subagents: t.subagents.clone(),
                 });
             }
@@ -500,6 +502,8 @@ pub(super) enum HyHit {
     Pr(usize),
     /// A key for the view in the main area (Files, Changes, PR).
     ViewKey(char),
+    /// The Ship button.
+    ShipGo,
 }
 
 fn hit(app: &mut App, r: Rect, h: HyHit) {
@@ -785,8 +789,14 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
         let right_segs = if sel {
             vec![seg(format!(" {tk} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)), seg(format!(" {}", s.agent), st.fg(t.muted))]
         } else {
-            let gl = if s.is_agent || s.status != Status::None { glyph(app, s.status) } else { app.cfg.icons.shell.clone() };
-            let when = if s.is_agent { format!(" {}", age(s.since)) } else { String::new() };
+            let gl = if s.asleep {
+                "☾".to_string()
+            } else if s.is_agent || s.status != Status::None {
+                glyph(app, s.status)
+            } else {
+                app.cfg.icons.shell.clone()
+            };
+            let when = if s.asleep { " asleep".to_string() } else if s.is_agent { format!(" {}", age(s.since)) } else { String::new() };
             let mut gs = st.fg(ink.unwrap_or(if s.is_agent { t.status(s.status) } else { t.muted }));
             if s.status == Status::Blocked {
                 gs = gs.add_modifier(Modifier::BOLD);
@@ -1099,6 +1109,19 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
                 f.set_cursor_position(Position::new(inner.x + col, inner.y + row));
             }
         }
+    }
+
+    // Asleep: the last screen stays, dimmed, with a note on how to wake it.
+    if info.asleep {
+        dim_all(f.buffer_mut(), inner, t);
+        let note = vec![
+            seg(" ☾ asleep to save memory · ", Style::default().bg(t.card2).fg(t.text)),
+            seg("click or press any key", Style::default().bg(t.card2).fg(t.accent).add_modifier(Modifier::BOLD)),
+            seg(" to wake it where it left off ", Style::default().bg(t.card2).fg(t.text)),
+        ];
+        let w = segs_width(&note);
+        let x = inner.x + inner.width.saturating_sub(w) / 2;
+        put(f.buffer_mut(), x, inner.y + inner.height / 2, &note, inner.right());
     }
 
     // Answer bar: the agent's own numbered choices, so a key sends the same keystroke.
@@ -2184,6 +2207,11 @@ impl App {
                 }
             }
             Action::SideMove(d) => self.hy_side_move(*d),
+            Action::Ship => {
+                let dir = self.hy_target_dir();
+                self.hy.cursor = None;
+                self.ask_ship(dir);
+            }
             Action::Files | Action::Changes | Action::PullRequest => {
                 let dir = self.hy_target_dir();
                 self.hy.cursor = None;
@@ -2528,6 +2556,13 @@ impl App {
                 self.splash = false;
                 self.hy_splash_action(c);
             }
+            HyHit::ShipGo => {
+                if let Mode::Ship(ask) = std::mem::replace(&mut self.mode, Mode::Normal) {
+                    let task = ask.task.clone();
+                    self.notify(format!("shipping {}…", task.branch), false);
+                    self.spawn_bg(move || super::Bg::Done(super::tasks::ship(&task), false));
+                }
+            }
             HyHit::Pr(i) => {
                 if let Some((dir, n)) = self.hy.pr_keys.get(i).cloned() {
                     self.mode = Mode::Normal;
@@ -2721,4 +2756,32 @@ pub(super) fn draw_pr(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, v:
         x = btn(app, buf, x, y, label, key, kind, HyHit::ViewKey(c), area.right()) + 1;
     }
     put(buf, x + 1, y, &hints(t, &[("↑↓", "scroll"), ("Tab", if v.tab == 0 { "diff" } else { "overview" }), ("Esc", "close")]).into_iter().map(|(s, st)| (s, st.bg(t.card2))).collect::<Vec<_>>(), area.right());
+}
+
+// ---- ship ------------------------------------------------------------------------------------
+
+pub(super) fn draw_ship(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, ask: &super::ShipAsk) {
+    let buf = f.buffer_mut();
+    dim_all(buf, area, t);
+    let r = panel(app, buf, area, 66, 12, &format!("Ship {}", ask.task.branch), &[], t);
+    let c = Style::default().bg(t.card);
+    let mut y = r.y + 2;
+    let mut step = |buf: &mut Buffer, n: u8, text: String| {
+        put(buf, r.x + 3, y, &[seg(format!("{n}  "), c.fg(t.accent).add_modifier(Modifier::BOLD)), seg(text, c.fg(t.text))], r.right() - 2);
+        y += 1;
+    };
+    let msg = if ask.task.summary.is_empty() { ask.task.branch.clone() } else { ask.task.summary.clone() };
+    if ask.changed > 0 {
+        step(buf, 1, format!("commit {} changed file{} as \"{}\"", ask.changed, if ask.changed == 1 { "" } else { "s" }, truncate(&msg, 30)));
+    } else {
+        step(buf, 1, "nothing new to commit".into());
+    }
+    step(buf, 2, format!("push {}", ask.task.branch));
+    match &ask.pr {
+        Some(n) => step(buf, 3, format!("update pull request #{n}")),
+        None => step(buf, 3, format!("open a pull request into {}", ask.task.base)),
+    }
+    put(buf, r.x + 3, y + 1, &[seg("Checks then show next to the branch in the sidebar.", c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right() - 2);
+    let gx = btn(app, buf, r.x + 3, r.bottom() - 2, "Ship", "Enter", BtnKind::Primary, HyHit::ShipGo, r.right());
+    put(buf, gx + 3, r.bottom() - 2, &hints(t, &[("Esc", "cancel")]), r.right());
 }

@@ -251,6 +251,8 @@ pub enum Action {
     CloseSplit,
     /// The pull request of this branch: checks, reviews, comments, diff.
     PullRequest,
+    /// Commit, push and open (or update) the pull request, after one confirm.
+    Ship,
     /// Move the sidebar cursor (-1 up, 1 down); bare keys then work on the sidebar.
     SideMove(i8),
     Detach,
@@ -339,6 +341,7 @@ impl Action {
             Action::NewSession => "+ new, beside this one".into(),
             Action::CloseSplit => "close the split".into(),
             Action::PullRequest => "pull request (checks, reviews, diff)".into(),
+            Action::Ship => "ship: commit, push, open the PR".into(),
             Action::SideMove(d) if *d < 0 => "sidebar up".into(),
             Action::SideMove(_) => "sidebar down".into(),
             Action::Detach => "detach".into(),
@@ -414,6 +417,7 @@ impl Action {
             Action::NewSession => "new-beside".into(),
             Action::CloseSplit => "close-split".into(),
             Action::PullRequest => "pr".into(),
+            Action::Ship => "ship".into(),
             Action::SideMove(d) if *d < 0 => "side-up".into(),
             Action::SideMove(_) => "side-down".into(),
             Action::Talk => "talk".into(),
@@ -515,6 +519,7 @@ impl FromStr for Action {
             "new-session" | "new-beside" => Action::NewSession,
             "close-split" => Action::CloseSplit,
             "pr" | "pull-request" => Action::PullRequest,
+            "ship" => Action::Ship,
             "side-up" => Action::SideMove(-1),
             "side-down" => Action::SideMove(1),
             "talk" => Action::Talk,
@@ -569,6 +574,7 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     // Code
     ("d", "changes"),
     ("P", "pr"),
+    ("s", "ship"),
     ("f", "files"),
     ("v", "tasks"),
     ("i", "inbox"),

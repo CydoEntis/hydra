@@ -61,6 +61,8 @@ pub struct Term {
     pub subagents: Vec<(String, String)>,
     /// The shell reports its directory itself (OSC 7 / 9;9); trust that over process scans.
     pub cwd_reported: bool,
+    /// Stopped on purpose to save memory; wakes (resumed) when focused.
+    pub asleep: bool,
 }
 
 pub struct SpawnSpec<'a> {
@@ -295,6 +297,7 @@ impl Term {
             head: crate::gitfs::head(spec.cwd),
             subagents: Vec::new(),
             cwd_reported: false,
+            asleep: false,
         })
     }
 

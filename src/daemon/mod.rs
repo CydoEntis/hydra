@@ -99,6 +99,7 @@ struct Daemon {
     last_saved: String,
     /// Worktrees hydra created; closing the last thing in one removes it.
     made_worktrees: Vec<PathBuf>,
+    last_sleep_check: Instant,
     /// The last automatic workspace move, for undo.
     auto_undo: Option<AutoUndo>,
     /// Panes whose process ended on its own, recently. Several at once means a crash,
@@ -167,6 +168,7 @@ pub fn run() -> Result<()> {
             last_save: Instant::now(),
             last_saved: String::new(),
             made_worktrees: Vec::new(),
+            last_sleep_check: Instant::now(),
             natural_exits: Vec::new(),
             auto_undo: None,
         };
@@ -239,6 +241,10 @@ impl Daemon {
                 }
                 _ = tick.tick() => {
                     self.update_statuses();
+                    if self.last_sleep_check.elapsed() >= Duration::from_secs(30) {
+                        self.last_sleep_check = Instant::now();
+                        self.sleep_idle();
+                    }
                     self.poll_git();
                     if self.last_save.elapsed() > Duration::from_secs(2) {
                         self.last_save = Instant::now();
@@ -493,6 +499,10 @@ impl Daemon {
                 self.broadcast(|c| c.attach, ServerMsg::Output { term: tid, data });
             }
             Ev::Exited(tid) => {
+                // A sleeping agent's process was stopped on purpose; its pane stays.
+                if self.terms.get(&tid).is_some_and(|t| t.asleep) {
+                    return;
+                }
                 if self.terms.contains_key(&tid) {
                     self.natural_exits.retain(|t| t.elapsed() < Duration::from_secs(5));
                     self.natural_exits.push(Instant::now());
@@ -628,7 +638,9 @@ impl Daemon {
         match msg {
             ClientMsg::Hello { .. } => {}
             ClientMsg::Input { term, data } => {
-                if let Some(t) = self.terms.get_mut(&term) {
+                if self.terms.get(&term).is_some_and(|t| t.asleep) {
+                    self.wake(term);
+                } else if let Some(t) = self.terms.get_mut(&term) {
                     t.input(&data);
                 }
             }
@@ -841,6 +853,7 @@ impl Daemon {
                     root: t.head.as_ref().map(|h| h.main_root.clone()),
                     top: t.head.as_ref().map(|h| h.top.clone()),
                     since: t.status_since,
+                    asleep: t.asleep,
                     subagents: t.subagents.iter().map(|(_, k)| k.clone()).collect(),
                 })
             })
@@ -1022,6 +1035,9 @@ impl Daemon {
                     self.active_ws = Some(id);
                 }
                 self.last_git = Instant::now() - Duration::from_secs(60);
+            }
+            Command::FocusPane { term } if self.terms.get(&term).is_some_and(|t| t.asleep) => {
+                self.wake(term);
             }
             Command::FocusPane { term } => {
                 let (ws, tab) = self.locate(term).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?;
@@ -1274,6 +1290,80 @@ impl Daemon {
         }
         self.last_git = Instant::now() - Duration::from_secs(60);
         Ok(())
+    }
+
+    /// The command that resumes an agent's conversation, if its kind supports it.
+    fn resume_cmd(&self, t: &Term) -> Option<String> {
+        let def = t.agent.as_ref().and_then(|n| self.agents.iter().find(|a| &a.name == n))?;
+        match (&def.resume, &t.session) {
+            (Some(tpl), Some(id)) => Some(tpl.replace("{session}", id)),
+            _ => def.resume_last.clone(),
+        }
+    }
+
+    /// Stop agents that have sat finished or idle longer than `sleep_after` (never the
+    /// focused one, and only ones that can be resumed).
+    fn sleep_idle(&mut self) {
+        let Some(after) = self.cfg.sleep_secs() else { return };
+        let now = term::unix_now();
+        // The one on screen stays awake; with no window open, nobody is looking.
+        let focused = if self.has_viewer() { self.focused_term() } else { None };
+        let sleepy: Vec<TermId> = self
+            .terms
+            .values()
+            .filter(|t| !t.asleep && t.agent.is_some() && Some(t.id) != focused)
+            .filter(|t| matches!(t.status, Status::Idle | Status::Done) && now.saturating_sub(t.status_since) >= after)
+            .filter(|t| self.resume_cmd(t).is_some())
+            .map(|t| t.id)
+            .collect();
+        for id in sleepy {
+            if let Some(t) = self.terms.get_mut(&id) {
+                tracing::info!("putting {} to sleep", id);
+                t.asleep = true;
+                t.kill();
+                self.dirty = true;
+            }
+        }
+    }
+
+    /// Bring a sleeping agent back: start its resume command in the same spot.
+    fn wake(&mut self, old: TermId) {
+        let Some(t) = self.terms.get(&old) else { return };
+        let cmd = self.resume_cmd(t).or_else(|| t.cmd.clone());
+        let (cwd, cols, rows) = (t.cwd.clone(), t.cols, t.rows);
+        let (agent, session, orig) = (t.agent.clone(), t.session.clone(), t.cmd.clone());
+        let new = match self.spawn(cmd.as_deref(), &cwd, cols, rows) {
+            Ok(n) => n,
+            Err(e) => {
+                tracing::warn!("waking {old}: {e:#}");
+                return;
+            }
+        };
+        if let Some(n) = self.terms.get_mut(&new) {
+            n.agent = agent;
+            n.session = session;
+            n.cmd = orig;
+        }
+        for w in &mut self.workspaces {
+            for tab in &mut w.tabs {
+                if tab.layout.contains(old) {
+                    if let Some(l) = tab.layout.map_leaves(&mut |id| Some(if id == old { new } else { id })) {
+                        tab.layout = l;
+                    }
+                    if tab.focus == old {
+                        tab.focus = new;
+                    }
+                }
+            }
+        }
+        self.terms.remove(&old);
+        if let Some((ws, tab)) = self.locate(new) {
+            if let Ok(w) = self.ws_mut(ws) {
+                w.active_tab = tab;
+            }
+            self.active_ws = Some(ws);
+        }
+        self.dirty = true;
     }
 
     /// The linked worktrees these terminals are in.

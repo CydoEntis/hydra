@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = 12;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -262,6 +262,8 @@ pub struct TermInfo {
     pub top: Option<PathBuf>,
     /// When its status last changed (unix seconds).
     pub since: u64,
+    /// Put to sleep after sitting idle; focusing it (or typing) wakes it, resumed.
+    pub asleep: bool,
 }
 
 impl TermInfo {

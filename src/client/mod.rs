@@ -70,6 +70,16 @@ enum Mode {
     HySettings(Box<design::SettingsView>),
     /// Hydra layout: keyboard cursor in the sidebar; bare keys act like leader keys.
     Side,
+    /// Ship this branch? (what will happen, then Enter)
+    Ship(Box<ShipAsk>),
+}
+
+/// The ship confirm: the branch and what shipping it will do.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct ShipAsk {
+    pub task: tasks::TaskRow,
+    pub changed: usize,
+    pub pr: Option<String>,
 }
 
 /// The + Pane menu's state.
@@ -720,6 +730,14 @@ impl App {
             Mode::HyPane(np) => self.on_hy_pane_key(np, &k),
             Mode::HySettings(_) => self.hy_settings_key(&k),
             Mode::Side => self.on_side_key(&k),
+            Mode::Ship(ask) => {
+                self.mode = Mode::Normal;
+                if k.code == KeyCode::Enter {
+                    let task = ask.task.clone();
+                    self.notify(format!("shipping {}…", task.branch), false);
+                    self.spawn_bg(move || Bg::Done(tasks::ship(&task), false));
+                }
+            }
             Mode::Prefix { .. } => {
                 self.mode = Mode::Normal;
                 if k.code == KeyCode::Esc {
@@ -1276,6 +1294,11 @@ impl App {
             Action::OpenProject => self.act(Action::NewWorkspace),
             Action::NewSession => self.act(Action::NewPane),
             Action::CloseSplit => self.act(Action::ClosePane),
+            Action::Ship => {
+                if let Some(dir) = self.target_path() {
+                    self.ask_ship(dir);
+                }
+            }
             Action::PullRequest => {
                 if let Some(dir) = self.target_path()
                     && let Some(h) = crate::gitfs::head(&dir)
@@ -1829,6 +1852,49 @@ impl App {
         }
         v.push(("another folder…".into(), "pick a folder".into()));
         v
+    }
+
+    /// The ship confirm for the branch at `dir`.
+    pub(super) fn ask_ship(&mut self, dir: PathBuf) {
+        let Some(head) = crate::gitfs::head(&dir) else {
+            self.notify("not a git repo".into(), true);
+            return;
+        };
+        let base = if head.linked { crate::gitfs::main_branch(&head.main_root).unwrap_or_else(|| "main".into()) } else { String::new() };
+        if !head.linked && crate::gitfs::main_branch(&head.main_root).is_some_and(|m| m == head.branch) {
+            self.notify(format!("you're on {}: ship works from a branch (start an agent with + New to get one)", head.branch), true);
+            return;
+        }
+        let term = self
+            .snap
+            .terms
+            .values()
+            .filter(|t| t.agent.is_some() && t.top.as_ref().is_some_and(|p| design::path_key(p) == design::path_key(&head.top)))
+            .map(|t| (t.id, t.summary.clone()))
+            .next();
+        let task = tasks::TaskRow {
+            ws: self.snap.active_ws.unwrap_or(0),
+            name: head.branch.clone(),
+            branch: head.branch.clone(),
+            base: if base.is_empty() { "main".into() } else { base },
+            stage: tasks::Stage::Ready,
+            summary: term.as_ref().map(|(_, s)| s.clone()).unwrap_or_default(),
+            dirty: 0,
+            ahead: 0,
+            agent: term.map(|(id, _)| id),
+            dir: head.top.clone(),
+            root: head.main_root.clone(),
+        };
+        let changed = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&head.top)
+            .args(["status", "--porcelain"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).lines().count())
+            .unwrap_or(0);
+        let key = design::path_key(&head.main_root);
+        let pr = self.hy.prs.get(&key).and_then(|l| l.iter().find(|p| p.branch == head.branch)).map(|p| p.number.to_string());
+        self.mode = Mode::Ship(Box::new(ShipAsk { task, changed, pr }));
     }
 
     fn open_changes(&mut self, dir: PathBuf) {
@@ -3348,7 +3414,6 @@ mod render_tests {
     use crate::layout::Node;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-    use ratatui::style::Color;
 
     /// Panes are washed with their workspace's colour; programs' own colours survive.
     #[test]
@@ -3420,6 +3485,7 @@ mod design_tests {
             root: None,
             top: None,
             since: 0,
+            asleep: false,
         }
     }
 
@@ -3730,6 +3796,32 @@ mod hydra_tests {
         app.mode = Mode::Jump { sel: 0 };
         let o = draw(&mut app, 160, 45);
         assert!(o.contains("PULL REQUESTS") && o.contains("checks failing"), "failing PRs in Jump");
+    }
+
+    #[test]
+    fn ship_confirm_says_what_happens() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let task = tasks::TaskRow {
+            ws: 10,
+            name: "rate-limit".into(),
+            branch: "rate-limit".into(),
+            base: "main".into(),
+            stage: tasks::Stage::Ready,
+            summary: "Rate limit /login".into(),
+            dirty: 0,
+            ahead: 0,
+            agent: Some(2),
+            dir: PathBuf::from("."),
+            root: PathBuf::from("."),
+        };
+        app.mode = Mode::Ship(Box::new(ShipAsk { task: task.clone(), changed: 3, pr: None }));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("Ship rate-limit") && o.contains("commit 3 changed files as \"Rate limit /login\""));
+        assert!(o.contains("push rate-limit") && o.contains("open a pull request into main") && o.contains("Ship Enter"));
+        app.mode = Mode::Ship(Box::new(ShipAsk { task, changed: 0, pr: Some("412".into()) }));
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("nothing new to commit") && o.contains("update pull request #412"));
     }
 
     #[test]

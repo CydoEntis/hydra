@@ -175,6 +175,28 @@ pub fn merge(t: &TaskRow) -> Result<String, String> {
     Ok(format!("merged {} into {}", t.branch, t.base))
 }
 
+/// Ship a branch: commit what's left, push it, and open a pull request (or, if it has one
+/// already, the push updates it).
+pub fn ship(t: &TaskRow) -> Result<String, String> {
+    let committed = commit_all(t)?;
+    git(&t.dir, &["push", "-u", "origin", &t.branch])?;
+    let mut view = Command::new("gh");
+    view.current_dir(&t.dir).args(["pr", "view", &t.branch, "--json", "number", "--jq", ".number"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        view.creation_flags(0x0800_0000);
+    }
+    if let Ok(o) = view.output()
+        && o.status.success()
+    {
+        let n = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        let what = if committed { "committed and pushed" } else { "pushed" };
+        return Ok(format!("{what} {} to PR #{n}", t.branch));
+    }
+    pull_request(t)
+}
+
 /// Commit what's left, push the branch and open a pull request with `gh`.
 pub fn pull_request(t: &TaskRow) -> Result<String, String> {
     commit_all(t)?;

@@ -66,7 +66,7 @@ pub fn ls(as_json: bool) -> Result<()> {
                     "tabs": w.tabs.iter().map(|t| json!({
                         "id": t.id, "name": t.name, "active": t.id == w.active_tab, "focus": t.focus,
                         "panes": t.layout.leaves().iter().filter_map(|id| snap.terms.get(id)).map(|p| json!({
-                            "id": p.id, "process": p.process, "title": p.title, "agent": p.agent,
+                            "id": p.id, "process": p.process, "title": p.title, "agent": p.agent, "asleep": p.asleep,
                             "status": p.status.label(), "cols": p.cols, "rows": p.rows, "cwd": p.cwd,
                         })).collect::<Vec<_>>(),
                     })).collect::<Vec<_>>(),

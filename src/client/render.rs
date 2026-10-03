@@ -439,6 +439,10 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, panes: Rect, t: &crat
             let (term, input) = (*term, input.clone());
             super::hydra::draw_talk(app, f, area, &t, term, &input);
         }
+        Mode::Ship(ask) => {
+            let ask = (**ask).clone();
+            super::hydra::draw_ship(app, f, area, &t, &ask);
+        }
         Mode::Jump { sel } => {
             let sel = *sel;
             super::hydra::draw_jump(app, f, area, &t, sel);
@@ -1097,6 +1101,7 @@ pub(super) fn mode_label(app: &App, t: &crate::theme::Theme) -> (&'static str, C
         Mode::Finder(_) => ("OPEN", t.accent),
         Mode::HyPane(_) => ("NEW", t.accent),
         Mode::Side => ("SIDEBAR", t.accent),
+        Mode::Ship(_) => ("SHIP", t.accent),
         Mode::Tree { .. } => ("BROWSE", t.accent),
         Mode::Talk { .. } => ("TALK", t.accent),
         Mode::NewPane(_) => ("NEW PANE", t.accent),

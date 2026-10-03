@@ -175,6 +175,7 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "restore.enabled", label: "Bring sessions back after a restart", kind: Kind::Bool, cat: Cat::Sessions, help: "Agents keep going in the background; after a reboot hydra rebuilds your sessions." },
     Setting { path: "restore.agents", label: "Resume agents", kind: Kind::Bool, cat: Cat::Sessions, help: "Restart agents in their last conversation (claude --resume, codex resume)." },
     Setting { path: "restore.commands", label: "Re-run commands", kind: Kind::Bool, cat: Cat::Sessions, help: "Run again the commands sessions were started with (lazygit, a dev server, ...)." },
+    Setting { path: "sleep_after", label: "Put idle agents to sleep", kind: Kind::Choice(&["never", "15m", "1h", "4h"]), cat: Cat::Sessions, help: "Agents sitting idle this long are stopped to save memory; opening one resumes it where it was." },
     Setting { path: "scrollback", label: "Scrollback lines", kind: Kind::Int { step: 1000, min: 1000, max: 100_000 }, cat: Cat::Sessions, help: "How much history each session keeps for scrolling and search." },
     // Appearance
     Setting { path: "theme", label: "Theme", kind: Kind::Choice(crate::theme::BUILTIN), cat: Cat::Appearance, help: "Changes the whole app live. Agent output keeps its own colours; only the ANSI palette is themed." },
