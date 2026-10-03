@@ -50,6 +50,8 @@ pub struct Found {
     /// The agent process's working directory: where it was started, whatever the shell
     /// reported.
     pub agent_cwd: Option<std::path::PathBuf>,
+    /// Memory used by everything running in the pane (bytes).
+    pub mem: u64,
 }
 
 /// Helper processes that are never what the user thinks of as "running in the pane".
@@ -69,7 +71,7 @@ pub fn start(shared: Arc<Mutex<Shared>>, tx: mpsc::Sender<Ev>) {
                     sys.refresh_processes_specifics(
                         ProcessesToUpdate::All,
                         true,
-                        ProcessRefreshKind::nothing().with_cmd(UpdateKind::OnlyIfNotSet).with_cwd(UpdateKind::Always),
+                        ProcessRefreshKind::nothing().with_cmd(UpdateKind::OnlyIfNotSet).with_cwd(UpdateKind::Always).with_memory(),
                     );
                     let found = scan(&sys, &roots, &agents);
                     if tx.blocking_send(Ev::Scan(found)).is_err() {
@@ -103,11 +105,13 @@ fn scan(sys: &System, roots: &[(TermId, u32)], agents: &[CompiledAgent]) -> Vec<
             let mut agent = None;
             let mut agent_cwd = None;
             let mut deepest: Option<(usize, u64, String)> = None;
+            let mut mem = 0u64;
             let mut i = 0;
             while i < queue.len() {
                 let (pid, depth) = queue[i];
                 i += 1;
                 if let Some(p) = sys.process(pid) {
+                    mem += p.memory();
                     let name = stem(p.name());
                     if !IGNORED.contains(&name.as_str()) {
                         if agent.is_none() && depth > 0 {
@@ -129,7 +133,7 @@ fn scan(sys: &System, roots: &[(TermId, u32)], agents: &[CompiledAgent]) -> Vec<
                 }
             }
             let cwd = sys.process(root).and_then(|p| p.cwd()).map(|p| p.to_path_buf());
-            Found { term, process: deepest.map(|d| d.2).unwrap_or_default(), agent, cwd, agent_cwd }
+            Found { term, process: deepest.map(|d| d.2).unwrap_or_default(), agent, cwd, agent_cwd, mem }
         })
         .collect()
 }

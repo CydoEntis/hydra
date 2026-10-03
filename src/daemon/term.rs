@@ -121,6 +121,8 @@ pub struct Term {
     pub pending_move: Option<PathBuf>,
     /// A prewarmed agent waiting in a spare worktree: not shown anywhere until it's used.
     pub spare: bool,
+    /// Memory used by what runs in it (bytes), from the process scan.
+    pub mem: u64,
     /// Running a checkout's dev server: its info and what "ready" looks like.
     pub dev: Option<(crate::protocol::DevInfo, Option<regex::Regex>)>,
     /// The name given in the agent (/rename), its first prompt, and its model.
@@ -403,6 +405,7 @@ impl Term {
             pending_move: None,
             dev: None,
             spare: false,
+            mem: 0,
             name: String::new(),
             first_prompt: String::new(),
             model: String::new(),

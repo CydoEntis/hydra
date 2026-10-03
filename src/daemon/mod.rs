@@ -622,6 +622,11 @@ impl Daemon {
                 let mut started = Vec::new();
                 for f in found {
                     let Some(t) = self.terms.get_mut(&f.term) else { continue };
+                    // Redraw for memory only when it moved by a few MB.
+                    if t.mem.abs_diff(f.mem) > 4 << 20 {
+                        t.mem = f.mem;
+                        self.dirty = true;
+                    }
                     if t.process != f.process && !f.process.is_empty() {
                         t.process = f.process;
                         self.dirty = true;
@@ -1231,6 +1236,7 @@ impl Daemon {
                     name: if t.name.is_empty() { t.first_prompt.clone() } else { t.name.clone() },
                     model: t.model.clone(),
                     dev: t.dev.as_ref().map(|(d, _)| d.clone()),
+                    mem: t.mem,
                     said: t.said.clone(),
                     branch: t.head.as_ref().map(|h| h.branch.clone()),
                     linked: t.head.as_ref().is_some_and(|h| h.linked),

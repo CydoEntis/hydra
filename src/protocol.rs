@@ -289,6 +289,9 @@ pub struct TermInfo {
     pub model: String,
     /// It's a checkout's dev server.
     pub dev: Option<DevInfo>,
+    /// Memory used by what runs in it (bytes).
+    #[serde(default)]
+    pub mem: u64,
     /// The agent's last message, if hooks reported it.
     pub said: String,
     /// The git branch the pane is on, if it's in a repo.

@@ -87,6 +87,8 @@ enum Mode {
     Find(Box<find::FindView>),
     /// Switch branch.
     Branch(Box<branch::BranchView>),
+    /// Memory per session (the selected row).
+    Memory { sel: usize },
 }
 
 /// The ship confirm: the branch and what shipping it will do.
@@ -918,6 +920,7 @@ impl App {
             Mode::HyMenu(m) => self.on_hy_menu_key(*m, &k),
             Mode::Find(v) => self.on_find_key(*v, &k),
             Mode::Branch(v) => self.on_branch_key(*v, &k),
+            Mode::Memory { sel } => self.on_memory_key(sel, &k),
             Mode::Ship(ask) => {
                 self.mode = Mode::Normal;
                 if k.code == KeyCode::Enter {
@@ -1754,6 +1757,7 @@ impl App {
             Action::Find(tab) => self.open_find(tab),
             Action::Presets => self.hy_presets(),
             Action::Branches => self.open_branches(None),
+            Action::Memory => self.mode = Mode::Memory { sel: 0 },
             Action::PullRequest => {
                 if let Some(dir) = self.target_path()
                     && let Some(h) = crate::gitfs::head(&dir)
@@ -4063,6 +4067,7 @@ mod design_tests {
             name: String::new(),
             model: String::new(),
             dev: None,
+            mem: 0,
             id,
             cols: 80,
             rows: 20,
@@ -4714,6 +4719,22 @@ mod hydra_tests {
         assert!(o.contains("claude opus 4.5"), "the model beside the agent");
         assert!(o.contains("Fix the login flow"), "its name stays");
         assert!(o.contains("› now add a test for it"), "the latest prompt under it");
+    }
+
+    #[test]
+    fn memory_view_lists_sessions_biggest_first() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let ids: Vec<TermId> = app.snap.terms.keys().copied().collect();
+        for (n, id) in ids.iter().enumerate() {
+            app.snap.terms.get_mut(id).unwrap().mem = (n as u64 + 1) * 300 << 20;
+        }
+        app.hy_fresh();
+        app.act(Action::Memory);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        let rows = super::hydra::memory_rows(&app);
+        assert!(rows.windows(2).all(|w| w[0].3 >= w[1].3), "biggest first");
+        assert!(o.contains("Memory ·") && o.contains("in all") && o.contains("MB"));
     }
 
     #[test]

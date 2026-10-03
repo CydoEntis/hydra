@@ -448,6 +448,10 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, panes: Rect, t: &crat
             let (term, input) = (*term, input.clone());
             super::hydra::draw_talk(app, f, area, &t, term, &input);
         }
+        Mode::Memory { sel } => {
+            let sel = *sel;
+            super::hydra::draw_memory(app, f, area, &t, sel);
+        }
         Mode::Branch(v) => {
             let v = (**v).clone();
             super::branch::draw_branches(app, f, area, &t, &v);
@@ -1151,6 +1155,7 @@ pub(super) fn mode_label(app: &App, t: &crate::theme::Theme) -> (&'static str, C
         Mode::HyMenu(_) => ("MENU", t.accent),
         Mode::Find(_) => ("FIND", t.accent),
         Mode::Branch(_) => ("BRANCH", t.accent),
+        Mode::Memory { .. } => ("MEMORY", t.accent),
         Mode::Tickets(_) => ("TICKETS", t.accent),
         Mode::RaceNew(_) | Mode::Race(_) => ("RACE", t.accent),
         Mode::Tree { .. } => ("BROWSE", t.accent),

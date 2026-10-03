@@ -26,5 +26,5 @@ Ticked when built, tested and pushed (dev branch).
 - [ ] Remote machines over SSH (UI here, agents there).
 - [ ] Extensions: a manifest plus commands; palette entries, sidebar labels, lifecycle hooks.
 - [ ] Real tabs and any number of splits in the hydra layout.
-- [ ] Memory view: RAM per agent.
+- [x] Memory view: RAM per agent.
 - [ ] Extras: notification history, `hydra doctor`, more agent types (Cursor, OpenCode, Grok, …), BEL tracking.
