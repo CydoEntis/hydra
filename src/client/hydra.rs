@@ -351,7 +351,7 @@ impl App {
                 return i;
             }
             // The repo folder goes by the branch it's on; a worktree by its folder.
-            let name = if main && !branch.is_empty() { branch.clone() } else { folder_name(path) };
+            let name = if !branch.is_empty() && (main || folder_name(path).starts_with("spare-")) { branch.clone() } else { folder_name(path) };
             p.wts.push(Wt { key, path: path.to_path_buf(), name, branch, main, sessions: Vec::new() });
             p.wts.len() - 1
         };

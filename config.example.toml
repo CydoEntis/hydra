@@ -71,6 +71,7 @@ agents = [
 per_agent = true            # new claude/codex panes get their own worktree in a git repo
 dir = "{repo_parent}/{repo}-worktrees/{branch}"
 command = ""                # e.g. "claude" to start an agent in every new worktree
+prewarm = ""                # e.g. "claude": keep one booted in a spare worktree so + New is instant
 
 [icons]
 working = "⠹"

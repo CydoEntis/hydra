@@ -125,6 +125,9 @@ pub struct Worktree {
     /// Closing the last thing running in a worktree hydra made removes its folder (the
     /// branch is kept; a worktree with uncommitted changes is left alone).
     pub delete_with_last: bool,
+    /// Keep this agent (e.g. "claude") booted in a spare worktree of the repo you last
+    /// used, so the next one starts instantly. Costs one idle agent. Empty: off.
+    pub prewarm: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -421,7 +424,13 @@ impl Default for Restore {
 
 impl Default for Worktree {
     fn default() -> Self {
-        Worktree { dir: "{repo_parent}/{repo}-worktrees/{branch}".into(), command: String::new(), per_agent: true, delete_with_last: true }
+        Worktree {
+            dir: "{repo_parent}/{repo}-worktrees/{branch}".into(),
+            command: String::new(),
+            per_agent: true,
+            delete_with_last: true,
+            prewarm: String::new(),
+        }
     }
 }
 

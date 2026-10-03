@@ -45,6 +45,8 @@ pub enum Ev {
     WorktreeList { client: ClientId, result: Result<Vec<WorktreeEntry>, String> },
     /// A worktree hook ran: what to tell people.
     HookRan(String),
+    /// A spare worktree for prewarming: (repo, result).
+    SpareMade(PathBuf, Result<(PathBuf, String), String>),
     /// A worktree made for an agent to move into: (client, pane, branch, result).
     MoveReady { client: ClientId, term: TermId, branch: String, result: Result<(PathBuf, String), String> },
 }
@@ -70,6 +72,33 @@ fn repo_of(dir: &std::path::Path) -> Option<PathBuf> {
     let gitdir = PathBuf::from(text.trim().strip_prefix("gitdir:")?.trim());
     let main_git = gitdir.ancestors().find(|a| a.file_name().is_some_and(|n| n == ".git"))?;
     main_git.parent().map(|p| p.to_path_buf())
+}
+
+/// Where the spare worktree is noted, so one left behind by a crash is cleaned up.
+fn spare_file() -> PathBuf {
+    let label = std::env::var("HYDRA_SOCKET").unwrap_or_else(|_| "default".into());
+    crate::config::data_dir().join(format!("spare-{label}.txt"))
+}
+
+fn save_spare(path: Option<&std::path::Path>) {
+    match path {
+        Some(p) => {
+            let _ = std::fs::write(spare_file(), p.to_string_lossy().as_bytes());
+        }
+        None => {
+            let _ = std::fs::remove_file(spare_file());
+        }
+    }
+}
+
+/// Remove a spare worktree and its branch (it was never used, so nothing is lost).
+fn drop_spare_dir(path: &std::path::Path) {
+    let branch = crate::gitfs::head(path).map(|h| h.branch);
+    let repo = crate::gitfs::head(path).map(|h| h.main_root);
+    let _ = git::remove_worktree(path, true, false);
+    if let (Some(repo), Some(b)) = (repo, branch.filter(|b| b.starts_with("spare-"))) {
+        let _ = std::process::Command::new("git").arg("-C").arg(repo).args(["branch", "-D", &b]).output();
+    }
 }
 
 /// Claude asks "do you trust this folder?" for every new folder, and every new worktree is
@@ -153,6 +182,13 @@ struct Daemon {
     made_worktrees: Vec<PathBuf>,
     /// Extra environment for the next pane spawned (a dev server's PORT).
     next_env: Vec<(String, String)>,
+    /// The prewarmed agent: (repo, its worktree, its pane), and whether one is being made.
+    spare: Option<(PathBuf, PathBuf, TermId)>,
+    spare_making: bool,
+    /// A spare being handed over: the next pane spawned in this folder is it.
+    adopt: Option<(PathBuf, TermId)>,
+    /// The spare's folder, handed over: its on_create hook already ran.
+    adopted: Option<PathBuf>,
     last_sleep_check: Instant,
     /// The last automatic workspace move, for undo.
     auto_undo: Option<AutoUndo>,
@@ -191,6 +227,11 @@ pub fn run() -> Result<()> {
             }
         });
 
+        if let Ok(p) = std::fs::read_to_string(spare_file()) {
+            let p = PathBuf::from(p.trim());
+            tokio::task::spawn_blocking(move || drop_spare_dir(&p));
+            save_spare(None);
+        }
         let (cfg, err) = Config::load_or_default();
         if let Some(e) = err {
             tracing::warn!("config: {e}");
@@ -223,6 +264,10 @@ pub fn run() -> Result<()> {
             last_saved: String::new(),
             made_worktrees: Vec::new(),
             next_env: Vec::new(),
+            spare: None,
+            spare_making: false,
+            adopt: None,
+            adopted: None,
             last_sleep_check: Instant::now(),
             natural_exits: Vec::new(),
             auto_undo: None,
@@ -658,7 +703,9 @@ impl Daemon {
                     if let Some(h) = crate::gitfs::head(p) {
                         trust_like_repo(&h.main_root, p);
                     }
-                    self.worktree_hook(p, true);
+                    if !self.adopted.take().is_some_and(|a| same_path(&a, p)) {
+                        self.worktree_hook(p, true);
+                    }
                 }
                 match opened {
                     Ok(path) => {
@@ -676,6 +723,31 @@ impl Daemon {
                 self.dirty = true;
             }
             Ev::HookRan(msg) => self.broadcast(|_| true, ServerMsg::Notice(msg)),
+            Ev::SpareMade(repo, result) => {
+                self.spare_making = false;
+                match result {
+                    Ok((path, _)) => {
+                        save_spare(Some(&path));
+                        trust_like_repo(&repo, &path);
+                        self.worktree_hook(&path, true);
+                        let cmd = self.cfg.worktree.prewarm.clone();
+                        let (cols, rows) = self.guess_size();
+                        match self.spawn(Some(&cmd), &path, cols, rows) {
+                            Ok(term) => {
+                                if let Some(t) = self.terms.get_mut(&term) {
+                                    t.spare = true;
+                                }
+                                self.spare = Some((repo, path, term));
+                            }
+                            Err(e) => {
+                                tracing::warn!("prewarm: {e:#}");
+                                drop_spare_dir(&path);
+                            }
+                        }
+                    }
+                    Err(e) => tracing::warn!("prewarm: {e}"),
+                }
+            }
             Ev::WorktreeList { client, result } => match result {
                 Ok(list) => self.send(client, ServerMsg::Reply(Reply::Worktrees(list))),
                 Err(e) => self.send(client, ServerMsg::Error(e)),
@@ -957,6 +1029,51 @@ impl Daemon {
     }
 
     /// Heuristic statuses for agents without hooks, and "seen" bookkeeping for everyone.
+    /// Whether the spare can be what `cmd` asks for in `repo`: the same agent, with at most a
+    /// task after it (returned, unquoted; empty for none).
+    fn spare_fits(&self, repo: &std::path::Path, cmd: &str) -> Option<String> {
+        let warm = self.cfg.worktree.prewarm.trim();
+        let (spare_repo, _, term) = self.spare.as_ref()?;
+        if warm.is_empty() || !same_path(spare_repo, repo) || !self.terms.contains_key(term) {
+            return None;
+        }
+        let cmd = cmd.trim();
+        if cmd == warm {
+            return Some(String::new());
+        }
+        let rest = cmd.strip_prefix(warm)?.strip_prefix(' ')?;
+        // Only a task after the agent: undo the shell quoting and check it quotes back.
+        let inner = rest.strip_prefix('\'')?.strip_suffix('\'')?;
+        let task = inner.replace("''", "'").replace("'\\''", "'");
+        (self.cfg.quote_for_shell(&task) == rest).then_some(task)
+    }
+
+    /// Get a spare ready in `repo`, if prewarming is on and there isn't one there already.
+    fn prewarm(&mut self, repo: PathBuf) {
+        if self.cfg.worktree.prewarm.trim().is_empty() || self.spare_making {
+            return;
+        }
+        if let Some((r, path, term)) = self.spare.take() {
+            if same_path(&r, &repo) && self.terms.contains_key(&term) {
+                self.spare = Some((r, path, term));
+                return;
+            }
+            // Warm for the repo you're using now instead.
+            self.close_term(term);
+            let p = path.clone();
+            tokio::task::spawn_blocking(move || drop_spare_dir(&p));
+        }
+        self.spare_making = true;
+        let template = self.cfg.worktree.dir.clone();
+        let tx = self.tx.clone();
+        let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+        let name = format!("spare-{:04x}", n & 0xffff);
+        tokio::task::spawn_blocking(move || {
+            let result = git::create_worktree(&repo, &name, None, &template).map_err(|e| format!("{e:#}"));
+            let _ = tx.blocking_send(Ev::SpareMade(repo, result));
+        });
+    }
+
     /// A worktree hook (`on_create` / `on_remove` in the repo's .hydra.toml) as a job to run.
     fn hook_job(&self, dir: &std::path::Path, create: bool) -> Option<impl FnOnce() -> String + Send + 'static> {
         let proj = crate::project::load(dir);
@@ -1099,6 +1216,7 @@ impl Daemon {
         let terms: BTreeMap<TermId, TermInfo> = self
             .terms
             .values()
+            .filter(|t| !t.spare)
             .map(|t| {
                 (t.id, TermInfo {
                     id: t.id,
@@ -1163,6 +1281,16 @@ impl Daemon {
         let taught = cmd.map(|c| self.teach(c));
         let cmd = taught.as_deref();
         let id = self.next();
+        if let Some((dir, term)) = self.adopt.take() {
+            if same_path(&dir, cwd) && self.terms.contains_key(&term) {
+                if let Some(t) = self.terms.get_mut(&term) {
+                    t.spare = false;
+                    t.resize(cols, rows);
+                }
+                return Ok(term);
+            }
+            self.adopt = Some((dir, term));
+        }
         let env = std::mem::take(&mut self.next_env);
         let t = Term::spawn(&self.cfg, SpawnSpec { id, cmd, cwd, cols, rows, env: &env }, self.tx.clone())?;
         self.terms.insert(id, t);
@@ -1440,6 +1568,30 @@ impl Daemon {
                 let dir = from.map(clean_path).filter(|d| d.is_dir()).unwrap_or(ws_dir);
                 let template = self.cfg.worktree.dir.clone();
                 let cmd = cmd.or_else(|| Some(self.cfg.worktree.command.clone()).filter(|c| !c.is_empty()));
+                let repo = crate::gitfs::head(&dir).map(|h| h.main_root);
+                if base.is_none()
+                    && let (Some(repo), Some(c)) = (&repo, &cmd)
+                    && let Some(task) = self.spare_fits(repo, c)
+                    && let Some((_, path, term)) = self.spare.take()
+                {
+                    // The spare takes the branch name asked for, and the task if there is one.
+                    let _ = std::process::Command::new("git").arg("-C").arg(&path).args(["branch", "-m", &branch]).output();
+                    save_spare(None);
+                    if let Some(t) = self.terms.get_mut(&term)
+                        && !task.is_empty()
+                    {
+                        t.pending_input = Some((format!("{task}\r").into_bytes(), Instant::now() + Duration::from_secs(20)));
+                    }
+                    self.adopt = Some((path.clone(), term));
+                    self.adopted = Some(path.clone());
+                    self.pending_ops += 1;
+                    let _ = self.tx.try_send(Ev::WorktreeCreated { client, branch, cmd, split, result: Ok((path, String::new())) });
+                    self.prewarm(repo.clone());
+                    return Ok(false);
+                }
+                if let Some(repo) = repo {
+                    self.prewarm(repo);
+                }
                 let tx = self.tx.clone();
                 self.pending_ops += 1;
                 tokio::task::spawn_blocking(move || {
@@ -1544,6 +1696,11 @@ impl Daemon {
                 }
                 for t in self.terms.values_mut() {
                     t.kill_tree();
+                }
+                if let Some((_, path, _)) = self.spare.take() {
+                    std::thread::sleep(Duration::from_millis(300));
+                    drop_spare_dir(&path);
+                    save_spare(None);
                 }
                 self.broadcast(|_| true, ServerMsg::Bye);
                 tokio::spawn(async {

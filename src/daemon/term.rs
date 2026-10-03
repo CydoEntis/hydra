@@ -119,6 +119,8 @@ pub struct Term {
     pub transcript: Option<PathBuf>,
     /// A worktree this agent moves into when its turn ends.
     pub pending_move: Option<PathBuf>,
+    /// A prewarmed agent waiting in a spare worktree: not shown anywhere until it's used.
+    pub spare: bool,
     /// Running a checkout's dev server: its info and what "ready" looks like.
     pub dev: Option<(crate::protocol::DevInfo, Option<regex::Regex>)>,
     /// The name given in the agent (/rename), its first prompt, and its model.
@@ -400,6 +402,7 @@ impl Term {
             transcript: None,
             pending_move: None,
             dev: None,
+            spare: false,
             name: String::new(),
             first_prompt: String::new(),
             model: String::new(),
