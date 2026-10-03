@@ -58,7 +58,14 @@ pub(super) struct Hy {
     /// The project of what you're on (the default for + New).
     pub proj: Option<String>,
     /// Two sessions side by side: (left, right). One of them is the focused one.
-    pub pair: Option<(TermId, TermId)>,
+    /// Tabs: each shows one session or any number side by side.
+    pub tabs: Vec<HyTab>,
+    pub tab: usize,
+    /// The next session that opens goes in a new tab (Ctrl+Space w), until this time.
+    pub new_tab: Option<Instant>,
+    /// Where the sessions were drawn last frame, and the splits between them.
+    pub leaf_rects: Vec<(TermId, Rect)>,
+    pub dividers: Vec<(Rect, bool, Vec<bool>)>,
     /// Sidebar cursor (keyboard browsing; bare keys work while it's set).
     pub cursor: Option<TermId>,
     /// Projects opened this run that haven't been looked at (NEW chip).
@@ -87,8 +94,6 @@ pub(super) struct Hy {
     pub pending_recipe: Option<(String, Vec<String>, Instant)>,
     /// Dragging the sidebar edge or the split divider.
     pub drag: Option<Drag>,
-    /// Where the split divider is (for dragging), and which way the halves go.
-    pub split_rect: Option<(Rect, bool)>,
     /// The splash's selected button.
     pub splash_sel: usize,
     /// The scrollbar being dragged: (pane, track, lines of history).
@@ -101,10 +106,18 @@ pub(super) struct Hy {
     pub talk_back: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct HyTab {
+    pub layout: crate::layout::Node,
+    /// The one you were on in it.
+    pub focus: TermId,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Drag {
     Side,
-    Split,
+    /// A divider between sessions (index into `dividers`).
+    Divider(usize),
     /// A pane's scrollbar.
     Scroll(TermId),
 }
@@ -455,29 +468,24 @@ impl App {
                     self.hy.fresh.remove(&k);
                     self.hy.proj = Some(k);
                 }
-                // A session opened "beside": pair it with the one it was opened from.
-                if let Some((prev, at)) = self.hy.pending_split.take() {
-                    if prev != f && at.elapsed().as_secs() < 20 && self.snap.terms.contains_key(&prev) {
-                        self.hy.pair = Some((prev, f));
-                    }
-                } else if let Some((a, b)) = self.hy.pair {
-                    // Focusing something else replaces the half that had the focus.
-                    if f != a && f != b {
-                        self.hy.pair = match self.hy.last_focus {
-                            Some(l) if l == a => Some((f, b)),
-                            Some(l) if l == b => Some((a, f)),
-                            _ => None,
-                        };
-                    }
-                }
+                let prev = self.hy.last_focus;
+                self.hy_place(f, prev);
             }
             self.hy.last_focus = focus;
         }
-        if let Some((a, b)) = self.hy.pair
-            && (a == b || !self.snap.terms.contains_key(&a) || !self.snap.terms.contains_key(&b))
-        {
-            self.hy.pair = None;
-        }
+        // Sessions that ended leave their tabs; empty tabs go.
+        let alive = |t: TermId| self.snap.terms.contains_key(&t);
+        let mut tabs: Vec<HyTab> = std::mem::take(&mut self.hy.tabs)
+            .into_iter()
+            .filter_map(|tab| {
+                let layout = tab.layout.map_leaves(&mut |id| alive(id).then_some(id))?;
+                let focus = if layout.contains(tab.focus) { tab.focus } else { layout.first_leaf() };
+                Some(HyTab { layout, focus })
+            })
+            .collect();
+        tabs.dedup_by(|a, b| a.layout == b.layout);
+        self.hy.tabs = tabs;
+        self.hy.tab = self.hy.tab.min(self.hy.tabs.len().saturating_sub(1));
         if self.hy.proj.as_ref().is_none_or(|k| !model.iter().any(|p| &p.key == k)) {
             self.hy.proj = focus.and_then(proj_of).or_else(|| model.first().map(|p| p.key.clone()));
         }
@@ -540,6 +548,10 @@ pub(super) enum HyHit {
     NewPane,
     Keys,
     CloseSplit(TermId),
+    Divider(usize),
+    TabPick(usize),
+    TabClose(usize),
+    TabNew,
     /// Outside an overlay: closes it.
     Close,
     /// Inside an overlay's panel: nothing.
@@ -580,8 +592,6 @@ pub(super) enum HyHit {
     MenuPick(usize),
     /// The sidebar's edge (drag to resize).
     SideEdge,
-    /// The split's divider (drag to resize).
-    SplitEdge,
     /// A pane's scrollbar (click or drag).
     ScrollBar(TermId),
     FindTab(u8),
@@ -844,7 +854,8 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     app.hy.side_rect = r;
     let lines = side_lines(app, model, t);
     let focus = app.focused();
-    let split = app.hy.pair.map(|(a, b)| if Some(a) == focus { b } else { a });
+    let shown: Vec<TermId> = app.hy.tabs.get(app.hy.tab).map(|t| t.layout.leaves()).unwrap_or_default();
+    let split = shown.iter().copied().find(|t| Some(*t) != focus && shown.len() > 1);
     // + New and Jump, where you'll see them.
     let nk = k(app, &Action::NewPane);
     let jk = k(app, &Action::Jump);
@@ -891,7 +902,7 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
         let sel = !prim && (app.hy.cursor == Some(term) || hovered(app, row));
         let bg = if prim {
             t.accent
-        } else if Some(term) == split {
+        } else if Some(term) == split || (shown.len() > 1 && shown.contains(&term) && Some(term) != focus) {
             t.card2
         } else if sel {
             t.hov
@@ -1116,32 +1127,84 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
         put(f.buffer_mut(), area.x + 4, area.y + 3, &[seg(format!("Nothing open. Press {} {nk} to start an agent or a shell.", app.keymap.prefix.to_string().replace("C-", "Ctrl+")), Style::default().fg(t.muted))], area.right());
         return;
     };
-    let pair = app.hy.pair.filter(|(a, b)| *a == focus || *b == focus);
-    match pair {
-        Some((a, b)) => {
-            let stack = area.width < 140 - side_w(140);
-            let ratio = app.hy.saved.split.unwrap_or(0.5).clamp(0.2, 0.8);
-            let (ra, rb, div) = if stack {
-                let h = (area.height as f32 * ratio) as u16;
-                (Rect { height: h, ..area }, Rect { y: area.y + h + 1, height: area.height - h - 1, ..area }, Rect { y: area.y + h, height: 1, ..area })
-            } else {
-                let lw = (area.width as f32 * ratio) as u16;
-                (Rect { width: lw, ..area }, Rect { x: area.x + lw + 1, width: area.width - lw - 1, ..area }, Rect { x: area.x + lw, width: 1, ..area })
-            };
-            app.hy.split_rect = Some((area, stack));
-            let c = if app.hy.drag == Some(Drag::Split) || hovered(app, div) { t.accent } else { t.line };
-            let buf = f.buffer_mut();
-            for yy in div.top()..div.bottom() {
-                for xx in div.left()..div.right() {
-                    buf[(xx, yy)].set_symbol(if stack { "─" } else { "│" }).set_style(Style::default().fg(c).bg(t.bg));
-                }
-            }
-            hit(app, div, HyHit::SplitEdge);
-            draw_session(app, f, ra, a, a == focus, true, model, t);
-            draw_session(app, f, rb, b, b == focus, true, model, t);
+    // Tabs, once there's more than one.
+    let area = if app.hy.tabs.len() > 1 {
+        draw_tab_bar(app, f.buffer_mut(), Rect { height: 1, ..area }, model, t);
+        Rect { y: area.y + 1, height: area.height.saturating_sub(1), ..area }
+    } else {
+        area
+    };
+    app.hy.dividers.clear();
+    let layout = app.hy.tabs.get(app.hy.tab).map(|tab| tab.layout.clone()).filter(|l| l.contains(focus) && l.leaves().len() > 1);
+    let Some(layout) = layout else {
+        app.hy.leaf_rects = vec![(focus, area)];
+        draw_session(app, f, area, focus, true, false, model, t);
+        return;
+    };
+    // Each session in its part; a line between neighbours, which you can drag.
+    let rects = layout.rects(area);
+    app.hy.leaf_rects = rects.clone();
+    for (id, r) in rects {
+        let mut r = r;
+        if r.right() < area.right() {
+            r.width = r.width.saturating_sub(1);
         }
-        None => draw_session(app, f, area, focus, true, false, model, t),
+        if r.bottom() < area.bottom() {
+            r.height = r.height.saturating_sub(1);
+        }
+        draw_session(app, f, r, id, id == focus, true, model, t);
     }
+    for (i, (sa, horizontal, path)) in layout.splits(area).into_iter().enumerate() {
+        let ratio = layout.ratio_at(&path).unwrap_or(0.5);
+        let div = crate::layout::Node::divider(sa, horizontal, ratio);
+        let c = if app.hy.drag == Some(Drag::Divider(i)) || hovered(app, div) { t.accent } else { t.line };
+        let buf = f.buffer_mut();
+        for yy in div.top()..div.bottom() {
+            for xx in div.left()..div.right() {
+                buf[(xx, yy)].set_symbol(if horizontal { "│" } else { "─" }).set_style(Style::default().fg(c).bg(t.bg));
+            }
+        }
+        hit(app, div, HyHit::Divider(i));
+        app.hy.dividers.push((sa, horizontal, path));
+    }
+}
+
+/// One chip per tab: what it shows; the one you're in is filled. A + makes another.
+fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
+    fill(buf, r, t.bg);
+    let mut x = r.x + 1;
+    for i in 0..app.hy.tabs.len() {
+        let tab = &app.hy.tabs[i];
+        let n = tab.layout.leaves().len();
+        let name = find(model, tab.focus).map(|(_, _, s)| if s.title == WAITING || s.title.is_empty() { s.agent.clone() } else { format!("{} · {}", s.agent, truncate(&s.title, 18)) }).unwrap_or_else(|| "…".into());
+        let label = if n > 1 { format!(" {} {name} +{} ", i + 1, n - 1) } else { format!(" {} {name} ", i + 1) };
+        let w = label.width() as u16;
+        if x + w + 4 > r.right() {
+            break;
+        }
+        let cr = Rect { x, y: r.y, width: w, height: 1 };
+        let on = i == app.hy.tab;
+        let st = if on {
+            Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)
+        } else if hovered(app, cr) {
+            Style::default().bg(t.hov).fg(t.strong)
+        } else {
+            Style::default().bg(t.btn).fg(t.text)
+        };
+        put(buf, x, r.y, &[seg(label, st)], r.right());
+        hit(app, cr, HyHit::TabPick(i));
+        x += w;
+        if on {
+            let xr = Rect { x, y: r.y, width: 2, height: 1 };
+            put(buf, x, r.y, &[seg("✕ ", st)], r.right());
+            hit(app, xr, HyHit::TabClose(i));
+            x += 2;
+        }
+        x += 1;
+    }
+    let pr = Rect { x, y: r.y, width: 3, height: 1 };
+    put(buf, x, r.y, &[seg(" + ", if hovered(app, pr) { Style::default().bg(t.hov).fg(t.strong) } else { Style::default().bg(t.btn).fg(t.muted) })], r.right());
+    hit(app, pr, HyHit::TabNew);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2463,6 +2526,87 @@ impl App {
         self.cfg.quick.agents.first().map(|a| a.name.clone()).unwrap_or_else(|| "claude".into())
     }
 
+    /// Where a session that just got the focus shows: beside the one it was opened from, in
+    /// a new tab, in the tab that already shows it, or in place of the one you were on.
+    pub(super) fn hy_place(&mut self, f: TermId, prev: Option<TermId>) {
+        use crate::layout::{Dir, Node};
+        let beside = self
+            .hy
+            .pending_split
+            .take()
+            .filter(|(p, at)| *p != f && at.elapsed().as_secs() < 20 && self.snap.terms.contains_key(p))
+            .map(|(p, _)| p);
+        let new_tab = self.hy.new_tab.take().is_some_and(|at| at.elapsed().as_secs() < 60);
+        let take_out = |tabs: &mut Vec<HyTab>, f: TermId| {
+            for tab in tabs.iter_mut() {
+                if tab.layout.contains(f) && tab.layout.leaves().len() > 1 {
+                    if let Some(l) = tab.layout.clone().remove(f) {
+                        tab.layout = l;
+                        tab.focus = tab.layout.first_leaf();
+                    }
+                }
+            }
+            tabs.retain(|t| !(t.layout == Node::Leaf(f)));
+        };
+        if new_tab {
+            take_out(&mut self.hy.tabs, f);
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f });
+            self.hy.tab = self.hy.tabs.len() - 1;
+            return;
+        }
+        if let Some(p) = beside {
+            take_out(&mut self.hy.tabs, f);
+            let i = match self.hy.tabs.iter().position(|t| t.layout.contains(p)) {
+                Some(i) => i,
+                None => {
+                    self.hy.tabs.push(HyTab { layout: Node::Leaf(p), focus: p });
+                    self.hy.tabs.len() - 1
+                }
+            };
+            // Beside a wide one, under a tall one.
+            let wide = self.hy.leaf_rects.iter().find(|(id, _)| *id == p).is_none_or(|(_, r)| r.width >= r.height * 3);
+            let tab = &mut self.hy.tabs[i];
+            tab.layout.split(p, if wide { Dir::Right } else { Dir::Down }, f);
+            tab.focus = f;
+            self.hy.tab = i;
+            return;
+        }
+        if let Some(i) = self.hy.tabs.iter().position(|t| t.layout.contains(f)) {
+            self.hy.tab = i;
+            self.hy.tabs[i].focus = f;
+            return;
+        }
+        if self.hy.tabs.is_empty() {
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f });
+            self.hy.tab = 0;
+            return;
+        }
+        // Not shown anywhere: it takes the place of the one you were on.
+        let tab = &mut self.hy.tabs[self.hy.tab];
+        let old = prev.filter(|o| tab.layout.contains(*o)).unwrap_or(tab.focus);
+        let swapped = tab.layout.map_leaves(&mut |id| Some(if id == old { f } else { id }));
+        tab.layout = swapped.filter(|l| l.contains(f)).unwrap_or(Node::Leaf(f));
+        tab.focus = f;
+    }
+
+    /// Stop showing `t` beside the others (it keeps running). False when it's on its own.
+    pub(super) fn hy_unshow(&mut self, t: TermId) -> bool {
+        let Some(i) = self.hy.tabs.iter().position(|tab| tab.layout.contains(t)) else { return false };
+        let tab = &mut self.hy.tabs[i];
+        if tab.layout.leaves().len() < 2 {
+            return false;
+        }
+        if let Some(l) = tab.layout.clone().remove(t) {
+            tab.layout = l;
+            tab.focus = tab.layout.first_leaf();
+            let to = tab.focus;
+            if self.focused() == Some(t) {
+                self.cmd(Command::FocusPane { term: to });
+            }
+        }
+        true
+    }
+
     /// Message an agent: a small box beside its sidebar row when it has one, else centered.
     /// From the sidebar cursor, sending returns there so the next one is a key away.
     pub(super) fn hy_talk(&mut self, term: TermId, from_side: bool) {
@@ -2612,10 +2756,35 @@ impl App {
                 }
             }
             Action::Zoom => self.sidebar = !self.sidebar,
-            Action::Focus(_) | Action::FocusNext | Action::FocusPrev => {
-                if let (Some((a, b)), Some(f)) = (self.hy.pair, focused) {
-                    let other = if f == a { b } else { a };
-                    self.cmd(Command::FocusPane { term: other });
+            Action::Focus(d) => {
+                if let Some(f) = focused
+                    && let Some(to) = crate::layout::neighbor(&self.hy.leaf_rects, f, *d)
+                {
+                    self.cmd(Command::FocusPane { term: to });
+                }
+            }
+            Action::FocusNext | Action::FocusPrev => {
+                let shown: Vec<TermId> = self.hy.leaf_rects.iter().map(|(id, _)| *id).collect();
+                if let Some(f) = focused
+                    && shown.len() > 1
+                {
+                    let i = shown.iter().position(|x| *x == f).unwrap_or(0);
+                    let n = shown.len();
+                    let to = if *a == Action::FocusNext { shown[(i + 1) % n] } else { shown[(i + n - 1) % n] };
+                    self.cmd(Command::FocusPane { term: to });
+                }
+            }
+            Action::NewTab => {
+                self.hy.new_tab = Some(Instant::now());
+                self.mode = Mode::Jump { sel: 0 };
+                self.notify("pick what the new tab shows (or + New for something new)".into(), false);
+            }
+            Action::NextTab | Action::PrevTab => {
+                let n = self.hy.tabs.len();
+                if n > 1 {
+                    self.hy.tab = if *a == Action::NextTab { (self.hy.tab + 1) % n } else { (self.hy.tab + n - 1) % n };
+                    let to = self.hy.tabs[self.hy.tab].focus;
+                    self.cmd(Command::FocusPane { term: to });
                 }
             }
             Action::SplitRight | Action::SplitDown | Action::SplitLeft | Action::SplitUp | Action::Spawn(..) => {
@@ -2628,17 +2797,20 @@ impl App {
             }
             Action::NewSession => self.hy_open_new_pane(true),
             Action::CloseSplit => {
-                if self.hy.pair.take().is_none() {
-                    self.notify("no split open".into(), false);
+                if let Some(f) = focused
+                    && !self.hy_unshow(f)
+                {
+                    self.notify("nothing split here".into(), false);
                 }
             }
             Action::SideMove(d) => self.hy_side_move(*d),
             Action::Resize(d) => {
                 use crate::layout::Dir;
                 let grow = matches!(d, Dir::Right | Dir::Down);
-                if self.hy.pair.is_some() {
-                    let r = self.hy.saved.split.unwrap_or(0.5) + if grow { 0.05 } else { -0.05 };
-                    self.hy.saved.split = Some(r.clamp(0.2, 0.8));
+                let many = self.hy.tabs.get(self.hy.tab).is_some_and(|tab| tab.layout.leaves().len() > 1);
+                if let (true, Some(f)) = (many, focused) {
+                    let tab = self.hy.tab;
+                    self.hy.tabs[tab].layout.resize(f, *d, 0.05);
                 } else {
                     let w = self.hy.saved.side_w.unwrap_or(self.hy.side_rect.width.max(SIDE_MIN));
                     let w = if grow { w + 2 } else { w.saturating_sub(2) };
@@ -3127,13 +3299,25 @@ impl App {
             HyHit::NewPane => self.hy_open_new_pane(false),
             HyHit::Keys => self.mode = Mode::Help { scroll: 0 },
             HyHit::CloseSplit(t) => {
-                if let Some((a, b)) = self.hy.pair.take()
-                    && Some(t) == self.focused()
-                {
-                    let other = if t == a { b } else { a };
-                    self.cmd(Command::FocusPane { term: other });
+                self.hy_unshow(t);
+            }
+            HyHit::Divider(i) => self.hy.drag = Some(Drag::Divider(i)),
+            HyHit::TabPick(i) => {
+                if let Some(tab) = self.hy.tabs.get(i) {
+                    let to = tab.focus;
+                    self.hy.tab = i;
+                    self.cmd(Command::FocusPane { term: to });
                 }
             }
+            HyHit::TabClose(i) => {
+                if i < self.hy.tabs.len() && self.hy.tabs.len() > 1 {
+                    self.hy.tabs.remove(i);
+                    self.hy.tab = self.hy.tab.min(self.hy.tabs.len() - 1);
+                    let to = self.hy.tabs[self.hy.tab].focus;
+                    self.cmd(Command::FocusPane { term: to });
+                }
+            }
+            HyHit::TabNew => self.act(Action::NewTab),
             HyHit::Close => self.mode = Mode::Normal,
             HyHit::Noop => {}
             HyHit::FinderPick(i) => {
@@ -3325,7 +3509,6 @@ impl App {
                 }
             }
             HyHit::SideEdge => self.hy.drag = Some(Drag::Side),
-            HyHit::SplitEdge => self.hy.drag = Some(Drag::Split),
             HyHit::ScrollBar(term) => {
                 self.hy.drag = Some(Drag::Scroll(term));
                 if let (Some((t, r, total)), Some(pos)) = (self.hy.bar, self.hover)

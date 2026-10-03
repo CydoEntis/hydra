@@ -1521,14 +1521,17 @@ impl App {
                                 self.scroll_to(term, v.min(total));
                             }
                         }
-                        hydra::Drag::Split => {
-                            if let Some((r, stack)) = self.hy.split_rect {
-                                let f = if stack {
-                                    (m.row.saturating_sub(r.y)) as f32 / r.height.max(1) as f32
+                        hydra::Drag::Divider(i) => {
+                            if let Some((r, horizontal, path)) = self.hy.dividers.get(i).cloned() {
+                                let f = if horizontal {
+                                    (m.column + 1).saturating_sub(r.x) as f32 / r.width.max(1) as f32
                                 } else {
-                                    (m.column.saturating_sub(r.x)) as f32 / r.width.max(1) as f32
+                                    (m.row + 1).saturating_sub(r.y) as f32 / r.height.max(1) as f32
                                 };
-                                self.hy.saved.split = Some(f.clamp(0.2, 0.8));
+                                let tab = self.hy.tab;
+                                if let Some(tab) = self.hy.tabs.get_mut(tab) {
+                                    tab.layout.set_ratio(&path, f);
+                                }
                             }
                         }
                     }
@@ -4810,6 +4813,45 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains("What happened") && o.contains("rang the bell"));
+    }
+
+    #[test]
+    fn any_number_of_splits_and_tabs() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 200, 50);
+        let a = app.focused().unwrap();
+        let others: Vec<TermId> = app.snap.terms.keys().copied().filter(|t| *t != a).collect();
+        let (b, c) = (others[0], others[1]);
+        app.hy.tabs.clear();
+        app.hy_place(a, None);
+        app.hy.pending_split = Some((a, Instant::now()));
+        app.hy_place(b, Some(a));
+        app.hy.pending_split = Some((b, Instant::now()));
+        app.hy_place(c, Some(b));
+        assert_eq!(app.hy.tabs.len(), 1);
+        assert_eq!(app.hy.tabs[0].layout.leaves().len(), 3, "three side by side");
+        // Focus stays on a (the snapshot's focus), so draw shows all three.
+        app.hy.tabs[0].focus = a;
+        let o = draw(&mut app, 200, 50);
+        show(&o);
+        assert_eq!(app.hy.leaf_rects.len(), 3);
+        assert_eq!(app.hy.dividers.len(), 2, "a divider between each");
+        // Drag the first divider.
+        let before = app.hy.leaf_rects[0].1.width;
+        let path = app.hy.dividers[0].2.clone();
+        app.hy.tabs[0].layout.set_ratio(&path, 0.3);
+        draw(&mut app, 200, 50);
+        assert!(app.hy.leaf_rects[0].1.width < before, "dragging moves it");
+        // Close one: two left.
+        assert!(app.hy_unshow(c));
+        assert_eq!(app.hy.tabs[0].layout.leaves().len(), 2);
+        // A new tab for c; the bar shows both.
+        app.hy.new_tab = Some(Instant::now());
+        app.hy_place(c, Some(a));
+        assert_eq!(app.hy.tabs.len(), 2);
+        app.hy.tab = 0;
+        let o = draw(&mut app, 200, 50);
+        show(&o);
+        assert!(o.contains(" 1 ") && o.contains(" 2 ") && o.contains(" + "), "a tab bar");
     }
 
     #[test]

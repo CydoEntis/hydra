@@ -127,6 +127,55 @@ impl Node {
         true
     }
 
+    /// Every split in the tree laid out in `area`: (its area, side by side?, its ratio's
+    /// path from the root: false = into `a`, true = into `b`).
+    pub fn splits(&self, area: Rect) -> Vec<(Rect, bool, Vec<bool>)> {
+        let mut out = Vec::new();
+        self.collect_splits(area, &mut Vec::new(), &mut out);
+        out
+    }
+
+    fn collect_splits(&self, area: Rect, path: &mut Vec<bool>, out: &mut Vec<(Rect, bool, Vec<bool>)>) {
+        if let Node::Split { horizontal, ratio, a, b } = self {
+            out.push((area, *horizontal, path.clone()));
+            let (ra, rb) = split_rect(area, *horizontal, *ratio);
+            path.push(false);
+            a.collect_splits(ra, path, out);
+            path.pop();
+            path.push(true);
+            b.collect_splits(rb, path, out);
+            path.pop();
+        }
+    }
+
+    /// Set the ratio of the split at `path` (from `splits`).
+    pub fn set_ratio(&mut self, path: &[bool], to: f32) {
+        match (self, path.split_first()) {
+            (Node::Split { ratio, .. }, None) => *ratio = to.clamp(0.1, 0.9),
+            (Node::Split { a, b, .. }, Some((side, rest))) => (if *side { b } else { a }).set_ratio(rest, to),
+            _ => {}
+        }
+    }
+
+    /// Where the divider of a split laid out in `area` is.
+    pub fn divider(area: Rect, horizontal: bool, ratio: f32) -> Rect {
+        let (ra, _) = split_rect(area, horizontal, ratio);
+        if horizontal {
+            Rect { x: ra.right().saturating_sub(1), width: 1, ..area }
+        } else {
+            Rect { y: ra.bottom().saturating_sub(1), height: 1, ..area }
+        }
+    }
+
+    /// The ratio of the split at `path`.
+    pub fn ratio_at(&self, path: &[bool]) -> Option<f32> {
+        match (self, path.split_first()) {
+            (Node::Split { ratio, .. }, None) => Some(*ratio),
+            (Node::Split { a, b, .. }, Some((side, rest))) => (if *side { b } else { a }).ratio_at(rest),
+            _ => None,
+        }
+    }
+
     pub fn rects(&self, area: Rect) -> Vec<(TermId, Rect)> {
         let mut out = Vec::new();
         self.layout(area, &mut out);

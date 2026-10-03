@@ -74,7 +74,7 @@ impl App {
             ("Changes".to_string(), Act::Changes(dir)),
             ("Select text (copy mode)".to_string(), Act::CopyMode(term)),
         ];
-        if self.hy.pair.is_some_and(|(a, b)| a == term || b == term) {
+        if self.hy.tabs.get(self.hy.tab).is_some_and(|tab| tab.layout.contains(term) && tab.layout.leaves().len() > 1) {
             items.push(("Close the split".into(), Act::CloseSplit));
         }
         items.push((format!("End {agent}"), Act::End(vec![term])));
@@ -199,7 +199,9 @@ impl App {
             Act::Focus(t) => self.hy_focus(t),
             Act::Beside(t) => {
                 if let Some(f) = self.focused() {
-                    self.hy.pair = Some((f, t));
+                    self.hy_unshow(t);
+                    self.hy.pending_split = Some((f, std::time::Instant::now()));
+                    self.cmd(Command::FocusPane { term: t });
                 }
             }
             Act::Talk(t) => self.hy_talk(t, false),
@@ -259,7 +261,11 @@ impl App {
                     }
                 }
             }
-            Act::CloseSplit => self.hy.pair = None,
+            Act::CloseSplit => {
+                if let Some(f) = self.focused() {
+                    self.hy_unshow(f);
+                }
+            }
             Act::CopyMode(t) => {
                 self.enter_copy(t);
             }
