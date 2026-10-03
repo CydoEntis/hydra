@@ -496,6 +496,9 @@ impl Daemon {
                 if std::mem::take(&mut t.parser.callbacks_mut().title_changed) {
                     self.dirty = true;
                 }
+                if let Some(text) = t.parser.callbacks_mut().copied.take() {
+                    self.broadcast(|c| c.attach, ServerMsg::Clipboard { term: tid, text });
+                }
                 self.broadcast(|c| c.attach, ServerMsg::Output { term: tid, data });
             }
             Ev::Exited(tid) => {

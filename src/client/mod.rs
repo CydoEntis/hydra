@@ -8,6 +8,7 @@ mod hydra;
 mod inbox;
 mod menu;
 mod modal;
+mod pick;
 mod pr;
 mod render;
 mod tasks;
@@ -351,6 +352,15 @@ pub struct App {
     window_focused: bool,
     /// The background we told the terminal to use (OSC 11), so its padding matches.
     osc_bg: Option<ratatui::style::Color>,
+    /// Panes in the middle of a synchronized update (mode 2026): since when. Not drawn
+    /// until it ends (or 100 ms pass), so redraws don't flicker.
+    sync_hold: HashMap<TermId, Instant>,
+    /// Panes whose program asked to hear about focus (mode 1004).
+    focus_report: HashSet<TermId>,
+    /// The focus we last told programs about: (pane, window focused).
+    focus_sent: Option<(TermId, bool)>,
+    /// The last left-click in a pane, for double-click.
+    pane_click: Option<(Position, Instant)>,
 }
 
 pub fn run(opts: Options) -> Result<()> {
@@ -443,6 +453,10 @@ impl App {
             hy: hydra::Hy::load(),
             window_focused: true,
             osc_bg: None,
+            sync_hold: HashMap::new(),
+            focus_report: HashSet::new(),
+            focus_sent: None,
+            pane_click: None,
         };
         app.splash = app.cfg.ui.splash;
         if !crate::theme::BUILTIN.contains(&app.cfg.theme.as_str()) {
@@ -472,7 +486,8 @@ impl App {
         // At most one frame per 12 ms, but never wait longer than that to show new output.
         let frame = Duration::from_millis(12);
         loop {
-            let next_draw = tokio::time::Instant::from_std(last_draw + frame);
+            let hold = self.sync_hold_until();
+            let next_draw = tokio::time::Instant::from_std((last_draw + frame).max(hold.unwrap_or(last_draw)));
             tokio::select! {
                 _ = tokio::time::sleep_until(next_draw), if self.dirty => {}
                 ev = events.next() => match ev {
@@ -515,7 +530,8 @@ impl App {
             if self.quit.is_some() {
                 return Ok(());
             }
-            if self.dirty && last_draw.elapsed() >= frame {
+            self.report_focus();
+            if self.dirty && last_draw.elapsed() >= frame && self.sync_hold_until().is_none_or(|h| Instant::now() >= h) {
                 self.dirty = false;
                 last_draw = Instant::now();
                 terminal.draw(|f| render::draw(self, f))?;
@@ -622,6 +638,25 @@ impl App {
                 self.sizes.insert(term, (cols, rows));
             }
             ServerMsg::Output { term, data } => {
+                let last = |pat: &[u8]| data.windows(pat.len()).rposition(|w| w == pat);
+                match (last(b"\x1b[?2026h"), last(b"\x1b[?2026l")) {
+                    (Some(h), l) if l.is_none_or(|l| h > l) => {
+                        self.sync_hold.insert(term, Instant::now());
+                    }
+                    (_, Some(_)) => {
+                        self.sync_hold.remove(&term);
+                    }
+                    _ => {}
+                }
+                match (last(b"\x1b[?1004h"), last(b"\x1b[?1004l")) {
+                    (Some(h), l) if l.is_none_or(|l| h > l) => {
+                        self.focus_report.insert(term);
+                    }
+                    (_, Some(_)) => {
+                        self.focus_report.remove(&term);
+                    }
+                    _ => {}
+                }
                 if let Some(p) = self.parsers.get_mut(&term) {
                     p.process(&data);
                 } else if let Some(t) = self.snap.terms.get(&term) {
@@ -648,6 +683,12 @@ impl App {
                 let who = self.describe_term(term);
                 let what = if status == Status::Blocked { "needs you" } else { "finished" };
                 self.notify(format!("{who} {what}"), false);
+            }
+            ServerMsg::Clipboard { term, text } => {
+                let n = text.chars().count();
+                copy::to_clipboard(&text);
+                let who = self.snap.terms.get(&term).map(|t| t.display_name()).unwrap_or_default();
+                self.notify(format!("{who} copied {n} character{} to your clipboard", if n == 1 { "" } else { "s" }), false);
             }
             ServerMsg::Error(e) => self.notify(e, true),
             ServerMsg::Notice(n) => {
@@ -1109,12 +1150,19 @@ impl App {
     /// Shift+PageUp / PageDown (and Shift+Up / Down a line) scroll the history, like any
     /// terminal; full-screen programs get the keys themselves.
     fn scroll_key(&mut self, k: &KeyEvent) -> bool {
-        if !k.modifiers.contains(KeyModifiers::SHIFT) {
-            return false;
-        }
         let Some(term) = self.focused() else { return false };
         let Some(p) = self.parsers.get(&term) else { return false };
         if p.screen().alternate_screen() {
+            return false;
+        }
+        let s = p.screen();
+        let at_prompt = s.mouse_protocol_mode() == vt100::MouseProtocolMode::None && (!s.application_cursor() || s.bracketed_paste());
+        if k.modifiers.is_empty() && at_prompt && matches!(k.code, KeyCode::PageUp | KeyCode::PageDown) {
+            let page = s.size().0.saturating_sub(1).max(1) as i32;
+            self.scroll_by(term, if k.code == KeyCode::PageUp { page } else { -page });
+            return true;
+        }
+        if !k.modifiers.contains(KeyModifiers::SHIFT) {
             return false;
         }
         let page = (p.screen().size().0 / 2).max(1) as i32;
@@ -1127,6 +1175,54 @@ impl App {
         };
         self.scroll_by(term, d);
         true
+    }
+
+    /// When to draw a pane that's mid synchronized update: its start + 100 ms, if that's
+    /// still ahead.
+    fn sync_hold_until(&self) -> Option<Instant> {
+        let limit = Duration::from_millis(100);
+        self.panes
+            .iter()
+            .filter_map(|(t, _)| self.sync_hold.get(t))
+            .map(|at| *at + limit)
+            .filter(|until| *until > Instant::now())
+            .max()
+    }
+
+    /// Programs that asked (mode 1004) hear when their pane or the window gains or loses
+    /// focus: `ESC [ I` / `ESC [ O`.
+    fn report_focus(&mut self) {
+        let now = self.focused().map(|t| (t, self.window_focused));
+        if now == self.focus_sent {
+            return;
+        }
+        if let Some((t, true)) = self.focus_sent
+            && self.focus_report.contains(&t)
+            && now != Some((t, true))
+        {
+            self.send(ClientMsg::Input { term: t, data: b"\x1b[O".to_vec() });
+        }
+        if let Some((t, true)) = now
+            && self.focus_report.contains(&t)
+        {
+            self.send(ClientMsg::Input { term: t, data: b"\x1b[I".to_vec() });
+        }
+        self.focus_sent = now;
+    }
+
+    /// (offset from the bottom, lines of history) for a pane.
+    pub(super) fn history(&mut self, term: TermId) -> (usize, usize) {
+        let Some(p) = self.parsers.get_mut(&term) else { return (0, 0) };
+        let cur = p.screen().scrollback();
+        p.screen_mut().set_scrollback(usize::MAX);
+        let total = p.screen().scrollback();
+        p.screen_mut().set_scrollback(cur);
+        (cur, total)
+    }
+
+    pub(super) fn scroll_to(&mut self, term: TermId, offset: usize) {
+        let cur = self.scroll.get(&term).copied().unwrap_or(0) as i32;
+        self.scroll_by(term, offset as i32 - cur);
     }
 
     fn forward_key(&mut self, k: &KeyEvent) {
@@ -1152,6 +1248,34 @@ impl App {
     fn on_mouse(&mut self, m: MouseEvent) {
         let pos = Position::new(m.column, m.row);
         self.hy_fresh();
+        // Ctrl+click opens a link; double-click copies a word (or a path, or a link).
+        if m.kind == MouseEventKind::Down(MouseButton::Left)
+            && !self.splash
+            && matches!(self.mode, Mode::Normal)
+            && self.view.is_none()
+            && let Some((term, row, col)) = self.pane_cell(pos)
+        {
+            let screen_has_mouse = self.parsers.get(&term).is_some_and(|p| p.screen().mouse_protocol_mode() != vt100::MouseProtocolMode::None);
+            if m.modifiers.contains(KeyModifiers::CONTROL)
+                && let Some(url) = self.parsers.get(&term).and_then(|p| pick::url_at(p.screen(), row, col))
+            {
+                inbox::open_url(&url);
+                self.notify(format!("opening {url}"), false);
+                return;
+            }
+            let double = self.pane_click.is_some_and(|(p, at)| at.elapsed() < Duration::from_millis(350) && p.y == pos.y && p.x.abs_diff(pos.x) <= 1);
+            self.pane_click = Some((pos, Instant::now()));
+            if double
+                && !screen_has_mouse
+                && let Some(word) = self.parsers.get(&term).and_then(|p| pick::word_at(p.screen(), row, col))
+            {
+                self.pane_click = None;
+                self.drag = None;
+                copy::to_clipboard(&word);
+                self.notify(format!("copied {}", render::truncate(&word, 60)), false);
+                return;
+            }
+        }
         // Programs that ask for the mouse (Claude Code's full-screen view, vim, lazygit,
         // htop, …) get it, like in any terminal: clicks, wheel, drags. Shift keeps it for
         // hydra (select text); right-click stays hydra's menu.
@@ -1168,8 +1292,15 @@ impl App {
                 self.hover = Some(pos);
                 self.dirty = true;
             }
-            if matches!(m.kind, MouseEventKind::Down(_)) && Some(term) != self.focused() {
-                self.cmd(Command::FocusPane { term });
+            if matches!(m.kind, MouseEventKind::Down(_)) {
+                if Some(term) != self.focused() {
+                    self.cmd(Command::FocusPane { term });
+                }
+                // Clicking for the program brings its view back to the bottom.
+                self.scroll.remove(&term);
+                if let Some(p) = self.parsers.get_mut(&term) {
+                    p.screen_mut().set_scrollback(0);
+                }
             }
             if !bytes.is_empty() {
                 self.send(ClientMsg::Input { term, data: bytes });
@@ -1185,6 +1316,15 @@ impl App {
                             let side = self.hy.side_rect;
                             let w = if self.cfg.ui.sidebar_position == "right" { side.right().saturating_sub(m.column) } else { m.column.saturating_sub(side.x) };
                             self.hy.saved.side_w = Some(w.clamp(hydra::SIDE_MIN, hydra::SIDE_MAX));
+                        }
+                        hydra::Drag::Scroll(term) => {
+                            if let Some((t, r, total)) = self.hy.bar
+                                && t == term
+                            {
+                                let from_bottom = r.bottom().saturating_sub(m.row + 1) as usize;
+                                let v = (from_bottom * total) / r.height.max(1) as usize;
+                                self.scroll_to(term, v.min(total));
+                            }
                         }
                         hydra::Drag::Split => {
                             if let Some((r, stack)) = self.hy.split_rect {
@@ -1344,9 +1484,15 @@ impl App {
                 };
                 let alt = self.parsers.get(&term).is_some_and(|p| p.screen().alternate_screen());
                 if alt {
-                    // Full-screen programs scroll themselves; send them arrow keys.
-                    let key = if up { b"\x1b[A" } else { b"\x1b[B" };
-                    self.send(ClientMsg::Input { term, data: key.repeat(3) });
+                    // Full-screen programs scroll themselves: one arrow key per notch.
+                    let app_cursor = self.parsers.get(&term).is_some_and(|p| p.screen().application_cursor());
+                    let key: &[u8] = match (up, app_cursor) {
+                        (true, true) => b"\x1bOA",
+                        (true, false) => b"\x1b[A",
+                        (false, true) => b"\x1bOB",
+                        (false, false) => b"\x1b[B",
+                    };
+                    self.send(ClientMsg::Input { term, data: key.to_vec() });
                 } else {
                     self.scroll_by(term, if up { 3 } else { -3 });
                 }
@@ -4176,6 +4322,41 @@ mod hydra_tests {
         app.on_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::SHIFT));
         let o = draw(&mut app, 160, 45);
         assert!(o.contains("line 100") && !o.contains("lines up"), "Shift+PageDown back to the bottom");
+    }
+
+    #[test]
+    fn behaves_like_a_terminal() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let mut p = vt100::Parser::new(40, 120, 1000);
+        for i in 1..=100 {
+            p.process(format!("line {i}\r\n").as_bytes());
+        }
+        app.parsers.insert(1, p);
+        draw(&mut app, 160, 45);
+        // PageUp at a prompt scrolls history; a scrollbar shows where you are.
+        app.on_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        assert!(app.scroll.get(&1).is_some_and(|n| *n > 10), "PageUp scrolled: {:?}", app.scroll.get(&1));
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("┃"), "scrollbar thumb");
+        app.on_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert!(!app.scroll.contains_key(&1), "typing goes back to the bottom");
+        // A full-screen program keeps PageUp for itself.
+        if let Some(p) = app.parsers.get_mut(&1) {
+            p.process(b"\x1b[?1049h");
+        }
+        app.on_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        assert!(!app.scroll.contains_key(&1), "PageUp went to the program");
+        // Synchronized output holds drawing until it ends.
+        app.on_server(ServerMsg::Output { term: 1, data: b"\x1b[?2026hhalf a frame".to_vec() });
+        assert!(app.sync_hold_until().is_some(), "held mid update");
+        app.on_server(ServerMsg::Output { term: 1, data: b"rest\x1b[?2026l".to_vec() });
+        assert!(app.sync_hold_until().is_none(), "drawn once it's whole");
+        // Focus reporting.
+        app.on_server(ServerMsg::Output { term: 1, data: b"\x1b[?1004h".to_vec() });
+        assert!(app.focus_report.contains(&1));
+        // A program's clipboard copy reaches the user (and says so).
+        app.on_server(ServerMsg::Clipboard { term: 1, text: "hello".into() });
+        assert!(app.notice.as_ref().is_some_and(|(m, ..)| m.contains("copied 5 characters")));
     }
 
     #[test]

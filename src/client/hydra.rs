@@ -87,12 +87,16 @@ pub(super) struct Hy {
     pub split_rect: Option<(Rect, bool)>,
     /// The splash's selected button.
     pub splash_sel: usize,
+    /// The scrollbar being dragged: (pane, track, lines of history).
+    pub bar: Option<(TermId, Rect, usize)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Drag {
     Side,
     Split,
+    /// A pane's scrollbar.
+    Scroll(TermId),
 }
 
 /// The sidebar's width limits.
@@ -545,6 +549,8 @@ pub(super) enum HyHit {
     SideEdge,
     /// The split's divider (drag to resize).
     SplitEdge,
+    /// A pane's scrollbar (click or drag).
+    ScrollBar(TermId),
 }
 
 pub(super) fn hit(app: &mut App, r: Rect, h: HyHit) {
@@ -1157,6 +1163,25 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
                 f.set_cursor_position(Position::new(inner.x + col, inner.y + row));
             }
         }
+    }
+
+    // A scrollbar in the margin when there's history: where you are, click or drag it.
+    let (cur, total) = app.history(term);
+    if total > 0 && inner.height > 2 {
+        let track = Rect { x: inner.right(), y: inner.y, width: 1, height: inner.height };
+        let h = track.height as usize;
+        let thumb = (h * h / (h + total)).clamp(1, h);
+        let top = track.y + ((h - thumb) * (total - cur) / total) as u16;
+        let hot = app.hy.drag == Some(Drag::Scroll(term)) || hovered(app, track);
+        for yy in track.top()..track.bottom() {
+            let on = yy >= top && yy < top + thumb as u16;
+            let (sym, c) = if on { ("┃", if hot { t.accent } else { t.muted }) } else { ("│", t.line) };
+            f.buffer_mut()[(track.x, yy)].set_symbol(sym).set_style(Style::default().fg(c).bg(t.bg));
+        }
+        if app.hy.drag.is_none() || app.hy.drag == Some(Drag::Scroll(term)) {
+            app.hy.bar = Some((term, track, total));
+        }
+        hit(app, track, HyHit::ScrollBar(term));
     }
 
     // Scrolled up: say so, and how to get back.
@@ -2733,6 +2758,15 @@ impl App {
             HyHit::MenuPick(i) => self.menu_pick(i),
             HyHit::SideEdge => self.hy.drag = Some(Drag::Side),
             HyHit::SplitEdge => self.hy.drag = Some(Drag::Split),
+            HyHit::ScrollBar(term) => {
+                self.hy.drag = Some(Drag::Scroll(term));
+                if let (Some((t, r, total)), Some(pos)) = (self.hy.bar, self.hover)
+                    && t == term
+                {
+                    let from_bottom = r.bottom().saturating_sub(pos.y + 1) as usize;
+                    self.scroll_to(term, (from_bottom * total / r.height.max(1) as usize).min(total));
+                }
+            }
             HyHit::MapNode(i) => {
                 if let Some(super::View::Map(v)) = &mut self.view {
                     let again = v.sel == i;

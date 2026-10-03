@@ -16,6 +16,8 @@ use tokio::sync::mpsc;
 pub struct Callbacks {
     pub title: String,
     pub title_changed: bool,
+    /// Text the program copied (OSC 52), waiting to go to the user's clipboard.
+    pub copied: Option<String>,
 }
 
 impl vt100::Callbacks for Callbacks {
@@ -23,6 +25,40 @@ impl vt100::Callbacks for Callbacks {
         self.title = String::from_utf8_lossy(title).trim().to_string();
         self.title_changed = true;
     }
+
+    fn copy_to_clipboard(&mut self, _: &mut vt100::Screen, _ty: &[u8], data: &[u8]) {
+        // Plain text only, and not absurdly large (like herdr: 192 KiB).
+        if data.len() <= 256 * 1024
+            && let Some(bytes) = base64_decode(data)
+            && let Ok(text) = String::from_utf8(bytes)
+        {
+            self.copied = Some(text);
+        }
+    }
+}
+
+fn base64_decode(s: &[u8]) -> Option<Vec<u8>> {
+    let val = |c: u8| -> Option<u32> {
+        Some(match c {
+            b'A'..=b'Z' => (c - b'A') as u32,
+            b'a'..=b'z' => (c - b'a') as u32 + 26,
+            b'0'..=b'9' => (c - b'0') as u32 + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            _ => return None,
+        })
+    };
+    let clean: Vec<u8> = s.iter().copied().filter(|c| !c.is_ascii_whitespace() && *c != b'=').collect();
+    let mut out = Vec::with_capacity(clean.len() * 3 / 4);
+    for chunk in clean.chunks(4) {
+        let mut n = 0u32;
+        for (i, &c) in chunk.iter().enumerate() {
+            n |= val(c)? << (18 - 6 * i);
+        }
+        let bytes = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
+        out.extend_from_slice(&bytes[..chunk.len().saturating_sub(1)]);
+    }
+    Some(out)
 }
 
 pub struct Term {
@@ -63,6 +99,8 @@ pub struct Term {
     pub cwd_reported: bool,
     /// Stopped on purpose to save memory; wakes (resumed) when focused.
     pub asleep: bool,
+    /// Text and background colour answered to OSC 10 / 11 queries.
+    colors: ((u8, u8, u8), (u8, u8, u8)),
 }
 
 pub struct SpawnSpec<'a> {
@@ -79,9 +117,16 @@ enum Query {
     Status,
     PrimaryAttributes,
     SecondaryAttributes,
+    /// OSC 10 / 11 "?", ended by ST (true) or BEL.
+    Foreground(bool),
+    Background(bool),
 }
 
 const QUERIES: &[(&[u8], Query)] = &[
+    (b"\x1b]10;?\x07", Query::Foreground(false)),
+    (b"\x1b]10;?\x1b\\", Query::Foreground(true)),
+    (b"\x1b]11;?\x07", Query::Background(false)),
+    (b"\x1b]11;?\x1b\\", Query::Background(true)),
     (b"\x1b[6n", Query::CursorPosition),
     (b"\x1b[5n", Query::Status),
     (b"\x1b[0c", Query::PrimaryAttributes),
@@ -160,6 +205,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn clipboard_and_colour_queries() {
+        assert_eq!(base64_decode(b"aGVsbG8gd29ybGQ=").unwrap(), b"hello world");
+        let (at, len, q) = find_query(b"abc\x1b]11;?\x1b\\rest").unwrap();
+        assert_eq!((at, len, q), (3, 8, &Query::Background(true)));
+        let (_, _, q) = find_query(b"\x1b]10;?\x07").unwrap();
+        assert_eq!(q, &Query::Foreground(false));
+        // OSC 52 from a program lands in the callbacks.
+        let mut p = vt100::Parser::new_with_callbacks(5, 20, 0, Callbacks::default());
+        p.process(b"\x1b]52;c;aGVsbG8=\x07");
+        assert_eq!(p.callbacks_mut().copied.take().as_deref(), Some("hello"));
+    }
+
+    #[test]
     fn cwd_reports() {
         assert_eq!(find_cwd_report(b"x\x1b]7;file://host/home/me/a%20b\x07y"), Some(PathBuf::from("/home/me/a b")));
         assert_eq!(find_cwd_report(b"\x1b]7;file://pc/C:/dev/x\x1b\\"), Some(PathBuf::from("C:/dev/x")));
@@ -227,7 +285,15 @@ impl Term {
         }
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        for k in [
+            "WT_SESSION", "WT_PROFILE_ID", "ITERM_SESSION_ID", "WEZTERM_PANE", "WEZTERM_EXECUTABLE", "KITTY_WINDOW_ID", "KITTY_PID",
+            "TMUX", "TMUX_PANE", "ZELLIJ", "ZELLIJ_SESSION_NAME", "ZELLIJ_PANE_ID", "STY", "LC_TERMINAL", "LC_TERMINAL_VERSION",
+            "TERM_SESSION_ID", "VSCODE_INJECTION", "CLAUDE_CODE_CHILD_SESSION",
+        ] {
+            cmd.env_remove(k);
+        }
         cmd.env("TERM_PROGRAM", "hydra");
+        cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
         cmd.env("HYDRA", "1");
         cmd.env("HYDRA_TERM_ID", spec.id.to_string());
         if let Ok(sock) = std::env::var("HYDRA_SOCKET") {
@@ -298,6 +364,18 @@ impl Term {
             subagents: Vec::new(),
             cwd_reported: false,
             asleep: false,
+            colors: {
+                let t = crate::theme::Theme::named(&cfg.theme);
+                let rgb = |c| match c {
+                    ratatui::style::Color::Rgb(r, g, b) => (r, g, b),
+                    _ => (0xc9, 0xd1, 0xd9),
+                };
+                let bg = match t.bg {
+                    ratatui::style::Color::Rgb(r, g, b) => (r, g, b),
+                    _ => (0x07, 0x0b, 0x10),
+                };
+                (rgb(t.fg), bg)
+            },
         })
     }
 
@@ -338,6 +416,14 @@ impl Term {
                 Query::Status => b"\x1b[0n".to_vec(),
                 Query::PrimaryAttributes => b"\x1b[?62;22c".to_vec(),
                 Query::SecondaryAttributes => b"\x1b[>0;10;1c".to_vec(),
+                // "What colour is your text / background?": the theme's, so programs pick
+                // the right light / dark look.
+                Query::Foreground(st) | Query::Background(st) => {
+                    let (r, g, b) = if matches!(query, Query::Foreground(_)) { self.colors.0 } else { self.colors.1 };
+                    let n = if matches!(query, Query::Foreground(_)) { 10 } else { 11 };
+                    let end = if *st { "\x1b\\" } else { "\x07" };
+                    format!("\x1b]{n};rgb:{r:02x}{r:02x}/{g:02x}{g:02x}/{b:02x}{b:02x}{end}").into_bytes()
+                }
             };
             let _ = self.writer.write_all(&reply);
             let _ = self.writer.flush();

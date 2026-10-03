@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = 13;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -128,6 +128,8 @@ pub enum ServerMsg {
     Error(String),
     /// Informational message for the status bar.
     Notice(String),
+    /// A program in a pane copied text (OSC 52): put it on the user's clipboard.
+    Clipboard { term: TermId, text: String },
     /// An agent started in a new repo, which became a workspace (undoable).
     AutoWorkspace(String),
     Bye,
