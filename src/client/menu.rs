@@ -193,6 +193,14 @@ impl App {
                     self.menu_act(a);
                 }
             }
+            // An item's key picks it.
+            KeyCode::Char(c) if menu_keys(&m.items).contains(&Some(c.to_ascii_lowercase())) => {
+                let i = menu_keys(&m.items).iter().position(|k| *k == Some(c.to_ascii_lowercase())).unwrap_or(0);
+                self.mode = Mode::Normal;
+                if let Some((_, a)) = m.items.get(i).cloned() {
+                    self.menu_act(a);
+                }
+            }
             // A numbered list (presets): its number picks it.
             KeyCode::Char(c @ '1'..='9') if m.items.iter().any(|(l, _)| l.starts_with("1 ")) => {
                 let i = c as usize - '1' as usize;
@@ -326,9 +334,27 @@ impl App {
     }
 }
 
+/// A key for each item: the first letter of its label not taken yet (j and k move).
+/// Numbered lists (presets) use their numbers.
+pub(super) fn menu_keys(items: &[(String, Act)]) -> Vec<Option<char>> {
+    let mut used: Vec<char> = vec!['j', 'k'];
+    items
+        .iter()
+        .map(|(l, _)| {
+            if l.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                return None;
+            }
+            let c = l.chars().filter(|c| c.is_ascii_alphabetic()).map(|c| c.to_ascii_lowercase()).find(|c| !used.contains(c))?;
+            used.push(c);
+            Some(c)
+        })
+        .collect()
+}
+
 pub(super) fn draw_menu(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, m: &HyMenu) {
     let buf = f.buffer_mut();
-    let w = m.items.iter().map(|(l, _)| l.width() as u16).max().unwrap_or(10).max(m.title.width() as u16).clamp(18, 48) + 6;
+    let keys = menu_keys(&m.items);
+    let w = m.items.iter().map(|(l, _)| l.width() as u16).max().unwrap_or(10).max(m.title.width() as u16).clamp(18, 48) + 10;
     let h = m.items.len() as u16 + 3;
     let x = m.at.0.min(area.right().saturating_sub(w + 1)).max(area.x);
     let y = if m.at.1 + h < area.bottom() { m.at.1 + 1 } else { m.at.1.saturating_sub(h) }.max(area.y);
@@ -359,8 +385,12 @@ pub(super) fn draw_menu(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, m: 
         let danger = matches!(act, Act::End(_) | Act::CloseProject(_));
         let fg = if danger { t.err } else if on { t.strong } else { t.text };
         let segs = vec![seg(if i == m.sel { "›" } else { " " }, Style::default().fg(t.accent).bg(bg)), seg(format!(" {label}"), Style::default().fg(fg).bg(bg))];
-        let _ = segs_width(&segs);
-        put(f.buffer_mut(), row.x, yy, &segs, row.right());
+        put(f.buffer_mut(), row.x, yy, &segs, row.right().saturating_sub(4));
+        if let Some(k) = keys.get(i).copied().flatten() {
+            let cap = vec![seg(format!(" {k} "), Style::default().fg(t.accent).bg(t.btn).add_modifier(Modifier::BOLD))];
+            let cw = segs_width(&cap);
+            put(f.buffer_mut(), row.right().saturating_sub(cw + 1), yy, &cap, row.right());
+        }
         hit(app, row, HyHit::MenuPick(i));
     }
 }

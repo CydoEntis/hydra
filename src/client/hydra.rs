@@ -68,6 +68,8 @@ pub(super) struct Hy {
     pub right_clicks: HashSet<TermId>,
     /// Which way the next "split" goes.
     pub split_dir: Option<crate::layout::Dir>,
+    /// Where the bottom bar's "where you are" starts (lined up with the panes).
+    pub crumb_x: u16,
     pub tab: usize,
     /// The next session that opens goes in a new tab (Ctrl+Space w), until this time.
     pub new_tab: Option<Instant>,
@@ -701,6 +703,7 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
     // A little air between the panes and everything around them.
     let panes = Rect { x: panes.x + 1, y: panes.y + 1, width: panes.width.saturating_sub(2), height: panes.height.saturating_sub(1) };
     draw_main(app, f, panes, &model, t);
+    app.hy.crumb_x = panes.x + 1;
     draw_status(app, f.buffer_mut(), Rect { y: area.bottom().saturating_sub(1), height: 1, ..area }, &model, t);
     // Files, diffs and pull requests open over everything in one tool-window size; Esc
     // closes.
@@ -747,8 +750,14 @@ fn crumb(app: &App, model: &[Proj], t: &Theme, bg: Color) -> Vec<Seg> {
         seg("▌", st.fg(p.color)),
         seg(p.name.clone(), st.fg(t.strong).add_modifier(Modifier::BOLD)),
         seg("  ›  ", st.fg(t.muted)),
-        seg(if w.main { format!("⎇ {}", w.branch) } else { format!("⑂ {}", w.name) }, st.fg(t.text)),
-        seg("  ›  ", st.fg(t.muted)),
+        seg(
+            match (w.main, w.branch.is_empty()) {
+                (true, true) => String::new(),
+                (true, false) => format!("⎇ {}  ›  ", w.branch),
+                (false, _) => format!("⑂ {}  ›  ", w.name),
+            },
+            st.fg(t.text),
+        ),
         seg(format!("{}  ", s.agent), st.fg(t.strong).add_modifier(Modifier::BOLD)),
         seg(if s.is_agent { format!("{} {}", glyph(app, s.status), state_label(s.status)) } else { String::new() }, st.fg(t.status(s.status))),
         seg(if s.is_agent && s.title != WAITING { format!("  ·  {}", s.title) } else { String::new() }, st.fg(t.text)),
@@ -904,12 +913,18 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     let (x0, w) = (r.x, r.width);
     let right = r.right().saturating_sub(2);
 
+    // Two shades: the one that's open (a touch of accent) and the one under the mouse or
+    // cursor (a touch lighter), so you can tell them apart and the status colours still read.
+    let active = super::render::blend(t.accent, surf, 0.16);
+    let hover = super::render::blend(t.text, surf, 0.10);
     // A session's highlight: focused (filled), in the split, under the cursor or mouse.
     let look = |app: &App, term: TermId, row: Rect| -> (Color, Option<Color>, bool) {
         let prim = Some(term) == focus;
         let sel = !prim && (app.hy.cursor == Some(term) || hovered(app, row));
-        let bg = if prim || sel {
-            t.hov
+        let bg = if prim {
+            active
+        } else if sel {
+            hover
         } else if Some(term) == split || (shown.len() > 1 && shown.contains(&term) && Some(term) != focus) {
             t.card2
         } else {
@@ -933,7 +948,7 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 let p = &model[*pi];
                 let open = !app.hy.saved.closed.contains(&format!("p:{}", p.key));
                 let hov = hovered(app, row);
-                let bg = if hov { t.hov } else { surf };
+                let bg = if hov { super::render::blend(t.text, surf, 0.10) } else { surf };
                 fill(buf, row, bg);
                 let s = Style::default().bg(bg);
                 let mut left = vec![
@@ -1392,7 +1407,8 @@ fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &The
         seg(format!(" {lead} "), Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)),
     ]);
     let rw = segs_width(&right);
-    put(buf, r.x + 1, r.y, &left, r.right().saturating_sub(rw + 2));
+    // Lined up with the panes, not under the sidebar.
+    put(buf, app.hy.crumb_x.max(r.x + 1), r.y, &left, r.right().saturating_sub(rw + 2));
     hit(app, Rect { width: 60.min(r.width), ..r }, HyHit::Jump);
     put(buf, r.right().saturating_sub(rw), r.y, &right, r.right());
     hit(app, Rect { x: r.right().saturating_sub(rw), width: rw, ..r }, HyHit::Keys);
