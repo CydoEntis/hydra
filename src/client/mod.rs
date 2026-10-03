@@ -468,8 +468,13 @@ impl App {
         let mut tick = tokio::time::interval(Duration::from_millis(50));
         let mut last_draw = Instant::now() - Duration::from_secs(1);
         let mut last_frame = 0u64;
+        let mut last_fresh = Instant::now();
+        // At most one frame per 12 ms, but never wait longer than that to show new output.
+        let frame = Duration::from_millis(12);
         loop {
+            let next_draw = tokio::time::Instant::from_std(last_draw + frame);
             tokio::select! {
+                _ = tokio::time::sleep_until(next_draw), if self.dirty => {}
                 ev = events.next() => match ev {
                     Some(Ok(ev)) => self.on_event(ev),
                     Some(Err(e)) => return Err(e.into()),
@@ -486,6 +491,13 @@ impl App {
                     }
                 },
                 _ = tick.tick() => {
+                    // What agents ask (read off their screens) can change without a state
+                    // message; look again now and then.
+                    if last_fresh.elapsed() >= Duration::from_secs(1) {
+                        last_fresh = Instant::now();
+                        self.hy_fresh();
+                        self.dirty = true;
+                    }
                     let frame = self.spinner_frame();
                     if frame != last_frame && self.any_working() {
                         last_frame = frame;
@@ -503,7 +515,7 @@ impl App {
             if self.quit.is_some() {
                 return Ok(());
             }
-            if self.dirty && last_draw.elapsed() >= Duration::from_millis(12) {
+            if self.dirty && last_draw.elapsed() >= frame {
                 self.dirty = false;
                 last_draw = Instant::now();
                 terminal.draw(|f| render::draw(self, f))?;
@@ -574,7 +586,10 @@ impl App {
     // ---- server messages -----------------------------------------------------------
 
     fn on_server(&mut self, msg: ServerMsg) {
-        self.hy_fresh();
+        // Output doesn't change the sidebar; everything else might.
+        if !matches!(msg, ServerMsg::Output { .. }) {
+            self.hy_fresh();
+        }
         self.dirty = true;
         match msg {
             ServerMsg::State(s) => {
@@ -710,6 +725,21 @@ impl App {
             Mode::Toolbox(v) => v.query.push_str(s.lines().next().unwrap_or("")),
             Mode::Prompt { input, .. } | Mode::Picker { query: input, .. } | Mode::Worktrees { query: input, .. } => {
                 input.push_str(s.lines().next().unwrap_or(""));
+            }
+            // Hydra's own text boxes take the paste, not the pane behind them.
+            Mode::Talk { input, .. } => input.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
+            Mode::Ideas(v) => v.input.push_str(s.lines().next().unwrap_or("")),
+            Mode::Tickets(v) => v.query.push_str(s.lines().next().unwrap_or("")),
+            Mode::RaceNew(v) => v.text.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
+            Mode::Finder(fd) => {
+                fd.q.push_str(s.lines().next().unwrap_or("").trim());
+                fd.sel = 0;
+                fd.refresh();
+            }
+            Mode::HySettings(v) if v.editing.is_some() => {
+                if let Some(e) = &mut v.editing {
+                    e.push_str(s.lines().next().unwrap_or(""));
+                }
             }
             _ => {
                 let Some(term) = self.focused() else { return };
@@ -3780,6 +3810,7 @@ mod modal_tests {
     use ratatui::backend::TestBackend;
 
     fn draw(app: &mut App, w: u16, h: u16) -> String {
+        app.hy_fresh();
         let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
         term.draw(|f| render::draw(app, f)).unwrap();
         let buf = term.backend().buffer().clone();
@@ -3861,6 +3892,7 @@ mod hydra_tests {
     use ratatui::backend::TestBackend;
 
     fn draw(app: &mut App, w: u16, h: u16) -> String {
+        app.hy_fresh();
         let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
         term.draw(|f| render::draw(app, f)).unwrap();
         let buf = term.backend().buffer().clone();

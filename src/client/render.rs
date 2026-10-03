@@ -19,7 +19,6 @@ pub fn draw(app: &mut App, f: &mut Frame) {
     app.pane_frames.clear();
     let area = f.area();
     let t = app.theme.clone();
-    app.hy_fresh();
     set_palette(t.ansi, t.ansi.map(|_| t.card2));
     // The terminal's own background (its window padding) matches ours while we run.
     if let Color::Rgb(r, g, b) = t.bg
