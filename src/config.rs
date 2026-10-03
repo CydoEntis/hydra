@@ -209,11 +209,16 @@ pub struct Quick {
     pub place: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct QuickAgent {
     pub name: String,
     /// `{prompt}` is replaced with the task, quoted for your shell.
     pub command: String,
+    /// Models to choose from when starting it (the first choice is always its default).
+    pub models: Vec<String>,
+    /// The flag that picks one (default `--model`).
+    pub model_flag: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -349,8 +354,16 @@ impl Default for Ui {
 
 impl Default for Quick {
     fn default() -> Self {
-        let a = |name: &str, command: &str| QuickAgent { name: name.into(), command: command.into() };
-        Quick { agents: vec![a("claude", "claude {prompt}"), a("codex", "codex {prompt}")], place: "worktree".into() }
+        let a = |name: &str, command: &str, models: &[&str], flag: &str| QuickAgent {
+            name: name.into(),
+            command: command.into(),
+            models: models.iter().map(|m| m.to_string()).collect(),
+            model_flag: flag.into(),
+        };
+        Quick {
+            agents: vec![a("claude", "claude {prompt}", &["opus", "sonnet", "haiku"], "--model"), a("codex", "codex {prompt}", &[], "-m")],
+            place: "worktree".into(),
+        }
     }
 }
 

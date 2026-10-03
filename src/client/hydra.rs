@@ -46,6 +46,8 @@ pub(super) struct Saved {
     /// Sidebar width you dragged it to, and the split's share for the left (or top) half.
     pub side_w: Option<u16>,
     pub split: Option<f32>,
+    /// A task typed into + New and not started yet.
+    pub draft: String,
 }
 
 #[derive(Debug, Default)]
@@ -157,16 +159,24 @@ pub(super) struct NewPaneHy {
     /// Project index (== count means "other folder…"), run index, row, open beside.
     pub p: usize,
     pub a: usize,
+    /// 0 task, 1 run, 2 model, 3 project, 4 where, 5 open.
     pub row: u8,
     pub beside: bool,
-    /// Where, once chosen: 0 a new worktree, 1 a new branch, 2 this branch. None: the
-    /// default for what runs (agents get a worktree, shells this branch).
+    /// Where, once chosen: 0 a new worktree, 1 a new branch, 2 this branch, 3.. one of the
+    /// project's worktrees. None: the default for what runs (agents get a worktree, shells
+    /// this branch).
     pub place: Option<u8>,
+    /// What to ask the agent to do (its first prompt); empty starts it waiting.
+    pub task: String,
+    /// The model (0: the agent's default).
+    pub model: usize,
 }
+
+pub(super) const NP_ROWS: u8 = 6;
 
 impl NewPaneHy {
     pub fn new(p: usize, beside: bool) -> NewPaneHy {
-        NewPaneHy { p, a: 0, row: 0, beside, place: None }
+        NewPaneHy { p, a: 0, row: 0, beside, place: None, task: String::new(), model: 0 }
     }
 
     pub fn place_for(&self, agent: &str, per_agent: bool) -> u8 {
@@ -526,6 +536,8 @@ pub(super) enum HyHit {
     NpBeside(usize),
     NpWhere(usize),
     NpGo,
+    NpTask,
+    NpModel(usize),
     SetTab(usize),
     SetRow(usize),
     /// Settings row, value index.
@@ -1645,11 +1657,55 @@ pub(super) fn np_agents(app: &App) -> Vec<String> {
     v
 }
 
+/// Where a new agent can go in a git project: the three kinds, then its worktrees by name.
+pub(super) fn np_places(p: &Proj) -> Vec<String> {
+    let mut v: Vec<String> = ["new worktree", "new branch", "this branch"].map(String::from).to_vec();
+    v.extend(p.wts.iter().filter(|w| !w.main).map(|w| format!("⌥ {}", w.name)));
+    v
+}
+
+/// Models to pick from for `agent` ("default" first), or none when it has no choice.
+pub(super) fn np_models(app: &App, agent: &str) -> Vec<String> {
+    let q = app.cfg.quick.agents.iter().find(|q| q.name == agent);
+    let list: Vec<String> = match q {
+        Some(q) if !q.models.is_empty() => q.models.clone(),
+        _ if agent == "claude" => ["opus", "sonnet", "haiku"].map(String::from).to_vec(),
+        _ => Vec::new(),
+    };
+    if list.is_empty() {
+        return list;
+    }
+    std::iter::once("default".to_string()).chain(list).collect()
+}
+
+/// The command line that starts `agent` with `model` (index into np_models) on `task`.
+pub(super) fn np_command(app: &App, agent: &str, model: usize, task: &str) -> Option<String> {
+    if agent == "shell" {
+        return None;
+    }
+    let q = app.cfg.quick.agents.iter().find(|q| q.name == agent);
+    let base = q.map(|q| q.command.clone()).unwrap_or_else(|| agent.to_string());
+    let task = task.trim();
+    let mut cmd = if task.is_empty() {
+        base.replace("{prompt}", "").trim().to_string()
+    } else if base.contains("{prompt}") {
+        base.replace("{prompt}", &app.cfg.quote_for_shell(task))
+    } else {
+        format!("{base} {}", app.cfg.quote_for_shell(task))
+    };
+    if let Some(m) = np_models(app, agent).get(model).filter(|_| model > 0) {
+        let flag = q.map(|q| q.model_flag.clone()).filter(|f| !f.is_empty()).unwrap_or_else(|| "--model".into());
+        let (first, rest) = cmd.split_once(' ').map(|(a, b)| (a.to_string(), format!(" {b}"))).unwrap_or((cmd.clone(), String::new()));
+        cmd = format!("{first} {flag} {m}{rest}");
+    }
+    Some(cmd)
+}
+
 pub(super) fn draw_new_pane(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, np: &NewPaneHy) {
     let model = app.hy_model();
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let r = panel(app, buf, area, 76, 17, "New", &[], t);
+    let r = panel(app, buf, area, 86, 21, "New", &[], t);
     let lab = |buf: &mut Buffer, y: u16, text: &str, row: u8| {
         put(buf, r.x + 3, y, &[seg(text, Style::default().fg(if np.row == row { t.accent } else { t.muted }).bg(t.card).add_modifier(Modifier::BOLD))], r.right());
     };
@@ -1685,29 +1741,61 @@ pub(super) fn draw_new_pane(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
         }
     };
     let agents = np_agents(app);
-    lab(buf, r.y + 2, "RUN", 0);
-    chips(app, buf, r.y + 2, &agents, np.a, HyHit::NpRun);
+    let agent = agents.get(np.a).cloned().unwrap_or_default();
+    let muted = Style::default().fg(t.muted).bg(t.card);
+    // The task: typed straight away, it's the agent's first prompt.
+    lab(buf, r.y + 2, "TASK", 0);
+    let tb = Rect { x: r.x + 14, y: r.y + 2, width: r.right().saturating_sub(r.x + 17), height: 1 };
+    fill(buf, tb, t.card2);
+    let s2 = Style::default().bg(t.card2);
+    let shown = {
+        let w = tb.width.saturating_sub(3) as usize;
+        let n = np.task.chars().count();
+        if n > w { np.task.chars().skip(n - w).collect::<String>() } else { np.task.clone() }
+    };
+    let mut ts = vec![seg(format!(" {shown}"), s2.fg(t.strong))];
+    if np.row == 0 {
+        ts.push(seg("█", s2.fg(t.accent)));
+    }
+    if np.task.is_empty() {
+        let ph = if agent == "shell" || agent.starts_with('⚙') { " (not used for this)" } else { " what should it do? (optional)" };
+        ts.push(seg(ph, s2.fg(t.muted)));
+    }
+    put(buf, tb.x, tb.y, &ts, tb.right());
+    hit(app, tb, HyHit::NpTask);
+    lab(buf, r.y + 4, "RUN", 1);
+    chips(app, buf, r.y + 4, &agents, np.a, HyHit::NpRun);
+    lab(buf, r.y + 6, "MODEL", 2);
+    let models = np_models(app, &agent);
+    if models.is_empty() {
+        put(buf, r.x + 14, r.y + 6, &[seg("its default", muted)], r.right());
+    } else {
+        chips(app, buf, r.y + 6, &models, np.model.min(models.len() - 1), HyHit::NpModel);
+    }
     let mut projs: Vec<String> = model.iter().map(|p| p.name.clone()).collect();
     projs.push("other folder…".into());
-    lab(buf, r.y + 4, "PROJECT", 1);
-    chips(app, buf, r.y + 4, &projs, np.p, HyHit::NpProj);
-    let agent = agents.get(np.a).cloned().unwrap_or_default();
+    lab(buf, r.y + 8, "PROJECT", 3);
+    chips(app, buf, r.y + 8, &projs, np.p, HyHit::NpProj);
     let place = np.place_for(&agent, app.cfg.worktree.per_agent);
     let proj = model.get(np.p);
-    lab(buf, r.y + 6, "WHERE", 2);
+    lab(buf, r.y + 10, "WHERE", 4);
     if proj.is_some_and(|p| p.git) && !agent.starts_with('⚙') {
-        chips(app, buf, r.y + 6, &["new worktree".into(), "new branch".into(), "this branch".into()], place as usize, HyHit::NpWhere);
+        chips(app, buf, r.y + 10, &np_places(proj.unwrap()), place as usize, HyHit::NpWhere);
     } else {
-        put(buf, r.x + 14, r.y + 6, &[seg(if agent.starts_with('⚙') { "as the recipe says" } else { "in the folder" }, Style::default().fg(t.muted).bg(t.card))], r.right());
+        put(buf, r.x + 14, r.y + 10, &[seg(if agent.starts_with('⚙') { "as the recipe says" } else { "in the folder" }, muted)], r.right());
     }
-    lab(buf, r.y + 8, "OPEN", 3);
-    chips(app, buf, r.y + 8, &["full screen".into(), "beside this".into()], np.beside as usize, HyHit::NpBeside);
+    lab(buf, r.y + 12, "OPEN", 5);
+    chips(app, buf, r.y + 12, &["full screen".into(), "beside this".into()], np.beside as usize, HyHit::NpBeside);
 
     // What will happen, in words.
     let branch = proj.and_then(|p| p.wts.iter().find(|w| w.main)).map(|w| w.branch.clone()).unwrap_or_default();
     let others = proj.and_then(|p| p.wts.iter().find(|w| w.main)).map(|w| w.sessions.len()).unwrap_or(0);
     let what = match proj {
         None => "Pick a folder; it becomes a project.".to_string(),
+        Some(p) if p.git && !agent.starts_with('⚙') && place >= 3 => {
+            let w = p.wts.iter().filter(|w| !w.main).nth(place as usize - 3);
+            format!("{agent} runs in the {} worktree, on {}.", w.map(|w| w.name.as_str()).unwrap_or("?"), w.map(|w| w.branch.as_str()).unwrap_or("?"))
+        }
         Some(p) if p.git && !agent.starts_with('⚙') && place == 0 => format!("{agent} gets its own new worktree in {}, on a new branch named for you.", p.name),
         Some(p) if p.git && !agent.starts_with('⚙') && place == 1 => format!(
             "Switches {} to a new branch, then starts {agent} there.{}",
@@ -1728,11 +1816,15 @@ pub(super) fn draw_new_pane(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
         Some(p) => format!("{agent} runs in {}.", p.name),
     };
     let c = Style::default().bg(t.card);
-    for (i, l) in super::views::wrap(&what, (r.width - 6) as usize).into_iter().take(2).enumerate() {
-        put(buf, r.x + 3, r.y + 10 + i as u16, &[seg(l, c.fg(t.text))], r.right() - 2);
+    let what = match np_command(app, &agent, np.model, &np.task) {
+        Some(cmd) if !np.task.trim().is_empty() || np.model > 0 => format!("{what}  Runs: {cmd}"),
+        _ => what,
+    };
+    for (i, l) in super::views::wrap(&what, (r.width - 6) as usize).into_iter().take(3).enumerate() {
+        put(buf, r.x + 3, r.y + 14 + i as u16, &[seg(l, c.fg(t.text))], r.right() - 2);
     }
-    let gx = btn(app, buf, r.x + 3, r.y + 14, "Open", "Enter", BtnKind::Primary, HyHit::NpGo, r.right());
-    put(buf, gx + 3, r.y + 14, &hints(t, &[("Tab", "next row"), ("←→", "choose"), ("b", "beside"), ("Esc", "close")]), r.right());
+    let gx = btn(app, buf, r.x + 3, r.y + 18, if np.task.trim().is_empty() { "Open" } else { "Start" }, "Enter", BtnKind::Primary, HyHit::NpGo, r.right());
+    put(buf, gx + 3, r.y + 18, &hints(t, &[("↑↓", "rows"), ("←→", "choose"), ("Esc", "close, keeps the task")]), r.right());
 }
 
 // Talk ----------------------------------------------------------------------------------------
@@ -2310,7 +2402,7 @@ impl App {
         let model = self.hy_model();
         let key = self.hy.cursor.and_then(|c| model.iter().find(|p| p.sessions().any(|s| s.term == c)).map(|p| p.key.clone())).or(self.hy.proj.clone());
         let p = model.iter().position(|p| Some(&p.key) == key.as_ref()).unwrap_or(0);
-        self.mode = Mode::HyPane(NewPaneHy::new(p, beside));
+        self.hy_new(p, beside);
     }
 
     fn hy_settings(&mut self) {
@@ -2555,7 +2647,11 @@ impl App {
         let agents = np_agents(self);
         let agent = agents.get(np.a).cloned().unwrap_or_else(|| "shell".into());
         let main = p.wts.iter().find(|w| w.main).map(|w| w.path.clone()).unwrap_or_else(|| p.path.clone());
-        let cmd = (agent != "shell").then(|| agent.clone());
+        let cmd = np_command(self, &agent, np.model, &np.task);
+        if !self.hy.saved.draft.is_empty() {
+            self.hy.saved.draft.clear();
+            self.hy.save();
+        }
         if let Some(recipe) = agent.strip_prefix("⚙ ") {
             self.mode = Mode::Normal;
             self.run_recipe(&p, recipe);
@@ -2581,21 +2677,65 @@ impl App {
                     Err(e) => self.notify(format!("couldn't run git: {e}"), true),
                 }
             }
+            n @ 3.. => match p.wts.iter().filter(|w| !w.main).nth(n as usize - 3) {
+                Some(w) => self.hy_new_session(w.path.clone(), cmd, np.beside),
+                None => self.hy_new_session(main, cmd, np.beside),
+            },
             _ => self.hy_new_session(main, cmd, np.beside),
         }
     }
 
+    /// + New for project `p`, with the task you didn't start last time.
+    pub(super) fn hy_new(&mut self, p: usize, beside: bool) {
+        let mut np = NewPaneHy::new(p, beside);
+        np.task = self.hy.saved.draft.clone();
+        self.mode = Mode::HyPane(np);
+    }
+
+    /// + New filled in like an agent that's running: same project, agent, model and task.
+    pub(super) fn hy_duplicate(&mut self, term: TermId) {
+        let model = self.hy_model();
+        let Some(pi) = model.iter().position(|p| p.wts.iter().any(|w| w.sessions.iter().any(|s| s.term == term))) else { return };
+        let Some((_, _, s)) = find(&model, term) else { return };
+        let mut np = NewPaneHy::new(pi, false);
+        np.a = np_agents(self).iter().position(|a| *a == s.agent).unwrap_or(0);
+        if let Some(t) = self.snap.terms.get(&term) {
+            np.task = t.summary.clone();
+        }
+        np.place = Some(0);
+        self.mode = Mode::HyPane(np);
+    }
+
     pub(super) fn on_hy_pane_key(&mut self, mut np: NewPaneHy, k: &KeyEvent) {
-        let nproj = self.hy_model().len() + 1;
-        let nag = np_agents(self).len();
+        let model = self.hy_model();
+        let nproj = model.len() + 1;
+        let agents = np_agents(self);
+        let nag = agents.len();
+        let agent = agents.get(np.a).cloned().unwrap_or_default();
+        let nmodels = np_models(self, &agent).len();
+        let nplaces = model.get(np.p).map(|p| np_places(p).len()).unwrap_or(3);
+        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         let d: i32 = match k.code {
-            KeyCode::Left | KeyCode::Up => -1,
-            KeyCode::Right | KeyCode::Down => 1,
+            KeyCode::Left => -1,
+            KeyCode::Right => 1,
             _ => 0,
         };
         let cyc = |v: usize, d: i32, n: usize| (v as i32 + d).rem_euclid(n.max(1) as i32) as usize;
+        // Rows with nothing to choose are skipped.
+        let skip = |r: u8| r == 2 && nmodels == 0;
+        let step = |np: &mut NewPaneHy, by: u8| {
+            np.row = (np.row + by) % NP_ROWS;
+            if skip(np.row) {
+                np.row = (np.row + by) % NP_ROWS;
+            }
+        };
         match k.code {
             KeyCode::Esc => {
+                // The task stays for next time.
+                if self.hy.saved.draft != np.task {
+                    self.hy.saved.draft = np.task.clone();
+                    self.hy.save();
+                }
                 self.mode = Mode::Normal;
                 return;
             }
@@ -2603,16 +2743,34 @@ impl App {
                 np.beside |= k.modifiers.contains(KeyModifiers::SHIFT);
                 return self.hy_pane_go(&np);
             }
-            KeyCode::Tab => np.row = (np.row + 1) % 4,
-            KeyCode::BackTab => np.row = (np.row + 3) % 4,
-            KeyCode::Char('b') => np.beside = !np.beside,
+            KeyCode::Tab | KeyCode::Down => step(&mut np, 1),
+            KeyCode::BackTab | KeyCode::Up => step(&mut np, NP_ROWS - 1),
+            // Typing on the task row.
+            KeyCode::Backspace if np.row == 0 => {
+                if ctrl {
+                    let keep = np.task.trim_end().rfind(' ').map(|i| i + 1).unwrap_or(0);
+                    np.task.truncate(keep);
+                } else {
+                    np.task.pop();
+                }
+            }
+            KeyCode::Char('u') if ctrl && np.row == 0 => np.task.clear(),
+            KeyCode::Char(c) if np.row == 0 && !ctrl => np.task.push(c),
+            KeyCode::Char('b') if !ctrl => np.beside = !np.beside,
             _ if d != 0 => match np.row {
-                0 => np.a = cyc(np.a, d, nag),
-                1 => np.p = cyc(np.p, d, nproj),
-                2 => {
-                    let agent = np_agents(self).get(np.a).cloned().unwrap_or_default();
+                0 => {}
+                1 => {
+                    np.a = cyc(np.a, d, nag);
+                    np.model = 0;
+                }
+                2 => np.model = cyc(np.model, d, nmodels),
+                3 => {
+                    np.p = cyc(np.p, d, nproj);
+                    np.place = np.place.filter(|p| *p < 3);
+                }
+                4 => {
                     let cur = np.place_for(&agent, self.cfg.worktree.per_agent) as usize;
-                    np.place = Some(cyc(cur, d, 3) as u8);
+                    np.place = Some(cyc(cur, d, nplaces) as u8);
                 }
                 _ => np.beside = !np.beside,
             },
@@ -2671,7 +2829,7 @@ impl App {
                     self.hy.save();
                 }
             }
-            HyHit::NewIn(i) => self.mode = Mode::HyPane(NewPaneHy::new(i, false)),
+            HyHit::NewIn(i) => self.hy_new(i, false),
             HyHit::Wt(i) => {
                 let Some((key, path)) = self.hy.wt_keys.get(i).cloned() else { return };
                 let model = self.hy_model();
@@ -2716,24 +2874,37 @@ impl App {
                 }
             }
             HyHit::JumpTo(t) => self.hy_focus(t),
-            HyHit::NpProj(i) | HyHit::NpRun(i) | HyHit::NpBeside(i) | HyHit::NpWhere(i) => {
+            HyHit::NpTask => {
+                if let Mode::HyPane(np) = &mut self.mode {
+                    np.row = 0;
+                }
+            }
+            HyHit::NpProj(i) | HyHit::NpRun(i) | HyHit::NpBeside(i) | HyHit::NpWhere(i) | HyHit::NpModel(i) => {
                 if let Mode::HyPane(np) = &mut self.mode {
                     match h {
                         HyHit::NpWhere(_) => {
                             np.place = Some(i as u8);
-                            np.row = 2;
+                            np.row = 4;
                         }
                         HyHit::NpRun(_) => {
+                            if np.a != i {
+                                np.model = 0;
+                            }
                             np.a = i;
-                            np.row = 0;
+                            np.row = 1;
+                        }
+                        HyHit::NpModel(_) => {
+                            np.model = i;
+                            np.row = 2;
                         }
                         HyHit::NpProj(_) => {
                             np.p = i;
-                            np.row = 1;
+                            np.place = np.place.filter(|p| *p < 3);
+                            np.row = 3;
                         }
                         _ => {
                             np.beside = i == 1;
-                            np.row = 3;
+                            np.row = 5;
                         }
                     }
                 }

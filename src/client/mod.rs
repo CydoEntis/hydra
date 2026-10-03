@@ -4575,6 +4575,30 @@ mod hydra_tests {
     }
 
     #[test]
+    fn task_box_starts_an_agent_on_a_task() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
+        let cmd = super::hydra::np_command(&app, "claude", 1, "fix the login bug").unwrap();
+        assert!(cmd.starts_with("claude --model opus ") && cmd.contains("fix the login bug"), "{cmd}");
+        assert_eq!(super::hydra::np_command(&app, "claude", 0, "  ").as_deref(), Some("claude"));
+        assert_eq!(super::hydra::np_command(&app, "shell", 0, "x"), None);
+        app.hy_new(0, false);
+        for c in "add tests".chars() {
+            app.on_key(key(KeyCode::Char(c)));
+        }
+        app.on_key(key(KeyCode::Down));
+        app.on_key(key(KeyCode::Down));
+        app.on_key(key(KeyCode::Right));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("TASK") && o.contains("add tests"), "the task row shows what you typed");
+        assert!(o.contains("Runs: claude --model opus"), "and what will run");
+        app.on_key(key(KeyCode::Esc));
+        app.hy_new(0, false);
+        assert!(matches!(&app.mode, Mode::HyPane(np) if np.task == "add tests"), "Esc keeps the task as a draft");
+    }
+
+    #[test]
     fn quick_follow_up_from_the_sidebar() {
         let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);

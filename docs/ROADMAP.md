@@ -11,7 +11,7 @@ Ticked when built, tested and pushed (dev branch).
 - [x] Agents move themselves into a worktree: `hydra worktree --move <name>` from inside a pane; when the turn ends the agent restarts, resumed, in the new worktree.
 
 ## Batch B: launching and steering
-- [ ] Task box: one box for the task with pickers for project, worktree (or new), agent, model/effort; keeps a draft; Duplicate from an existing agent.
+- [x] Task box: one box for the task with pickers for project, worktree (or new), agent, model/effort; keeps a draft; Duplicate from an existing agent.
 - [ ] Agent presets: saved launches (agent, model, effort, prompt prefix/suffix, ask-for-task or not), e.g. "commit and push" in one key; usable from tickets and PRs.
 - [ ] Prompt and wait: `hydra agent prompt <id> "text" --wait` (and an MCP tool) that waits for a real new turn to finish; `hydra wait-output --regex`.
 - [ ] Each agent row shows its last prompt and the live model; auto-title on the first prompt; names sync with Claude's /rename.

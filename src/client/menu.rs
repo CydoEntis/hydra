@@ -37,6 +37,7 @@ pub enum Act {
     RemoveWorktree(PathBuf),
     CloseSplit,
     CopyMode(TermId),
+    Duplicate(TermId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -87,6 +88,7 @@ impl App {
         }
         items.extend([
             (format!("Message {agent}…"), Act::Talk(term)),
+            ("Duplicate (same task, new worktree)…".to_string(), Act::Duplicate(term)),
             ("Rename…".to_string(), Act::Rename(term)),
             ("Interrupt (Ctrl+C)".to_string(), Act::Interrupt(term)),
             (format!("End {agent}"), Act::End(vec![term])),
@@ -173,7 +175,8 @@ impl App {
                     self.hy.pair = Some((f, t));
                 }
             }
-            Act::Talk(t) => self.mode = Mode::Talk { term: t, input: String::new() },
+            Act::Talk(t) => self.hy_talk(t, false),
+            Act::Duplicate(t) => self.hy_duplicate(t),
             Act::Rename(t) => {
                 if let Some((w, _)) = self.snap.locate(t) {
                     self.mode = Mode::Prompt { kind: PromptKind::RenameWorkspace(w.id), input: w.name.clone() };
@@ -185,7 +188,7 @@ impl App {
                     self.cmd(Command::ClosePane { term: t });
                 }
             }
-            Act::New(pi, beside) => self.mode = Mode::HyPane(super::hydra::NewPaneHy::new(pi, beside)),
+            Act::New(pi, beside) => self.hy_new(pi, beside),
             Act::ShellBeside => {
                 self.act(crate::keys::Action::SplitRight);
             }
