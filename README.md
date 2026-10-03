@@ -89,10 +89,12 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 
 | keys (after the leader) | action |
 |---|---|
-| `n` / `p` | **+ New**: what to run (agents, shell, your recipes) and which project; full screen / beside |
+| `n` / `p` | **+ New**: type the task, pick the agent, model, project and worktree; full screen / beside |
+| `.` | **presets**: saved launches ("commit and push", "review {task}"), by number |
 | `↑` `↓` | walk the sidebar; Enter opens, bare keys work until Esc |
 | `j` | **Jump**: what needs you, what finished, PRs with failing checks or changes asked |
 | `T` / `r` / `1` `2` `3` | message an agent / reply to the focused one / answer its prompt |
+| `Space` on a sidebar row | a follow-up box beside that agent; Enter sends, `↓ Space` for the next |
 | `o` | open a project (type a path, `cd ..`, fuzzy; Tab completes) |
 | `f` / `d` / `P` | **Files** / **Changes** / the branch's **pull request** |
 | `s` | **Ship**: commit, push, open (or update) the pull request, after one Enter |
@@ -100,9 +102,13 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 | `i` | **Tickets** from GitHub issues, Linear and Plane; Enter starts an agent on one |
 | `c` | **Race**: one task, two or three agents, each in a worktree; compare and keep the best |
 | `M` | **Map**: the project's folders and worktrees as connected boxes, coloured by status |
-| `x` / `X` | close the split / end the focused one |
+| `F` / `G` | **find a file** / **search the code**; Enter puts `path:line` in the prompt |
+| `g` | **switch branch** (local and remote; asks what to do with uncommitted changes) |
+| `w` / `l` `h` | a **new tab** / next, previous tab |
+| `U` / `N` | **memory** per session / **what happened** (who finished, asked, rang) |
+| `x` / `X` | take the focused one out of the split / end it |
 | `%` `\|` `"` `-` | a shell beside this one |
-| `←` `→` | the other half of a split |
+| `←` `→` `↑` `↓` | the next session in a split (open as many beside each other as you like; drag the lines) |
 | `v` / `b` / `q` | tasks & review / toolbox / quick prompt |
 | `Space` / `m` | command palette / menu |
 | `z` `B` / `[` `/` | hide the sidebar / copy mode, search |
@@ -110,7 +116,8 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 
 In **Files**: Enter puts the path in the agent's prompt, `e` opens it in your editor (`editor`
 in config; nvim, helix … open inside hydra), `y` copies the path. In **Changes**: `c` commit,
-`p` open a PR, `v` the PR, `e` editor, `r` reply to the agent. In a **pull request**: Tab for the
+`p` open a PR, `v` the PR, `e` editor, `x` mark the file reviewed (it sinks; the mark clears
+if the file changes again), `r` reply to the agent. In a **pull request**: Tab for the
 diff, `f` hands failing checks and review comments to the branch's agent, `o` opens it on GitHub.
 
 Everything also works with the mouse. Hold Shift to select text with your terminal.
@@ -356,6 +363,13 @@ hydra read -p 3                        # the pane's screen as text
 hydra new ~/code/web -- claude
 hydra worktree feat/x -- claude        # worktree workspace for this pane's repo
 hydra focus 3 | close 3 | kill-server [--forget]
+hydra send -p 3 --wait "fix the bug"   # waits for the turn to end, prints the agent's reply
+hydra wait -p 3 [--regex "passed"]     # the turn ending, or text on the screen (exit 2: timeout)
+hydra worktree --move [name]           # run by an agent: move itself into a new worktree
+hydra dev start|stop|restart           # this worktree's dev server (from .hydra.toml)
+hydra ext list | new <name>            # extensions
+hydra doctor                           # check everything hydra relies on
+hydra --remote me@box                  # the UI here, agents on another machine (any command)
 ```
 
 `HYDRA_SOCKET=name` runs a separate server, like `tmux -L`.
@@ -380,10 +394,38 @@ hydra ls/send/hook ──┼──►   hydra daemon
 - `src/layout.rs`: split tree, rects, neighbour search
 - `src/config.rs`, `src/keys.rs`, `src/theme.rs`: everything user-facing
 
+## Per-repo settings: `.hydra.toml`
+
+Commit one to the repo:
+
+```toml
+[dev]
+run = "npm run dev"              # right-click a folder > Run dev server, or `hydra dev`
+ready = "ready in|listening on"  # the row says "ready" once the output matches
+port = 3000                      # each worktree gets its own $PORT: 3000, 3001, ...
+
+[hooks]
+on_create = "npm install"        # in every new worktree
+on_remove = ""
+```
+
+## Extensions
+
+`hydra ext new deploy` makes `<config>/extensions/deploy/hydra-ext.toml`: `[[commands]]` show in
+the palette (hidden with their last line shown, or in a pane), `[[labels]]` put a short line on
+every worktree row, and `[hooks]` run on agent start, agent done, needs you, worktree create
+and remove, with `HYDRA_EVENT`, `HYDRA_WORKTREE`, `HYDRA_BRANCH`, `HYDRA_AGENT`, `HYDRA_SAID` and
+more set. `./` in a command is the extension's folder.
+
+## Remote
+
+`hydra --remote me@box` runs the UI here and everything else there, over ssh (hydra must be
+installed on both; `HYDRA_REMOTE_CMD` if it isn't on the far side's PATH, `HYDRA_SSH="ssh -p
+2222"` for options). Panes, agents, worktrees and statuses work; views that read files (Files,
+Changes, find, branches) don't yet.
+
 ## Roadmap ideas
 
 - Restore scrollback contents after a restart, not just the layout
-- Worktree setup hooks (copy `.env`, install deps) and PR status per branch
-- Mouse passthrough for TUI apps that request it
-- Extensions and workspace templates (fut's extension model)
-- Remote: `hydra --remote ssh://host`
+- Files, Changes and find over `--remote`
+- Workspace templates
