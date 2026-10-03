@@ -4542,7 +4542,7 @@ mod hydra_tests {
             (Mode::HyPane(hydra::NewPaneHy::new(0, false)), "claude gets its own new worktree in shop-api"),
             (Mode::HyPane(hydra::NewPaneHy { place: Some(1), ..hydra::NewPaneHy::new(0, false) }), "Switches shop-api to a new branch"),
             (Mode::Help { scroll: 0 }, "PANES & CODE"),
-            (Mode::Talk { term: 1, input: String::new() }, "message claude…"),
+            (Mode::Talk { term: 1, input: String::new() }, "Write to claude…"),
         ] {
             app.mode = mode;
             let o = draw(&mut app, 160, 45);
@@ -5027,8 +5027,8 @@ mod hydra_tests {
         }
         let o = draw(&mut app, 160, 45);
         show(&o);
-        let line = o.lines().nth(row as usize + 2).unwrap_or("");
-        assert!(line.contains("› run the tests"), "the box sits beside the row: {line:?}");
+        let _ = row;
+        assert!(o.contains("Message claude") && o.contains(" run the tests█"), "a centered text area with what you typed");
         assert!(o.contains("Run npm test -- checkout?"), "with the agent's question for context");
         app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT));
         app.on_key(key(KeyCode::Char('x')));

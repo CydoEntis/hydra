@@ -2149,68 +2149,58 @@ pub(super) fn draw_talk(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, ter
                 .last()
         })
     });
-    let lines: Vec<&str> = if input.is_empty() { vec![""] } else { input.split('\n').collect() };
-    let shown = lines.len().min(5) as u16;
+    // A text area, centered: wraps as you type and grows up to a point.
     let buf = f.buffer_mut();
-    // Beside its row in the sidebar (the view behind stays as it is), else centered.
-    let side = app.hy.side_rect;
-    let r = match app.hy.talk_anchor {
-        Some(y) if side.width > 0 && area.right() > side.right() + 40 => {
-            let w = (area.right() - side.right() - 3).min(84);
-            let h = 5 + shown;
-            let y = y.min(area.bottom().saturating_sub(h + 1)).max(area.y + 1);
-            let r = Rect { x: side.right() + 1, y, width: w, height: h };
-            hit(app, area, HyHit::Close);
-            fill(buf, r, t.card);
-            let edge = Style::default().fg(t.accent).bg(t.card);
-            for yy in r.top()..r.bottom() {
-                buf[(r.x, yy)].set_symbol("▌").set_style(edge);
-            }
-            hit(app, r, HyHit::Noop);
-            r
+    dim_all(buf, area, t);
+    let w = area.width.saturating_sub(8).min(110);
+    let tw = w.saturating_sub(7) as usize;
+    let mut rows: Vec<String> = Vec::new();
+    for para in input.split('\n') {
+        let chars: Vec<char> = para.chars().collect();
+        if chars.is_empty() {
+            rows.push(String::new());
         }
-        _ => {
-            dim_all(buf, area, t);
-            let r = panel(app, buf, area, 96, 6 + shown, "", &[], t);
-            fill(buf, Rect { height: 1, ..r }, t.card);
-            r
+        for chunk in chars.chunks(tw.max(8)) {
+            rows.push(chunk.iter().collect());
         }
-    };
+    }
+    if rows.is_empty() {
+        rows.push(String::new());
+    }
+    let box_h = (rows.len() as u16).clamp(6, 14);
+    let ctx = context.as_deref().map(|c| super::views::wrap(c, w.saturating_sub(4) as usize)).unwrap_or_default();
+    let ctx_h = ctx.len().min(3) as u16;
+    let h = 3 + ctx_h + 1 + box_h + 3;
+    let r = panel(app, buf, area, w, h, &format!("Message {agent}"), &[], t);
     let c = Style::default().bg(t.card);
     let mut head = vec![
         seg(format!("{} ", glyph(app, status)), c.fg(t.status(status)).add_modifier(Modifier::BOLD)),
-        seg(agent.clone(), c.fg(t.strong).add_modifier(Modifier::BOLD)),
+        seg(state_label(status).to_string(), c.fg(t.status(status))),
     ];
     if title != WAITING && !title.is_empty() {
-        head.push(seg(format!("  {title}"), c.fg(t.muted)));
+        head.push(seg(format!("  ·  {title}"), c.fg(t.muted)));
     }
-    put(buf, r.x + 2, r.y, &head, r.right() - 1);
-    if let Some(cx) = context {
-        let col = if status == Status::Blocked { t.blocked } else { t.text };
-        put(buf, r.x + 2, r.y + 1, &[seg(truncate(&cx, (r.width - 4) as usize), c.fg(col))], r.right() - 1);
+    put(buf, r.x + 2, r.y + 2, &head, r.right() - 1);
+    let col = if status == Status::Blocked { t.blocked } else { t.text };
+    for (i, l) in ctx.iter().take(3).enumerate() {
+        put(buf, r.x + 2, r.y + 3 + i as u16, &[seg(l.clone(), c.fg(col))], r.right() - 1);
     }
-    let box_ = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: shown };
-    fill(buf, box_, t.card2);
+    let bx = Rect { x: r.x + 2, y: r.y + 4 + ctx_h, width: r.width.saturating_sub(4), height: box_h };
+    fill(buf, bx, t.card2);
     let s = Style::default().bg(t.card2);
-    let first = lines.len().saturating_sub(5);
-    for (i, l) in lines[first..].iter().enumerate() {
-        let last = i + first + 1 == lines.len();
-        let mut segs = vec![seg(if i + first == 0 { "› " } else { "  " }, s.fg(t.accent).add_modifier(Modifier::BOLD)), seg(l.to_string(), s.fg(t.strong))];
+    let first = rows.len().saturating_sub(box_h as usize);
+    for (i, l) in rows[first..].iter().enumerate() {
+        let last = first + i + 1 == rows.len();
+        let mut segs = vec![seg(format!(" {l}"), s.fg(t.strong))];
         if last {
             segs.push(seg("█", s.fg(t.accent)));
-            if input.is_empty() {
-                segs.push(seg(format!(" message {agent}…"), s.fg(t.muted)));
-            }
         }
-        put(buf, r.x + 2, box_.y + i as u16, &segs, r.right() - 2);
+        if input.is_empty() {
+            segs.push(seg(format!(" Write to {agent}…"), s.fg(t.muted)));
+        }
+        put(buf, bx.x, bx.y + i as u16, &segs, bx.right());
     }
-    put(
-        buf,
-        r.x + 2,
-        r.bottom() - 2,
-        &hints(t, &[("Enter", "send"), ("Shift+Enter", "new line"), ("Esc", "close")]),
-        r.right() - 1,
-    );
+    put(buf, r.x + 2, r.bottom() - 2, &hints(t, &[("Enter", "send"), ("Shift+Enter", "new line"), ("Esc", "close")]), r.right() - 1);
 }
 
 // Settings ------------------------------------------------------------------------------------

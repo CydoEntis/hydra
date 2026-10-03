@@ -822,9 +822,22 @@ pub(super) fn dim(buf: &mut Buffer, area: Rect, t: &Theme) {
 fn action_row(app: &mut App, buf: &mut Buffer, r: Rect, t: &Theme, buttons: &[(&str, &str, BtnKind, Hit)], tail: &[Seg]) {
     let y = r.bottom().saturating_sub(1);
     fill(buf, Rect { y, height: 1, ..r }, t.card2);
+    // Keycap first: in a tool window you just press the key (no Ctrl+Space).
     let mut x = r.x + 2;
     for (label, key, kind, hit) in buttons {
-        x = put_button(app, buf, x, y, label, key, *kind, *hit, r.right()) + 1;
+        let cap = format!(" {key} ");
+        let text = format!(" {label} ");
+        let w = (cap.width() + text.width()) as u16;
+        let br = Rect { x, y, width: w.min(r.right().saturating_sub(x)), height: 1 };
+        let hov = app.hover.is_some_and(|p| br.contains(p));
+        let cap_st = if *kind == BtnKind::Primary {
+            Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)
+        };
+        let text_st = Style::default().bg(if hov { t.hov } else { t.card2 }).fg(t.strong);
+        x = put(buf, x, y, &[seg(cap, cap_st), seg(text, text_st)], r.right()) + 2;
+        app.hits.push((br, *hit));
     }
     let tail: Vec<Seg> = tail.iter().map(|(s, st)| (s.clone(), st.bg(t.card2))).collect();
     put(buf, x + 2, y, &tail, r.right());
