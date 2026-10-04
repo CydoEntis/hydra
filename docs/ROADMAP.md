@@ -12,7 +12,7 @@ which ones need you, jump to them, and keep them running when you leave. See
 ## Now
 
 Active phase: **5 — Safe and steady: no way in for other users or hostile repos, no freezes, no crashes, no lost edits**
-Next unblocked: #1 — Open links and files on Windows without cmd.exe
+Next unblocked: #6 — Pane input never blocks the daemon
 
 ## Phases
 
@@ -140,9 +140,9 @@ Everything below is shipped on `dev` unless marked.
 
 ## Rules
 
-- The daemon's socket only accepts the user who started it — `src/ipc.rs` — SECURITY.md · not yet: #2
-- Status reports need the pane's token or its process chain — `src/daemon/mod.rs` hook handling — AGENTS.md non-negotiable 5 · not yet: #4
-- Nothing in a cloned repo runs without the user's approval — `src/project.rs` — SECURITY.md · not yet: #5
+- The daemon's socket only accepts the user who started it — `src/ipc.rs` — SECURITY.md
+- Status reports need the pane's token or its process chain — `src/daemon/mod.rs` hook handling — AGENTS.md non-negotiable 5
+- Nothing in a cloned repo runs without the user's approval — `src/project.rs` — SECURITY.md
 - Client and daemon refuse to talk across protocol versions — `src/protocol.rs` `PROTOCOL_VERSION`, checked on `Hello` — ADR-0003
 - Config always loads the hydra layout — `src/config.rs` `Config::load` — ADR-0004
 - Every built-in theme passes the contrast audit — `cargo test` (theme audit test in `src/theme.rs`) — readability
