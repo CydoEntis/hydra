@@ -5444,6 +5444,16 @@ mod hydra_tests {
     }
 
     #[test]
+    fn working_names_shimmer() {
+        use ratatui::style::{Color, Style};
+        let (base, bright) = (Color::Rgb(200, 160, 0), Color::Rgb(255, 255, 255));
+        let at = |frame| hydra::shimmer("claude", frame, base, bright, Style::default()).iter().map(|(_, s)| s.fg).collect::<Vec<_>>();
+        assert_eq!(at(0).len(), 6, "one colour per letter");
+        assert_ne!(at(4), at(7), "the bright band moves");
+        assert!(at(7).contains(&Some(base)), "the rest stays the working colour");
+    }
+
+    #[test]
     fn quick_follow_up_from_the_sidebar() {
         let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);

@@ -176,12 +176,9 @@ impl Theme {
             selection_bg: hex(c[7]),
             tab_active_bg: hex(c[8]),
             tab_active_fg: hex(c[9]),
-            // Same meanings as the designed themes: needs-you yellow/orange, error red, done
-            // green; working in plain text.
-            // As the designed themes: needs you amber/yellow, working plain text, done green,
-            // idle dim, error red.
-            working: mix(muted, fg, 0.5),
-            blocked: hex(c[10]),
+            // Working yellow, needs you red, done green, idle dim.
+            working: hex(c[10]),
+            blocked: hex(c[11]),
             done: hex(c[13]),
             idle: muted,
             card: mix(bg, fg, 0.05),
@@ -213,9 +210,9 @@ impl Theme {
             selection_bg: h(15),
             tab_active_bg: h(9),
             tab_active_fg: h(10),
-            // The redesign: needs you amber, working in plain text, done green, idle dim.
-            working: h(7),
-            blocked: h(11),
+            // Working yellow, needs you red, done green, idle dim.
+            working: h(11),
+            blocked: h(13),
             done: h(12),
             idle: h(6),
             card: h(3),
@@ -306,8 +303,8 @@ impl Theme {
                 selection_bg: Color::DarkGray,
                 tab_active_bg: Color::White,
                 tab_active_fg: Color::Black,
-                working: Color::Gray,
-                blocked: Color::Yellow,
+                working: Color::Yellow,
+                blocked: Color::Red,
                 done: Color::Green,
                 idle: Color::DarkGray,
                 card: Color::Black,
@@ -450,7 +447,8 @@ mod audit {
             for (what, a, b) in [
                 ("accent vs blocked", t.accent, t.blocked),
                 ("done vs blocked", t.done, t.blocked),
-                ("blocked vs err", t.blocked, t.err),
+                // Needs you is red like errors on purpose; working and done must differ.
+                ("working vs done", t.working, t.done),
                 ("working vs blocked", t.working, t.blocked),
             ] {
                 if a == b || contrast(a, b) < 1.15 && hue_near(a, b) {

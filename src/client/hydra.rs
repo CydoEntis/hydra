@@ -1080,7 +1080,11 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 if focused_row {
                     ns = ns.add_modifier(Modifier::BOLD);
                 }
-                left.push(seg(s.name.clone(), ns));
+                if s.is_agent && s.status == Status::Working && ink.is_none() && !s.asleep {
+                    left.extend(shimmer(&s.name, app.spinner_frame(), t.working, t.strong, ns));
+                } else {
+                    left.push(seg(s.name.clone(), ns));
+                }
                 if let Some(d) = &s.dev {
                     let port = d.port.map(|p| format!(" :{p}")).unwrap_or_default();
                     let state = if d.ready { "ready" } else { "starting…" };
@@ -2011,6 +2015,22 @@ pub(super) fn draw_palette(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, 
     put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("↑↓", "move"), ("Enter", "do it"), ("Esc", "close")]), r.right());
     let note = format!("keys go after {lead}");
     put(buf, r.right().saturating_sub(note.width() as u16 + 3), r.bottom() - 2, &[seg(note, Style::default().bg(t.card).fg(t.muted))], r.right());
+}
+
+/// A working agent's name: the working colour with a bright band sweeping across it.
+pub(super) fn shimmer(text: &str, frame: u64, base: Color, bright: Color, st: Style) -> Vec<Seg> {
+    const WIDTH: f32 = 3.0;
+    let chars: Vec<char> = text.chars().collect();
+    let span = chars.len() as u64 + 8;
+    let pos = (frame % span) as f32 - 4.0;
+    chars
+        .iter()
+        .enumerate()
+        .map(|(i, ch)| {
+            let k = (1.0 - (i as f32 - pos).abs() / WIDTH).max(0.0);
+            seg(ch.to_string(), st.fg(super::render::blend(base, bright, k * 0.8)))
+        })
+        .collect()
 }
 
 /// The go-to switcher's rows: projects and their sessions, those matching `q`.
