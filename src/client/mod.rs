@@ -2991,7 +2991,10 @@ impl App {
         if let Some(ed) = v.edit.as_mut() {
             match k.code {
                 KeyCode::Char('s') if ctrl => match ed.save() {
-                    Ok(()) => self.notify(format!("saved {}", ed.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), false),
+                    Ok(views::Saved::Done) => self.notify(format!("saved {}", ed.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), false),
+                    Ok(views::Saved::ChangedOnDisk) => {
+                        self.notify("the file changed since you opened it (an agent?): Ctrl+S again overwrites it, Esc keeps theirs".into(), true)
+                    }
                     Err(e) => self.notify(e, true),
                 },
                 KeyCode::Esc if ed.dirty && !ed.warned => {

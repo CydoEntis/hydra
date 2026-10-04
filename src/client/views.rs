@@ -167,6 +167,26 @@ pub struct Edit {
     pub warned: bool,
     crlf: bool,
     trailing_newline: bool,
+    /// The file as it was when opened (or last saved), to notice someone else changing it.
+    seen: u64,
+    /// Ctrl+S found it changed on disk: the next Ctrl+S overwrites anyway.
+    pub conflict: bool,
+}
+
+/// A fingerprint of a file's bytes (same run only).
+fn fingerprint_bytes(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut h);
+    h.finish()
+}
+
+/// What saving did.
+#[derive(Debug, PartialEq)]
+pub enum Saved {
+    Done,
+    /// The file changed on disk since it was opened; nothing was written.
+    ChangedOnDisk,
 }
 
 impl Edit {
@@ -175,26 +195,48 @@ impl Edit {
         if bytes.len() > 4 * 1024 * 1024 || bytes.contains(&0) {
             return Err("not a text file hydra can edit (too big or binary); press e for your editor".into());
         }
+        let seen = fingerprint_bytes(&bytes);
         let text = String::from_utf8(bytes).map_err(|_| "not UTF-8 text; press e for your editor".to_string())?;
-        let crlf = text.contains("\r\n");
+        // The file's usual line ending: one stray CRLF doesn't turn every line into CRLF.
+        let crlf_lines = text.matches("\r\n").count();
+        let crlf = crlf_lines * 2 > text.matches('\n').count();
         let trailing_newline = text.ends_with('\n');
         let mut lines: Vec<String> = text.lines().map(|l| l.trim_end_matches('\r').to_string()).collect();
         if lines.is_empty() {
             lines.push(String::new());
         }
-        Ok(Edit { path: path.to_path_buf(), lines, row: 0, col: 0, dirty: false, warned: false, crlf, trailing_newline })
+        Ok(Edit { path: path.to_path_buf(), lines, row: 0, col: 0, dirty: false, warned: false, crlf, trailing_newline, seen, conflict: false })
     }
 
-    pub fn save(&mut self) -> Result<(), String> {
+    /// Save, unless the file changed on disk since it was opened (an agent edited it): then
+    /// nothing is written and `conflict` is set, so saving again overwrites on purpose. The
+    /// write goes to a temporary file that replaces the real one, so a crash can't leave
+    /// it half written.
+    pub fn save(&mut self) -> Result<Saved, String> {
+        if !self.conflict
+            && let Ok(now) = std::fs::read(&self.path)
+            && fingerprint_bytes(&now) != self.seen
+        {
+            self.conflict = true;
+            return Ok(Saved::ChangedOnDisk);
+        }
         let nl = if self.crlf { "\r\n" } else { "\n" };
         let mut text = self.lines.join(nl);
         if self.trailing_newline {
             text.push_str(nl);
         }
-        std::fs::write(&self.path, text).map_err(|e| format!("couldn't save: {e}"))?;
+        let name = self.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let tmp = self.path.with_file_name(format!(".{name}.hydra-save"));
+        std::fs::write(&tmp, &text).map_err(|e| format!("couldn't save: {e}"))?;
+        if let Err(e) = std::fs::rename(&tmp, &self.path) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(format!("couldn't save: {e}"));
+        }
+        self.seen = fingerprint_bytes(text.as_bytes());
+        self.conflict = false;
         self.dirty = false;
         self.warned = false;
-        Ok(())
+        Ok(Saved::Done)
     }
 
     fn len(&self, row: usize) -> usize {
@@ -547,11 +589,24 @@ mod tests {
         ed.newline();
         ed.insert('y');
         assert!(ed.dirty);
-        ed.save().unwrap();
+        assert_eq!(ed.save().unwrap(), Saved::Done);
         assert_eq!(std::fs::read_to_string(&f).unwrap(), "const a = 12;\r\n  if (x) {\r\n  y\r\n", "edits, the indent kept, CRLF kept");
         ed.go(0, -100);
         ed.backspace();
         assert_eq!(ed.lines[1], "  if (x) {  y", "backspace at a line's start joins it to the one above");
+        // Someone else (an agent) changes the file: saving doesn't overwrite it, until asked twice.
+        std::fs::write(&f, "agent's version\r\n").unwrap();
+        assert_eq!(ed.save().unwrap(), Saved::ChangedOnDisk);
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "agent's version\r\n", "nothing written");
+        assert_eq!(ed.save().unwrap(), Saved::Done, "the second Ctrl+S overwrites on purpose");
+        assert!(std::fs::read_to_string(&f).unwrap().starts_with("const a = 12;"));
+        // One stray CRLF in an LF file keeps it LF.
+        let g = dir.join("b.txt");
+        std::fs::write(&g, "a\nb\r\nc\nd\n").unwrap();
+        let mut ed = Edit::open(&g).unwrap();
+        ed.insert('x');
+        ed.save().unwrap();
+        assert_eq!(std::fs::read_to_string(&g).unwrap(), "xa\nb\nc\nd\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
