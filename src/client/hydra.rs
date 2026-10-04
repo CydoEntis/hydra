@@ -767,7 +767,7 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
         // The edge between sidebar and panes: drag it.
         let ex = if right_side { side.x.saturating_sub(1) } else { side.right() };
         let edge = Rect { x: ex, y: side.y, width: 1, height: side.height };
-        let c = if app.hy.drag == Some(Drag::Side) || hovered(app, edge) { t.accent } else { t.line };
+        let c = if app.hy.drag == Some(Drag::Side) || hovered(app, edge) || app.mode == Mode::Side { t.accent } else { t.line };
         for yy in edge.top()..edge.bottom() {
             f.buffer_mut()[(ex, yy)].set_symbol("│").set_style(Style::default().fg(c).bg(t.bg));
         }
@@ -945,7 +945,14 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     let split = shown.iter().copied().find(|t| Some(*t) != focus && shown.len() > 1);
     // PROJECTS, and "+ open o" on the right.
     let sb = Style::default().bg(surf);
-    put(buf, r.x + 2, r.y + 1, &[seg("PROJECTS", sb.fg(t.muted).add_modifier(Modifier::BOLD))], r.right());
+    let focused_side = app.mode == Mode::Side;
+    put(buf, r.x + 2, r.y + 1, &[seg("PROJECTS", sb.fg(if focused_side { t.accent } else { t.muted }).add_modifier(Modifier::BOLD))], r.right());
+    if focused_side {
+        // The keys are here: an accent line along the sidebar's top too.
+        for xx in r.x..r.right() {
+            buf[(xx, r.y)].set_symbol("▔").set_style(Style::default().fg(t.accent).bg(surf));
+        }
+    }
     let ok = k(app, &Action::OpenProject);
     let open = vec![seg("+ open ", sb.fg(t.text)), seg(ok, sb.fg(t.accent).add_modifier(Modifier::BOLD))];
     let ow = segs_width(&open);
@@ -2512,12 +2519,11 @@ pub(super) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
         (
             "MOVE",
             vec![
-                (vec![Action::SideMove(-1), Action::SideMove(1)], "sidebar"),
-                (vec![Action::Jump], "jump to needs-you"),
-                (vec![Action::Answer('1'), Action::Answer('2'), Action::Answer('3')], "answer agent"),
-                (vec![Action::NextAttention], "next that needs you"),
-                (vec![Action::Focus(Dir::Left), Action::Focus(Dir::Right)], "other split"),
-                (vec![Action::Palette], "find anything"),
+                (vec![Action::BrowseTree], "sidebar"),
+                (vec![Action::Jump], "jump"),
+                (vec![Action::NextAttention], "next waiting"),
+                (vec![Action::Focus(Dir::Left), Action::Focus(Dir::Right)], "other pane"),
+                (vec![Action::NextTab], "next tab"),
             ],
         ),
         (
@@ -2525,26 +2531,23 @@ pub(super) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
             vec![
                 (vec![Action::Talk], "message"),
                 (vec![Action::Reply], "reply"),
-                (vec![Action::NewSession], "new session"),
-                (vec![Action::NewPane], "new pane"),
+                (vec![Action::ShellHere], "new shell"),
+                (vec![Action::NewPane], "new agent"),
                 (vec![Action::OpenProject], "open project"),
-                (vec![Action::CloseSplit], "close split"),
-                (vec![Action::ClosePane], "end session"),
-                (vec![Action::RenameWorkspace], "rename session"),
-                (vec![Action::QuickPrompt], "quick task"),
+                (vec![Action::CloseSplit], "unsplit"),
+                (vec![Action::ClosePane], "close pane"),
+                (vec![Action::Presets], "presets"),
             ],
         ),
         (
-            "PANES & CODE",
+            "CODE",
             vec![
-                (vec![Action::SplitRight], "shell beside"),
-                (vec![Action::Zoom], "hide sidebar"),
-                (vec![Action::CopyMode], "copy mode"),
-                (vec![Action::Search], "search history"),
-                (vec![Action::Changes], "changes"),
                 (vec![Action::Files], "files"),
-                (vec![Action::Tasks], "tasks & review"),
-                (vec![Action::Inbox], "inbox"),
+                (vec![Action::Find(0)], "find file"),
+                (vec![Action::Find(1)], "search code"),
+                (vec![Action::Changes], "changes"),
+                (vec![Action::Branches], "branch"),
+                (vec![Action::Inbox], "tickets"),
                 (vec![Action::Toolbox], "toolbox"),
             ],
         ),
@@ -2552,12 +2555,11 @@ pub(super) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
             "APP",
             vec![
                 (vec![Action::Settings], "settings"),
-                (vec![Action::Help], "this list"),
-                (vec![Action::Menu], "menu"),
-                (vec![Action::UndoAutoWorkspace], "undo"),
-                (vec![Action::Detach], "detach"),
-                (vec![Action::ReloadConfig], "reload config"),
-                (vec![Action::SendPrefix], "send the leader"),
+                (vec![Action::Help], "keys"),
+                (vec![Action::Zoom], "hide sidebar"),
+                (vec![Action::NewTab], "new tab"),
+                (vec![Action::History], "history"),
+                (vec![Action::Memory], "memory"),
             ],
         ),
     ];
@@ -2811,8 +2813,21 @@ impl App {
             self.hy.tab = 0;
             return;
         }
-        // Not shown anywhere: it takes the place of the one you were on.
+        // The one you were on was closed: the rest of its split stays as it is, and the focus
+        // goes to what's left there (not to whatever the server picked).
         let tab = &mut self.hy.tabs[self.hy.tab];
+        if let Some(gone) = prev.filter(|o| tab.layout.contains(*o) && !self.snap.terms.contains_key(o))
+            && tab.layout.leaves().len() > 1
+            && let Some(rest) = tab.layout.clone().remove(gone)
+        {
+            tab.layout = rest;
+            tab.focus = tab.layout.first_leaf();
+            let to = tab.focus;
+            self.cmd(Command::FocusPane { term: to });
+            return;
+        }
+        let tab = &mut self.hy.tabs[self.hy.tab];
+        // Not shown anywhere: it takes the place of the one you were on.
         let old = prev.filter(|o| tab.layout.contains(*o)).unwrap_or(tab.focus);
         let swapped = tab.layout.map_leaves(&mut |id| Some(if id == old { f } else { id }));
         tab.layout = swapped.filter(|l| l.contains(f)).unwrap_or(Node::Leaf(f));
@@ -3139,6 +3154,11 @@ impl App {
         let spec = KeySpec::from_event(k);
         let proj = self.hy.cursor_proj.clone();
         let model = self.hy_model();
+        if spec == self.keymap.prefix {
+            self.mode = Mode::Prefix { since: Instant::now() };
+            return;
+        }
+        let plain = !k.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
         match k.code {
             KeyCode::Up | KeyCode::Char('k') if !k.modifiers.contains(KeyModifiers::CONTROL) => self.hy_side_move(-1),
             KeyCode::Down | KeyCode::Char('j') if !k.modifiers.contains(KeyModifiers::CONTROL) => self.hy_side_move(1),
@@ -3171,7 +3191,7 @@ impl App {
                 }
                 _ => {}
             },
-            KeyCode::Char(' ') => match (&proj, self.hy.cursor) {
+            KeyCode::Char(' ') if plain => match (&proj, self.hy.cursor) {
                 (Some(key), _) => {
                     if let Some(pi) = model.iter().position(|p| p.key == *key) {
                         self.hy_side_leave();

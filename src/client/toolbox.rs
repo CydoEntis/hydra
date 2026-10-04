@@ -37,11 +37,20 @@ pub struct ToolboxView {
     pub query: String,
     pub sel: usize,
     pub scroll: u16,
+    /// Showing what's set up everywhere (global, plugins), not just this project.
+    pub everywhere: bool,
+}
+
+impl Item {
+    /// Set up for this project only (not for every project on this machine).
+    pub fn is_project(&self) -> bool {
+        self.scope.contains("project")
+    }
 }
 
 impl ToolboxView {
     pub fn new(project: PathBuf) -> ToolboxView {
-        ToolboxView { project, sections: None, query: String::new(), sel: 0, scroll: 0 }
+        ToolboxView { project, sections: None, query: String::new(), sel: 0, scroll: 0, everywhere: false }
     }
 
     /// Headers and the items that match the query. `sel` indexes the selectable items only.
@@ -54,6 +63,7 @@ impl ToolboxView {
                 .items
                 .iter()
                 .enumerate()
+                .filter(|(_, i)| i.is_project() != self.everywhere)
                 .filter(|(_, i)| q.is_empty() || i.name.to_lowercase().contains(&q) || s.title.to_lowercase().contains(&q) || s.tool.to_lowercase().contains(&q))
                 .map(|(ii, _)| ii)
                 .collect();

@@ -1916,14 +1916,14 @@ fn toolbox_panel(app: &App, t: &crate::theme::Theme) -> PanelView {
     }
     PanelView {
         title: format!("toolbox · {}", truncate(&v.project.display().to_string(), 50)),
-        tabs: Vec::new(),
-        tab: 0,
+        tabs: vec!["This project".into(), "Everywhere".into()],
+        tab: v.everywhere as usize,
         query: Some(v.query.clone()),
         sel: sel_row,
         rows,
         detail,
         detail_scroll: v.scroll,
-        footer: hint(t, &[("Enter", "open its config file"), ("^R", "rescan"), ("Esc", "close")]),
+        footer: hint(t, &[("Tab", "this project / everywhere"), ("Enter", "open its config file"), ("^R", "rescan"), ("Esc", "close")]),
         empty: if v.sections.is_none() { "  reading configs…".into() } else { "  Nothing set up here (or nothing matches).".into() },
         left_pct: 50,
     }

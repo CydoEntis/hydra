@@ -368,6 +368,9 @@ impl App {
             Act::Dev(dir, action) => self.cmd(Command::Dev { dir, action }),
             Act::End(ts) => {
                 for t in ts {
+                    // Out of its split first: the pane beside it takes the room (and the
+                    // focus), so nothing else slides into its place.
+                    self.hy_unshow(t);
                     self.cmd(Command::ClosePane { term: t });
                 }
             }
@@ -380,9 +383,17 @@ impl App {
 /// Numbered lists (presets) use their numbers.
 pub(super) fn menu_keys(items: &[(String, Act)]) -> Vec<Option<char>> {
     let mut used: Vec<char> = vec!['j', 'k'];
+    // Closing is always x.
+    let closes = |a: &Act| matches!(a, Act::End(_) | Act::CloseProject(_));
+    if items.iter().any(|(_, a)| closes(a)) {
+        used.push('x');
+    }
     items
         .iter()
-        .map(|(l, _)| {
+        .map(|(l, a)| {
+            if closes(a) {
+                return Some('x');
+            }
             if l.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                 return None;
             }
@@ -403,20 +414,34 @@ pub(super) fn draw_menu(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, m: 
     let h = m.items.len() as u16 + 3 + gap as u16;
     let x = m.at.0.min(area.right().saturating_sub(w + 1)).max(area.x);
     let y = if m.at.1 + h < area.bottom() { m.at.1 + 1 } else { m.at.1.saturating_sub(h) }.max(area.y);
-    let r = Rect { x, y, width: w, height: h };
+    let r = Rect { x, y, width: w, height: h + 1 };
     // Clicking anywhere else closes it.
     hit(app, area, HyHit::Close);
-    fill(buf, r, t.card);
+    // Its own surface and an outline, so it stands off whatever is under it.
+    let bgm = t.card2;
+    fill(buf, r, bgm);
+    let edge = Style::default().fg(super::render::blend(t.line, t.text, 0.35)).bg(bgm);
+    for xx in r.x..r.right() {
+        buf[(xx, r.y)].set_symbol("─").set_style(edge);
+        buf[(xx, r.bottom() - 1)].set_symbol("─").set_style(edge);
+    }
+    for yy in r.y..r.bottom() {
+        buf[(r.x, yy)].set_symbol("│").set_style(edge);
+        buf[(r.right() - 1, yy)].set_symbol("│").set_style(edge);
+    }
+    for (cx, cy, g) in [(r.x, r.y, "╭"), (r.right() - 1, r.y, "╮"), (r.x, r.bottom() - 1, "╰"), (r.right() - 1, r.bottom() - 1, "╯")] {
+        buf[(cx, cy)].set_symbol(g).set_style(edge);
+    }
     hit(app, r, HyHit::Noop);
-    put(buf, r.x + 2, r.y, &[seg(truncate(&m.title, (w - 4) as usize), Style::default().fg(t.muted).bg(t.card))], r.right() - 1);
+    put(buf, r.x + 2, r.y, &[seg(format!(" {} ", truncate(&m.title, (w - 6) as usize)), Style::default().fg(t.text).bg(bgm).add_modifier(Modifier::BOLD))], r.right() - 2);
     let mut yy = r.y + 2;
     for (i, (label, act)) in m.items.iter().enumerate() {
         if gap && danger(act) && i + 1 == m.items.len() {
             yy += 1;
         }
-        let row = Rect { x: r.x, y: yy, width: w, height: 1 };
+        let row = Rect { x: r.x + 1, y: yy, width: w - 2, height: 1 };
         let on = i == m.sel || hovered(app, row);
-        let bg = if on { t.hov } else { t.card };
+        let bg = if on { t.hov } else { bgm };
         fill(f.buffer_mut(), row, bg);
         if i == m.sel {
             put(f.buffer_mut(), row.x + 1, yy, &[seg("›", Style::default().fg(t.accent).bg(bg).add_modifier(Modifier::BOLD))], row.right());

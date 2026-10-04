@@ -4053,6 +4053,11 @@ impl App {
     fn on_toolbox_key(&mut self, mut v: toolbox::ToolboxView, k: &KeyEvent) {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         match k.code {
+            // This project, or everywhere.
+            KeyCode::Tab | KeyCode::BackTab => {
+                v.everywhere = !v.everywhere;
+                v.sel = 0;
+            }
             KeyCode::Esc => {
                 self.mode = Mode::Normal;
                 return;
@@ -4719,7 +4724,7 @@ mod hydra_tests {
             (Mode::Jump { sel: 0 }, "NEEDS YOU"),
             (Mode::HyPane(hydra::NewPaneHy::new(0, false)), "claude gets its own new worktree in shop-api"),
             (Mode::HyPane(hydra::NewPaneHy { place: Some(1), ..hydra::NewPaneHy::new(0, false) }), "Switches shop-api to a new branch"),
-            (Mode::Help { scroll: 0 }, "PANES & CODE"),
+            (Mode::Help { scroll: 0 }, "search code"),
             (Mode::Talk { term: 1, input: String::new() }, "Write to claude…"),
         ] {
             app.mode = mode;
@@ -5244,6 +5249,11 @@ mod hydra_tests {
         // Enter opens it and gives the keys back to the pane.
         app.on_key(key(KeyCode::Enter));
         assert!(matches!(app.mode, Mode::Normal) && app.hy.cursor.is_none());
+        // The leader in the sidebar is the leader, not "message this one".
+        app.act(Action::BrowseTree);
+        app.on_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL));
+        assert!(matches!(app.mode, Mode::Prefix { .. }), "Ctrl+Space waits for a key: {:?}", std::mem::discriminant(&app.mode));
+        app.mode = Mode::Normal;
         // Typing in the sidebar goes to the pane instead.
         app.act(Action::BrowseTree);
         assert!(matches!(app.mode, Mode::Side));
@@ -5283,6 +5293,29 @@ mod hydra_tests {
         show(&o);
         assert!(o.contains("THEME") && o.contains("● Default") && o.contains("○ Monokai") && o.contains("○ Tokyo Night"));
         assert!(o.contains("Swatches: background, surface"));
+    }
+
+    #[test]
+    fn closing_a_split_pane_leaves_the_other() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 200, 50);
+        let a = app.focused().unwrap();
+        let others: Vec<TermId> = app.snap.terms.keys().copied().filter(|t| *t != a).collect();
+        let (b, c) = (others[0], others[1]);
+        app.hy.tabs.clear();
+        app.hy_place(a, None);
+        app.hy.pending_split = Some((a, Instant::now()));
+        app.hy_place(b, Some(a));
+        assert_eq!(app.hy.tabs[0].layout.leaves().len(), 2);
+        // b is closed; the server then focuses some other session, c.
+        app.snap.terms.remove(&b);
+        app.hy_place(c, Some(b));
+        assert_eq!(app.hy.tabs[0].layout, crate::layout::Node::Leaf(a), "a takes the room; c doesn't slide into b's place");
+        // Closing from the ✕ takes it out of the split first.
+        app.hy.pending_split = Some((a, Instant::now()));
+        app.snap.terms.insert(b, app.snap.terms[&c].clone());
+        app.hy_place(b, Some(a));
+        app.menu_do(menu::Act::End(vec![b]));
+        assert_eq!(app.hy.tabs[0].layout, crate::layout::Node::Leaf(a));
     }
 
     #[test]
