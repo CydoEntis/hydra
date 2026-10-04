@@ -999,13 +999,16 @@ impl App {
             Mode::Confirm(c) => match k.code {
                 KeyCode::Enter | KeyCode::Char('y') => {
                     self.mode = Mode::Normal;
-                    self.menu_do(c.act);
+                    self.confirm_done(Some(c.act));
                 }
                 KeyCode::Char(ch) if ch == c.key => {
                     self.mode = Mode::Normal;
-                    self.menu_do(c.act);
+                    self.confirm_done(Some(c.act));
                 }
-                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('q') => self.mode = Mode::Normal,
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('q') => {
+                    self.mode = Mode::Normal;
+                    self.confirm_done(None);
+                }
                 _ => self.mode = Mode::Confirm(c),
             },
             Mode::Ship(ask) => {
@@ -5306,6 +5309,12 @@ mod hydra_tests {
         app.on_key(key(KeyCode::Char('x')));
         assert!(matches!(&app.mode, Mode::Confirm(c) if c.title == "Close pane"), "x closes (after asking)");
         app.on_key(key(KeyCode::Esc));
+        assert!(matches!(app.mode, Mode::Side) && app.hy.cursor == Some(first), "saying no goes back to the sidebar");
+        let next = app.side_after_close();
+        app.on_key(key(KeyCode::Char('x')));
+        app.on_key(key(KeyCode::Enter));
+        assert!(matches!(app.mode, Mode::Side), "after closing, the keys stay in the sidebar");
+        assert_eq!(next.map(|n| n != hydra::SideItem::Sess(first)), Some(true));
         app.hy_side_set(hydra::SideItem::Sess(first));
         // Enter opens it and gives the keys back to the pane.
         app.on_key(key(KeyCode::Enter));

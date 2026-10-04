@@ -56,6 +56,9 @@ pub(super) struct Saved {
 
 #[derive(Debug, Default)]
 pub(super) struct Hy {
+    /// A question asked from the sidebar: where its cursor goes after (the row below the
+    /// one being closed), so the keys stay in the sidebar.
+    pub side_return: Option<SideItem>,
     pub saved: Saved,
     /// The project of what you're on (the default for + New).
     pub proj: Option<String>,
@@ -3167,6 +3170,35 @@ impl App {
         self.hy_side_set(items[next].clone());
     }
 
+    /// The sidebar row to land on after the cursor's row goes: the next one, else the one
+    /// before.
+    pub(super) fn side_after_close(&self) -> Option<SideItem> {
+        let items = &self.hy.side_items;
+        let cur = match (&self.hy.cursor_proj, self.hy.cursor) {
+            (Some(k), _) => items.iter().position(|i| *i == SideItem::Proj(k.clone())),
+            (None, Some(t)) => items.iter().position(|i| *i == SideItem::Sess(t)),
+            _ => None,
+        }?;
+        items.get(cur + 1).or_else(|| cur.checked_sub(1).and_then(|i| items.get(i))).cloned()
+    }
+
+    /// A confirm answered (`act` when yes): do it, and go back to the sidebar if it was
+    /// asked from there.
+    pub(super) fn confirm_done(&mut self, act: Option<super::menu::Act>) {
+        let back = self.hy.side_return.take();
+        let yes = act.is_some();
+        if let Some(a) = act {
+            self.menu_do(a);
+        }
+        if let Some(item) = back {
+            if yes {
+                self.hy_side_set(item);
+            } else {
+                self.hy_side_move(0);
+            }
+        }
+    }
+
     /// Put the sidebar cursor on a row (and the keys in the sidebar).
     pub(super) fn hy_side_set(&mut self, item: SideItem) {
         self.hy.follow = true;
@@ -3899,10 +3931,13 @@ impl App {
             }
             HyHit::ConfirmYes => {
                 if let Mode::Confirm(c) = std::mem::replace(&mut self.mode, Mode::Normal) {
-                    self.menu_do(c.act);
+                    self.confirm_done(Some(c.act));
                 }
             }
-            HyHit::ConfirmNo => self.mode = Mode::Normal,
+            HyHit::ConfirmNo => {
+                self.mode = Mode::Normal;
+                self.confirm_done(None);
+            }
             HyHit::TabPick(i) => {
                 if let Some(tab) = self.hy.tabs.get(i) {
                     let to = tab.focus;

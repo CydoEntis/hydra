@@ -312,7 +312,11 @@ impl App {
             _ => None,
         };
         match ask {
-            Some(c) => self.mode = Mode::Confirm(Box::new(c)),
+            Some(c) => {
+                // Asked from the sidebar: come back to it afterwards, on the next row.
+                self.hy.side_return = if self.mode == Mode::Side { self.side_after_close() } else { None };
+                self.mode = Mode::Confirm(Box::new(c));
+            }
             None => self.menu_do(a),
         }
     }
