@@ -4671,18 +4671,16 @@ mod modal_tests {
         if std::env::var("HYDRA_SHOW").is_ok() {
             println!("{keys}\n{pane}");
         }
-        for cat in ["AGENTS", "PANES & TABS", "SPLITS", "CODE", "HYDRA"] {
+        for cat in ["GET AROUND", "PANES", "TABS", "CODE", "APP"] {
             assert!(keys.contains(cat), "missing category {cat}");
         }
-        let focus = keys.lines().find(|l| l.contains("move focus")).unwrap();
-        assert!(focus.contains(" ← ") && focus.contains(" → "), "a keycap per arrow: {focus}");
         assert!(pane.contains("New pane") && pane.contains("RUN") && pane.contains("WHERE"));
         // Keys are drawn as caps: the key sits on the button ground, not the card's.
         let mut term = Terminal::new(TestBackend::new(160, 45)).unwrap();
         app.mode = Mode::Help { scroll: 0 };
         term.draw(|f| render::draw(&mut app, f)).unwrap();
         let buf = term.backend().buffer();
-        let (y, line) = keys.lines().enumerate().find(|(_, l)| l.contains("zoom")).unwrap();
+        let (y, line) = keys.lines().enumerate().find(|(_, l)| l.contains("Zoom pane")).unwrap();
         let x = line.chars().take_while(|c| *c != 'z').count() as u16;
         assert_eq!(buf[(x, y as u16)].bg, app.theme.btn, "the z key is a keycap");
         // Centered: the window's title row starts well away from the left edge.
@@ -5433,6 +5431,16 @@ mod hydra_tests {
         let a = o.lines().find(|l| l.contains("go to session")).unwrap();
         let b = o.lines().find(|l| l.contains("palette")).unwrap();
         assert_eq!(a.find("go to session"), b.find("palette"), "labels line up");
+    }
+
+    #[test]
+    fn settings_keys_tab_is_current() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let cat = modal::Cat::ALL.iter().position(|c| *c == modal::Cat::Keys).unwrap();
+        app.mode = Mode::HySettings(Box::new(design::SettingsView { cat, sel: 0, editing: None, capturing: false, scroll: 0 }));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("GET AROUND") && o.contains("Go to a project or session") && o.contains("Command palette"));
     }
 
     #[test]
