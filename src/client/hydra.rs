@@ -1968,6 +1968,51 @@ pub(super) fn np_places(p: &Proj) -> Vec<String> {
     v
 }
 
+/// The command palette, as the other popups: type words, ↑↓, Enter; each with its key.
+pub(super) fn draw_palette(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, query: &str, sel: usize, items: &[super::PickItem]) {
+    let buf = f.buffer_mut();
+    dim_all(buf, area, t);
+    let h = (items.len() as u16 + 8).clamp(12, 30);
+    let r = panel(app, buf, area, 80, h, "Command palette", &[], t);
+    let q = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: 1 };
+    fill(buf, q, t.card2);
+    let s2 = Style::default().bg(t.card2);
+    let mut qs = vec![seg("› ", s2.fg(t.accent).add_modifier(Modifier::BOLD)), seg(query.to_string(), s2.fg(t.strong)), seg("█", s2.fg(t.accent))];
+    if query.is_empty() {
+        qs.push(seg(" what do you want to do?", s2.fg(t.muted)));
+    }
+    put(buf, r.x + 3, q.y, &qs, r.right() - 2);
+    let list = Rect { x: r.x + 1, y: r.y + 4, width: r.width - 2, height: r.height.saturating_sub(7) };
+    let start = sel.saturating_sub(list.height.saturating_sub(1) as usize);
+    for (i, item) in items.iter().enumerate().skip(start).take(list.height as usize) {
+        let y = list.y + (i - start) as u16;
+        let rr = Rect { y, height: 1, ..list };
+        let on = i == sel;
+        let bg = if on || hovered(app, rr) { t.hov } else { t.card };
+        fill(buf, rr, bg);
+        let st = Style::default().bg(bg);
+        if on {
+            put(buf, rr.x + 1, y, &[seg("›", st.fg(t.accent).add_modifier(Modifier::BOLD))], rr.right());
+        }
+        let ls = st.fg(if on { t.strong } else { t.text });
+        put(buf, rr.x + 3, y, &[seg(item.label.clone(), if on { ls.add_modifier(Modifier::BOLD) } else { ls })], rr.right().saturating_sub(14));
+        let key = match &item.target {
+            super::PickTarget::Command(a) => key_text(app, std::slice::from_ref(a)).split("  ").next().unwrap_or("").to_string(),
+            _ => String::new(),
+        };
+        let caps = keycaps(t, &key, bg);
+        let kw = segs_width(&caps);
+        put(buf, rr.right().saturating_sub(kw + 2), y, &caps, rr.right());
+    }
+    if items.is_empty() {
+        put(buf, list.x + 2, list.y, &[seg("nothing matches", Style::default().bg(t.card).fg(t.muted).add_modifier(Modifier::ITALIC))], list.right());
+    }
+    let lead = app.keymap.prefix.to_string().replace("C-", "Ctrl+");
+    put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("↑↓", "move"), ("Enter", "do it"), ("Esc", "close")]), r.right());
+    let note = format!("keys go after {lead}");
+    put(buf, r.right().saturating_sub(note.width() as u16 + 3), r.bottom() - 2, &[seg(note, Style::default().bg(t.card).fg(t.muted))], r.right());
+}
+
 /// The go-to switcher's rows: projects and their sessions, those matching `q`.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum GoRow {
@@ -2612,11 +2657,11 @@ pub(super) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
         (
             "GET AROUND",
             vec![
-                (vec![Action::GoTo], "go to…"),
+                (vec![Action::GoTo], "go to session"),
                 (vec![Action::BrowseTree], "focus sidebar"),
-                (vec![Action::Focus(Dir::Left), Action::Focus(Dir::Right)], "focus pane"),
+                (vec![Action::Focus(Dir::Left), Action::Focus(Dir::Down), Action::Focus(Dir::Up), Action::Focus(Dir::Right)], "focus pane"),
                 (vec![Action::Jump], "needs you"),
-                (vec![Action::NextTab, Action::PrevTab], "next / prev tab"),
+                (vec![Action::PrevTab, Action::NextTab], "prev / next tab"),
                 (vec![Action::Palette], "palette"),
             ],
         ),
@@ -2657,23 +2702,23 @@ pub(super) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
         ),
     ];
     let tallest = cols.iter().map(|(_, v)| v.len()).max().unwrap_or(0) as u16;
-    let r = panel(app, buf, area, 116, tallest + 9, "Keys", &[], t);
+    let r = panel(app, buf, area, 120, tallest * 2 + 9, "Keys", &[], t);
     let cw = (r.width - 6) / 4;
     for (ci, (head, items)) in cols.iter().enumerate() {
         let cx = r.x + 3 + ci as u16 * cw;
         put(buf, cx, r.y + 2, &[seg(*head, Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::BOLD))], cx + cw);
-        let kw = items.iter().map(|(a, _)| segs_width(&keycaps(t, &key_text(app, a), t.card))).max().unwrap_or(3).min(14);
+        // The first key of each, in a column of its own; labels line up after it.
+        let first = |acts: &Vec<Action>| key_text(app, acts).split("  ").next().unwrap_or("").to_string();
+        let kw = items.iter().map(|(a, _)| segs_width(&keycaps(t, &first(a), t.card))).max().unwrap_or(3);
         for (j, (acts, label)) in items.iter().enumerate() {
-            let y = r.y + 3 + j as u16;
-            let caps = keycaps(t, &key_text(app, acts), t.card);
-            let pad = kw.saturating_sub(segs_width(&caps));
-            let mut row = vec![seg(" ".repeat(pad as usize), Style::default().bg(t.card))];
+            let y = r.y + 4 + j as u16 * 2;
+            let caps = keycaps(t, &first(acts), t.card);
             if caps.is_empty() {
-                row.push(seg("·", Style::default().fg(t.line).bg(t.card)));
+                put(buf, cx, y, &[seg("·", Style::default().fg(t.line).bg(t.card))], cx + cw);
+            } else {
+                put(buf, cx, y, &caps, cx + cw);
             }
-            row.extend(caps);
-            row.push(seg(format!(" {label}"), Style::default().fg(t.text).bg(t.card)));
-            put(buf, cx, y, &row, cx + cw - 1);
+            put(buf, cx + kw + 2, y, &[seg(label.to_string(), Style::default().fg(t.text).bg(t.card))], cx + cw - 1);
         }
     }
     let lead = app.keymap.prefix.to_string().replace("C-", "Ctrl+");

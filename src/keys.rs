@@ -637,7 +637,6 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("9", "select-tab-9"),
     // Getting around
     ("g", "go-to"),
-    ("w", "go-to"),
     ("e", "browse-tree"),
     ("a", "jump"),
     ("p", "palette"),

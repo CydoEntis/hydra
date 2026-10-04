@@ -1231,7 +1231,11 @@ fn draw_which_key(app: &App, f: &mut Frame, area: Rect, t: &crate::theme::Theme)
     }
 }
 
-fn draw_picker(app: &App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, query: &str, sel: usize, commands: bool) {
+fn draw_picker(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, query: &str, sel: usize, commands: bool) {
+    if commands && app.cfg.ui.layout == "hydra" {
+        let items = app.pick_items(query, true);
+        return super::hydra::draw_palette(app, f, area, t, query, sel, &items);
+    }
     let items = app.pick_items(query, commands);
     let r = centered(area, 80, 22);
     f.render_widget(Clear, r);

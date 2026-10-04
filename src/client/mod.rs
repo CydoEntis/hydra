@@ -4309,6 +4309,11 @@ impl App {
         } else {
             Vec::new()
         };
+        // In this layout the palette is commands only; Go to finds sessions.
+        if commands && self.cfg.ui.layout == "hydra" {
+            let words: Vec<&str> = q.split_whitespace().collect();
+            return command_items.into_iter().filter(|i| words.iter().all(|w| i.label.to_lowercase().contains(w))).collect();
+        }
         let mut agents: Vec<PickItem> = self
             .snap
             .terms
@@ -5407,6 +5412,27 @@ mod hydra_tests {
         assert!(matches!(rows[sel], hydra::GoRow::Sess(..)), "it lands on the matching session");
         app.on_key(key(KeyCode::Enter));
         assert!(matches!(app.mode, Mode::Normal), "Enter goes there");
+    }
+
+    #[test]
+    fn palette_and_keys_look_like_the_app() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        app.act(Action::Palette);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("Command palette") && o.contains("Go to a project or session") && !o.contains("workspace ·"), "commands only, in a panel");
+        for c in "split".chars() {
+            app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("Split right") && !o.contains("Settings"), "typing narrows it");
+        app.mode = Mode::Help { scroll: 0 };
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        let a = o.lines().find(|l| l.contains("go to session")).unwrap();
+        let b = o.lines().find(|l| l.contains("palette")).unwrap();
+        assert_eq!(a.find("go to session"), b.find("palette"), "labels line up");
     }
 
     #[test]

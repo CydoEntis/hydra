@@ -89,7 +89,7 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 
 | keys (after the leader) | action |
 |---|---|
-| `g` (or `w`) | **go to** a project or session: type to find it |
+| `g` | **go to** a project or session: type to find it |
 | `e` / `a` | focus the sidebar / jump to what needs you |
 | `p` (or Space) | **command palette**: type what you want |
 | `n` / `t` / `o` | new session (a shell here) / new agent (task box) / open a project |

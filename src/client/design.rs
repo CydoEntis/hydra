@@ -249,7 +249,7 @@ pub(super) fn put(buf: &mut Buffer, x: u16, y: u16, segs: &[Seg], max_x: u16) ->
 }
 
 pub(super) fn fill(buf: &mut Buffer, r: Rect, bg: Color) {
-    buf.set_style(r, Style::default().bg(bg));
+    buf.set_style(r, Style::reset().bg(bg));
     for y in r.top()..r.bottom() {
         for x in r.left()..r.right() {
             buf[(x, y)].set_symbol(" ");
