@@ -188,45 +188,7 @@ pub fn run() -> Result<()> {
         if let Some(e) = err {
             tracing::warn!("config: {e}");
         }
-        let agents = cfg.agent_defs();
-        let scan = Arc::new(Mutex::new(scan::Shared {
-            roots: Vec::new(),
-            agents: agents.clone(),
-            interval: Duration::from_millis(cfg.detection.scan_interval_ms),
-        }));
-        scan::start(scan.clone(), tx.clone());
-
-        let hook_jobs = hook_thread(tx.clone());
-        let mut d = Daemon {
-            cfg,
-            agents,
-            terms: HashMap::new(),
-            workspaces: Vec::new(),
-            active_ws: None,
-            next_id: 1,
-            clients: HashMap::new(),
-            hook_jobs,
-            tx,
-            scan,
-            dirty: false,
-            had_terms: false,
-            empty_since: Instant::now(),
-            pending_ops: 0,
-            git_busy: false,
-            last_git: crate::clock::ago(GIT_POLL_EVERY),
-            last_save: Instant::now(),
-            last_saved: String::new(),
-            made_worktrees: Vec::new(),
-            next_env: Vec::new(),
-            exts: crate::ext::load_all().0,
-            spare: None,
-            spare_making: false,
-            adopt: None,
-            adopted: None,
-            last_sleep_check: Instant::now(),
-            natural_exits: Vec::new(),
-            auto_undo: None,
-        };
+        let mut d = Daemon::new(cfg, tx);
         if d.cfg.restore.enabled
             && let Some(saved) = persist::load()
         {
@@ -283,6 +245,49 @@ async fn serve(id: ClientId, stream: interprocess::local_socket::tokio::Stream, 
 }
 
 impl Daemon {
+    /// A daemon with no panes yet; its process scanner and hook thread are running.
+    fn new(cfg: Config, tx: mpsc::Sender<Ev>) -> Daemon {
+        let agents = cfg.agent_defs();
+        let scan = Arc::new(Mutex::new(scan::Shared {
+            roots: Vec::new(),
+            agents: agents.clone(),
+            interval: Duration::from_millis(cfg.detection.scan_interval_ms),
+        }));
+        scan::start(scan.clone(), tx.clone());
+        let hook_jobs = hook_thread(tx.clone());
+        Daemon {
+            cfg,
+            agents,
+            terms: HashMap::new(),
+            workspaces: Vec::new(),
+            active_ws: None,
+            next_id: 1,
+            clients: HashMap::new(),
+            hook_jobs,
+            tx,
+            scan,
+            dirty: false,
+            had_terms: false,
+            empty_since: Instant::now(),
+            pending_ops: 0,
+            git_busy: false,
+            last_git: crate::clock::ago(GIT_POLL_EVERY),
+            last_save: Instant::now(),
+            last_saved: String::new(),
+            made_worktrees: Vec::new(),
+            next_env: Vec::new(),
+            // Tests don't load the user's extensions.
+            exts: if cfg!(test) { Vec::new() } else { crate::ext::load_all().0 },
+            spare: None,
+            spare_making: false,
+            adopt: None,
+            adopted: None,
+            last_sleep_check: Instant::now(),
+            natural_exits: Vec::new(),
+            auto_undo: None,
+        }
+    }
+
     async fn run(&mut self, mut rx: mpsc::Receiver<Ev>) {
         let mut tick = tokio::time::interval(TICK);
         loop {
@@ -939,6 +944,9 @@ fn home() -> PathBuf {
         .map(|d| d.home_dir().to_path_buf())
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
 }
+
+#[cfg(test)]
+mod logic_tests;
 
 #[cfg(test)]
 mod tests {

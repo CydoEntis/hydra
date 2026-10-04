@@ -80,7 +80,7 @@ ratatui's `TestBackend` and assert on the text and cell styles;
 ## Project-specific: layout and fixtures
 
 Tests live next to the code they test. Client UI tests build a fake snapshot
-with `design_tests::render_with(layout, w, h)` (projects, worktrees, agents in
+with `design_tests::render_with(w, h)` (projects, worktrees, agents in
 each state) and drive it with `app.on_key` / `app.act`. Live checks use a nested
 server: `HYDRA_SOCKET=test hydra`, then `hydra send` / `hydra read` against it.
 Tests never touch the user's real config (`HYDRA_CONFIG` or in-memory configs).
@@ -94,4 +94,5 @@ Tests never touch the user's real config (`HYDRA_CONFIG` or in-memory configs).
   collide.
 - Every popup: a render test that it opens, fits at 100×30, and closes on Esc.
 - Themes: the contrast audit test covers every built-in theme.
-- The daemon loop is thinly tested today; new daemon logic comes with tests.
+- Daemon logic: `src/daemon/logic_tests.rs` drives a real `Daemon` (`Daemon::new`) with real
+  shell panes; new daemon logic comes with a test there.

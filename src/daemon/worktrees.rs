@@ -24,6 +24,9 @@ pub(super) fn spare_file() -> PathBuf {
 }
 
 pub(super) fn save_spare(path: Option<&std::path::Path>) {
+    if cfg!(test) {
+        return;
+    }
     match path {
         Some(p) => {
             let _ = std::fs::write(spare_file(), p.to_string_lossy().as_bytes());

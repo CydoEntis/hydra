@@ -385,3 +385,68 @@ pub fn encode<T: Serialize>(msg: &T) -> anyhow::Result<bytes::Bytes> {
 pub fn decode<'a, T: Deserialize<'a>>(buf: &'a [u8]) -> anyhow::Result<T> {
     Ok(rmp_serde::from_slice(buf)?)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Encoding what was decoded gives the same bytes: nothing is lost on the way.
+    fn round_trips<T: Serialize + for<'a> Deserialize<'a>>(msg: &T) {
+        let bytes = encode(msg).unwrap();
+        let back: T = decode(&bytes).unwrap();
+        assert_eq!(encode(&back).unwrap(), bytes);
+    }
+
+    #[test]
+    fn every_message_round_trips() {
+        let clients = vec![
+            ClientMsg::Hello { version: PROTOCOL_VERSION, attach: true },
+            ClientMsg::Input { term: 3, data: b"ls\r".to_vec() },
+            ClientMsg::Resize { term: 3, cols: 120, rows: 40 },
+            ClientMsg::Hook {
+                term: 3,
+                agent: "claude".into(),
+                status: HookStatus::Blocked,
+                session: Some("abc-123".into()),
+                cwd: Some(PathBuf::from("/code/api")),
+                prompt: Some("fix it".into()),
+                said: Some("done".into()),
+                subagent: Some(Subagent { id: "s1".into(), kind: "Explore".into(), start: true }),
+                event: "PreToolUse".into(),
+                pid: 42,
+                token: "00ff".into(),
+                transcript: Some(PathBuf::from("/t.jsonl")),
+                model: Some("opus".into()),
+                name: Some("api work".into()),
+            },
+            ClientMsg::Query(Query::List),
+            ClientMsg::Query(Query::Read { term: 3 }),
+            ClientMsg::Query(Query::Worktrees { ws: 1 }),
+            ClientMsg::Command(Command::NewWorkspace { cwd: Some(PathBuf::from("/code")), name: None, cmd: Some("claude".into()) }),
+            ClientMsg::Command(Command::Split { term: 3, dir: crate::layout::Dir::Down, cmd: None, cwd: None }),
+            ClientMsg::Command(Command::ClosePane { term: 3 }),
+            ClientMsg::Command(Command::RenamePane { term: 3, name: "x".into() }),
+            ClientMsg::Command(Command::MoveToWorktree { term: 3, branch: Some("feat/x".into()) }),
+        ];
+        for m in &clients {
+            round_trips(m);
+        }
+        let servers = vec![
+            ServerMsg::Welcome { version: PROTOCOL_VERSION },
+            ServerMsg::State(Snapshot::default()),
+            ServerMsg::Replay { term: 3, cols: 80, rows: 24, data: vec![27, b'[', b'H'] },
+            ServerMsg::Output { term: 3, data: b"hello".to_vec() },
+            ServerMsg::Attention { term: 3, status: Status::Done },
+            ServerMsg::Reply(Reply::Ok),
+            ServerMsg::Reply(Reply::Text("screen".into())),
+            ServerMsg::Error("nope".into()),
+            ServerMsg::Notice("saved".into()),
+            ServerMsg::Clipboard { term: 3, text: "copied".into() },
+            ServerMsg::AutoWorkspace("api".into()),
+            ServerMsg::Bye,
+        ];
+        for m in &servers {
+            round_trips(m);
+        }
+    }
+}

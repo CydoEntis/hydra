@@ -76,6 +76,9 @@ pub fn load() -> Option<Saved> {
 }
 
 pub fn save(saved: &Saved) -> Result<()> {
+    if cfg!(test) {
+        return Ok(());
+    }
     let path = path();
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -87,5 +90,8 @@ pub fn save(saved: &Saved) -> Result<()> {
 }
 
 pub fn forget() {
+    if cfg!(test) {
+        return;
+    }
     let _ = std::fs::remove_file(path());
 }
