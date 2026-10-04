@@ -383,7 +383,7 @@ impl Default for Ui {
             tab_bar: true,
             status_bar: true,
             which_key_delay_ms: 350,
-            which_key: true,
+            which_key: false,
             mouse: true,
             spinner: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"].map(String::from).to_vec(),
             pane_status: true,
