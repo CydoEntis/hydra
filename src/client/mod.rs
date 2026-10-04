@@ -474,6 +474,13 @@ async fn run_async(opts: Options) -> Result<()> {
     }
 
     let mut terminal = ratatui::init();
+    // A panic must leave the shell as it found it: ratatui's own hook leaves the alternate
+    // screen and raw mode; this one also turns off what hydra turned on.
+    let earlier = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        restore_terminal();
+        earlier(info);
+    }));
     if app.cfg.ui.mouse {
         let _ = execute!(std::io::stdout(), event::EnableMouseCapture);
     }
@@ -481,6 +488,17 @@ async fn run_async(opts: Options) -> Result<()> {
 
     let result = app.event_loop(&mut terminal, &mut reader, &mut bg_rx).await;
 
+    restore_terminal();
+    result?;
+    if let Some(reason) = app.quit {
+        println!("[{reason}]");
+    }
+    Ok(())
+}
+
+/// Undo everything hydra turned on in the terminal: mouse, paste and focus reporting, its
+/// cursor shape and background colour, the alternate screen and raw mode. Safe to run twice.
+fn restore_terminal() {
     let _ = execute!(
         std::io::stdout(),
         event::DisableMouseCapture,
@@ -494,11 +512,6 @@ async fn run_async(opts: Options) -> Result<()> {
         let _ = write!(std::io::stdout(), "]111");
     }
     ratatui::restore();
-    result?;
-    if let Some(reason) = app.quit {
-        println!("[{reason}]");
-    }
-    Ok(())
 }
 
 impl App {
