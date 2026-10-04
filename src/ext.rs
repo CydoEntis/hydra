@@ -129,25 +129,13 @@ pub fn resolve(ext_dir: &Path, cmd: &str) -> String {
 /// Run an extension command to the end in `cwd` and return its output's first (label) or
 /// last (result) line.
 pub fn run(shell: &[String], ext: &Ext, cwd: &Path, cmd: &str, vars: &[(String, String)]) -> Result<String, String> {
-    let exe = Path::new(&shell[0]).file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    let line = resolve(&ext.dir, cmd);
-    let mut c = std::process::Command::new(&shell[0]);
-    match exe.as_str() {
-        // `&` runs a quoted path in PowerShell.
-        "pwsh" | "powershell" => c.args(["-NoProfile", "-NonInteractive", "-Command", &if line.starts_with('"') { format!("& {line}") } else { line.clone() }]),
-        "cmd" => c.args(["/C", &line]),
-        _ => c.args(["-c", &line]),
-    };
+    let mut c = crate::proc::shell(shell, &resolve(&ext.dir, cmd), false);
     c.current_dir(if cwd.is_dir() { cwd } else { &ext.dir }).stdin(std::process::Stdio::null());
     c.env("HYDRA_EXT_DIR", &ext.dir);
     for (k, v) in vars {
         c.env(k, v);
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        c.creation_flags(0x0800_0000);
-    }
+    crate::proc::quiet(&mut c);
     let out = c.output().map_err(|e| format!("couldn't run {cmd}: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     if out.status.success() {

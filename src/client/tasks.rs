@@ -3,8 +3,9 @@
 //! it away.
 
 use crate::protocol::{TermId, WsId};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
+use crate::proc::git;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Stage {
@@ -72,23 +73,6 @@ impl Review {
     pub fn diff_job(&self) -> DiffJob {
         DiffJob { dir: self.task.dir.clone(), merge_base: self.merge_base.clone(), file: self.files.get(self.sel).cloned() }
     }
-}
-
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let mut cmd = Command::new("git");
-    cmd.arg("-C").arg(dir).args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let out = cmd.output().map_err(|e| format!("running git: {e}"))?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let first = err.lines().find(|l| !l.trim().is_empty()).unwrap_or("git failed");
-        return Err(format!("git {}: {}", args.first().unwrap_or(&""), first.trim()));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
 /// Everything the task changed since it branched: commits plus uncommitted and new files.
@@ -168,11 +152,7 @@ pub fn ship(t: &TaskRow) -> Result<String, String> {
     git(&t.dir, &["push", "-u", "origin", &t.branch])?;
     let mut view = Command::new("gh");
     view.current_dir(&t.dir).args(["pr", "view", &t.branch, "--json", "number", "--jq", ".number"]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        view.creation_flags(0x0800_0000);
-    }
+    crate::proc::quiet(&mut view);
     if let Ok(o) = view.output()
         && o.status.success()
     {
@@ -189,11 +169,7 @@ pub fn pull_request(t: &TaskRow) -> Result<String, String> {
     git(&t.dir, &["push", "-u", "origin", &t.branch])?;
     let mut cmd = Command::new("gh");
     cmd.current_dir(&t.dir).args(["pr", "create", "--fill", "--head", &t.branch]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
+    crate::proc::quiet(&mut cmd);
     let out = cmd.output().map_err(|e| format!("running gh: {e} (is the GitHub CLI installed?)"))?;
     let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !out.status.success() {

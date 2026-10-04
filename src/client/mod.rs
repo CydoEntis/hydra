@@ -39,6 +39,15 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
+/// How often the client looks at its timers (spinners, toasts, pending focus).
+const TICK: Duration = Duration::from_millis(50);
+/// The shortest time between two frames (about 80 a second at most).
+const MIN_FRAME: Duration = Duration::from_millis(12);
+/// How long a note stays in the bottom bar.
+const NOTICE_FOR: Duration = Duration::from_secs(5);
+/// Two clicks this close together are a double-click.
+pub(super) const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+
 pub struct Options {
     /// Open (or switch to) a workspace for this directory on attach.
     pub open: Option<PathBuf>,
@@ -118,11 +127,6 @@ pub(super) enum Btn {
     Row(usize),
 }
 
-/// Results of background work (disk scans, git, gh, APIs), delivered to the event loop.
-/// Windows: start a console program without flashing a console window.
-#[cfg(windows)]
-pub(super) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
 pub(super) enum Bg {
     Toolbox(PathBuf, Vec<toolbox::Section>),
     Changes(PathBuf, Result<Box<tasks::Review>, String>),
@@ -164,11 +168,7 @@ pub(super) enum Bg {
 fn pr_checks(dir: &std::path::Path, branch: &str) -> Option<String> {
     let mut cmd = std::process::Command::new("gh");
     cmd.current_dir(dir).args(["pr", "view", branch, "--json", "statusCheckRollup"]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
+    crate::proc::quiet(&mut cmd);
     let out = cmd.output().ok().filter(|o| o.status.success())?;
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
     let checks = v.get("statusCheckRollup")?.as_array()?;
@@ -506,12 +506,12 @@ impl App {
         bg_rx: &mut mpsc::UnboundedReceiver<Bg>,
     ) -> Result<()> {
         let mut events = EventStream::new();
-        let mut tick = tokio::time::interval(Duration::from_millis(50));
+        let mut tick = tokio::time::interval(TICK);
         let mut last_draw = crate::clock::ago(Duration::from_secs(1));
         let mut last_frame = 0u64;
         let mut last_fresh = Instant::now();
         // At most one frame per 12 ms, but never wait longer than that to show new output.
-        let frame = Duration::from_millis(12);
+        let frame = MIN_FRAME;
         loop {
             let hold = self.sync_hold_until();
             let next_draw = tokio::time::Instant::from_std((last_draw + frame).max(hold.unwrap_or(last_draw)));
@@ -550,7 +550,7 @@ impl App {
                     if matches!(self.mode, Mode::Prefix { .. }) {
                         self.dirty = true;
                     }
-                    if self.notice.as_ref().is_some_and(|(_, at, _)| at.elapsed() > Duration::from_secs(5)) {
+                    if self.notice.as_ref().is_some_and(|(_, at, _)| at.elapsed() > NOTICE_FOR) {
                         self.notice = None;
                         self.dirty = true;
                     }

@@ -35,12 +35,7 @@ pub fn alert(cfg: &crate::config::Notify, kind: Kind, title: &str, body: &str) {
 
 fn quiet(cmd: &mut Command) -> &mut Command {
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    cmd
+    crate::proc::quiet(cmd)
 }
 
 /// A desktop notification. Blocks until the tool returns.

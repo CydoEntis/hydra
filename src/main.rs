@@ -11,6 +11,7 @@ mod mcp;
 mod project;
 mod keys;
 mod layout;
+mod proc;
 mod protocol;
 mod sync;
 mod theme;

@@ -11,6 +11,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use std::path::{Path, PathBuf};
+use crate::proc::git;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Branch {
@@ -87,23 +88,6 @@ impl BranchView {
 
 fn valid_name(n: &str) -> bool {
     !n.is_empty() && !n.contains(char::is_whitespace) && !n.contains("..") && !n.starts_with('-') && !n.ends_with('/') && !n.contains(['~', '^', ':', '?', '*', '[', '\\'])
-}
-
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let mut cmd = std::process::Command::new("git");
-    cmd.arg("-C").arg(dir).args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let out = cmd.output().map_err(|_| "`git` isn't installed or isn't on PATH".to_string())?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-    } else {
-        let err = String::from_utf8_lossy(&out.stderr);
-        Err(err.lines().find(|l| l.starts_with("error") || l.starts_with("fatal")).or(err.lines().next()).unwrap_or("git failed").trim().to_string())
-    }
 }
 
 /// Branches newest first (local, then remote ones with no local branch), which are checked

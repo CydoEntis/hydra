@@ -28,7 +28,7 @@ impl Daemon {
                     group: None,
                 });
                 self.active_ws = Some(id);
-                self.last_git = crate::clock::ago(Duration::from_secs(60));
+                self.poll_git_soon();
             }
             Command::CloseWorkspace { ws } => {
                 let terms: Vec<TermId> = self
@@ -138,7 +138,7 @@ impl Daemon {
                     });
                     self.active_ws = Some(id);
                 }
-                self.last_git = crate::clock::ago(Duration::from_secs(60));
+                self.poll_git_soon();
             }
             Command::Dev { dir, action } => {
                 let key = |p: &std::path::Path| p.to_string_lossy().replace('\\', "/").trim_end_matches('/').to_lowercase();
@@ -379,7 +379,7 @@ impl Daemon {
                         self.active_ws = Some(id);
                     }
                 }
-                self.last_git = crate::clock::ago(Duration::from_secs(60));
+                self.poll_git_soon();
             }
             Command::UndoAutoWorkspace => {
                 let undo = self.auto_undo.take().ok_or_else(|| anyhow::anyhow!("nothing to undo"))?;
@@ -489,7 +489,7 @@ impl Daemon {
                 format!("You started {agent} in {}, so it became a workspace.", cwd.display())
             }
         };
-        self.last_git = crate::clock::ago(Duration::from_secs(60));
+        self.poll_git_soon();
         self.dirty = true;
         self.broadcast(|c| c.attach, ServerMsg::AutoWorkspace(msg));
     }
@@ -534,7 +534,7 @@ impl Daemon {
                 }
             }
         }
-        self.last_git = crate::clock::ago(Duration::from_secs(60));
+        self.poll_git_soon();
         Ok(())
     }
 }

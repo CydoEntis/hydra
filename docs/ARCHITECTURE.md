@@ -61,6 +61,8 @@ src/
   layout.rs      split trees and neighbour finding
   theme.rs       built-in themes and contrast audit
   clock.rs       time helpers
+  proc.rs        running other programs: no console window, output or error as text,
+                 git, shell command lines
   daemon/        the server
     mod.rs       the event loop, clients, snapshot, spawning panes
     commands.rs  commands from clients and the CLI
@@ -217,6 +219,9 @@ config.example.toml
 - **Hit testing.** Drawing registers clickable rects (`hit(app, rect, HyHit::…)`);
   mouse handling looks them up, so drawing and clicking can't drift.
 - **Background work.** Slow work runs in `spawn_bg` and returns a `Bg` message.
+- **Other programs** go through `proc.rs` (`proc::git`, `proc::run`, `proc::shell`,
+  `proc::quiet`), never a hand-built `Command` with its own window flag or error parsing.
+- **Filterable popups** use `query_list` + `list_row` (client/hydra/popups.rs).
 - **Popups** use the shared `panel()` helper (accent title bar, card body,
   `Esc close`), `dim_all` behind, and `hints()` for the key line.
 

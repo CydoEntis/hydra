@@ -340,7 +340,7 @@ impl App {
                 self.open_path_from(term, &p, line);
                 return;
             }
-            let double = self.pane_click.is_some_and(|(p, at)| at.elapsed() < Duration::from_millis(350) && p.y == pos.y && p.x.abs_diff(pos.x) <= 1);
+            let double = self.pane_click.is_some_and(|(p, at)| at.elapsed() < DOUBLE_CLICK && p.y == pos.y && p.x.abs_diff(pos.x) <= 1);
             self.pane_click = Some((pos, Instant::now()));
             if double
                 && !screen_has_mouse
@@ -465,7 +465,7 @@ impl App {
         if m.kind == MouseEventKind::Down(MouseButton::Left) {
             let hit = self.hits.iter().rev().find(|(r, _)| r.contains(pos)).map(|(_, h)| *h);
             if let Some(h @ Hit::Hy(hh)) = hit {
-                let double = self.last_click.is_some_and(|(prev, at)| prev == h && at.elapsed() < Duration::from_millis(400));
+                let double = self.last_click.is_some_and(|(prev, at)| prev == h && at.elapsed() < DOUBLE_CLICK);
                 self.last_click = Some((h, Instant::now()));
                 if matches!(self.mode, Mode::Prefix { .. } | Mode::Side) {
                     self.mode = Mode::Normal;
@@ -479,7 +479,7 @@ impl App {
                 return;
             }
             if let Some(h @ Hit::Button(_)) = hit {
-                let double = self.last_click.is_some_and(|(prev, at)| prev == h && at.elapsed() < Duration::from_millis(400));
+                let double = self.last_click.is_some_and(|(prev, at)| prev == h && at.elapsed() < DOUBLE_CLICK);
                 self.last_click = Some((h, Instant::now()));
                 if matches!(self.mode, Mode::Prefix { .. } | Mode::Help { .. }) {
                     self.mode = Mode::Normal;

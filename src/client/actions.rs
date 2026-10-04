@@ -519,11 +519,7 @@ impl App {
             c
         };
         cmd.current_dir(&dir).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000);
-        }
+        crate::proc::quiet(&mut cmd);
         match cmd.spawn() {
             Ok(_) => self.notify(format!("opened {} in {exe}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), false),
             Err(e) => self.notify(format!("couldn't start {exe}: {e}"), true),

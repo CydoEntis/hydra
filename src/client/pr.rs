@@ -52,20 +52,9 @@ fn s(v: &Value, k: &str) -> String {
     v.get(k).and_then(Value::as_str).unwrap_or("").to_string()
 }
 
+/// `gh <args>` in `dir`.
 fn run(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let mut cmd = std::process::Command::new("gh");
-    cmd.current_dir(dir).args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let out = cmd.output().map_err(|_| "`gh` isn't installed or isn't on PATH".to_string())?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        return Err(err.lines().find(|l| !l.trim().is_empty()).unwrap_or("gh failed").trim().to_string());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    crate::proc::run(std::process::Command::new("gh").current_dir(dir).args(args))
 }
 
 /// One check's verdict: SUCCESS, FAILURE, PENDING, …

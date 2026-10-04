@@ -420,11 +420,7 @@ fn git_init(dir: &std::path::Path) -> Result<(), String> {
     let run = |args: &[&str]| {
         let mut c = std::process::Command::new("git");
         c.arg("-C").arg(dir).args(args);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            c.creation_flags(super::CREATE_NO_WINDOW);
-        }
+        crate::proc::quiet(&mut c);
         match c.output() {
             Ok(o) if o.status.success() => Ok(()),
             Ok(o) => Err(String::from_utf8_lossy(&o.stderr).lines().next().unwrap_or("git failed").to_string()),

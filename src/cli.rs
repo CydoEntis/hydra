@@ -373,14 +373,8 @@ pub fn ext(action: &str, name: Option<String>, index: Option<usize>, term: Optio
             let dir = std::env::current_dir()?;
             let (cfg, _) = crate::config::Config::load_or_default();
             let shell = cfg.shell_command();
-            let line = crate::ext::resolve(&e.dir, &c.run);
-            let exe = std::path::Path::new(&shell[0]).file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-            let mut cmd = std::process::Command::new(&shell[0]);
-            match exe.as_str() {
-                "pwsh" | "powershell" => cmd.args(["-NoProfile", "-Command", &if line.starts_with('"') { format!("& {line}") } else { line.clone() }]),
-                "cmd" => cmd.args(["/C", &line]),
-                _ => cmd.args(["-c", &line]),
-            };
+            // In your terminal: it may ask you things.
+            let mut cmd = crate::proc::shell(&shell, &crate::ext::resolve(&e.dir, &c.run), true);
             cmd.env("HYDRA_EXT_DIR", &e.dir);
             for (k, v) in crate::ext::vars("command", &dir, info.as_ref()) {
                 cmd.env(k, v);

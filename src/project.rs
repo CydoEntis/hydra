@@ -118,22 +118,12 @@ pub fn port_for(dir: &Path, base: u16) -> u16 {
 /// Run a hook to the end (in `dir`, through the shell, with `vars` set). Its output's last
 /// lines on failure.
 pub fn run_hook(shell: &[String], dir: &Path, cmd: &str, vars: &[(&str, String)]) -> Result<(), String> {
-    let exe = Path::new(&shell[0]).file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    let mut c = std::process::Command::new(&shell[0]);
-    match exe.as_str() {
-        "pwsh" | "powershell" => c.args(["-NoProfile", "-NonInteractive", "-Command", cmd]),
-        "cmd" => c.args(["/C", cmd]),
-        _ => c.args(["-c", cmd]),
-    };
+    let mut c = crate::proc::shell(shell, cmd, false);
     c.current_dir(dir).stdin(std::process::Stdio::null());
     for (k, v) in vars {
         c.env(k, v);
     }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        c.creation_flags(0x0800_0000);
-    }
+    crate::proc::quiet(&mut c);
     c.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
     let mut child = c.spawn().map_err(|e| format!("couldn't run it: {e}"))?;
     // Read output on threads so a chatty hook can't fill the pipe and stall.

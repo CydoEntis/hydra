@@ -680,11 +680,7 @@ impl App {
                 self.spawn_bg(move || {
                     let mut git = std::process::Command::new("git");
                     git.arg("-C").arg(&main).args(["switch", "-c", &name]);
-                    #[cfg(windows)]
-                    {
-                        use std::os::windows::process::CommandExt;
-                        git.creation_flags(crate::client::CREATE_NO_WINDOW);
-                    }
+                    crate::proc::quiet(&mut git);
                     let out = git.output();
                     crate::client::Bg::Then(Box::new(move |app: &mut App| match out {
                         Ok(o) if o.status.success() => {

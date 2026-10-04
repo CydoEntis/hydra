@@ -4,7 +4,7 @@ use super::*;
 
 impl Daemon {
     pub(super) fn mass_exit(&self) -> bool {
-        self.natural_exits.iter().filter(|t| t.elapsed() < Duration::from_secs(5)).count() >= 2
+        self.natural_exits.iter().filter(|t| t.elapsed() < MASS_EXIT_WINDOW).count() >= 2
     }
 
     /// Write the session file if it changed. `force` skips the mass-exit guard.
@@ -262,7 +262,7 @@ impl Daemon {
             }
         }
         self.remove_term(old);
-        self.last_git = crate::clock::ago(Duration::from_secs(60));
+        self.poll_git_soon();
         self.dirty = true;
     }
 }

@@ -101,7 +101,7 @@ async fn connect_remote(host: &str) -> Result<(Reader, Writer)> {
         .kill_on_drop(true);
     #[cfg(windows)]
     {
-        cmd.creation_flags(0x0800_0000);
+        cmd.creation_flags(crate::proc::CREATE_NO_WINDOW);
     }
     let mut child = cmd.spawn().with_context(|| format!("running {prog} (is OpenSSH installed?)"))?;
     let stdin = child.stdin.take().context("ssh stdin")?;
@@ -297,9 +297,8 @@ fn spawn_daemon() -> Result<()> {
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         // A hidden console of its own, so ConPTY works and closing this window doesn't kill it.
-        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | crate::proc::CREATE_NO_WINDOW);
     }
     #[cfg(unix)]
     {

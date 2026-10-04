@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthStr;
+use crate::proc::quiet;
 
 /// `fix the flaky checkout test` → `fix-the-flaky-checkout`
 pub fn slug(s: &str, words: usize) -> String {
@@ -125,14 +126,6 @@ fn s(v: &Value, k: &str) -> String {
     v.get(k).and_then(Value::as_str).unwrap_or("").to_string()
 }
 
-fn quiet(cmd: &mut std::process::Command) -> &mut std::process::Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    cmd
-}
 
 /// An HTTP request through curl, with the secret header passed on stdin (`-H @-`) so it
 /// never appears in the process list.

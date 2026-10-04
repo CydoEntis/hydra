@@ -450,21 +450,13 @@ pub fn scan_tree(root: &Path) -> Vec<FileNode> {
 pub fn git_marks(root: &Path) -> HashMap<String, char> {
     let mut cmd = std::process::Command::new("git");
     cmd.arg("-C").arg(root).args(["status", "--porcelain=v1", "-uall"]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
+    crate::proc::quiet(&mut cmd);
     let Ok(out) = cmd.output() else { return HashMap::new() };
     // Paths are relative to the repo top, which may sit above `root`.
     let prefix = {
         let mut c = std::process::Command::new("git");
         c.arg("-C").arg(root).args(["rev-parse", "--show-prefix"]);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            c.creation_flags(0x0800_0000);
-        }
+        crate::proc::quiet(&mut c);
         c.output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
     };
     String::from_utf8_lossy(&out.stdout)

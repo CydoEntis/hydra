@@ -19,25 +19,10 @@ pub fn enabled() -> bool {
     !cfg!(test) && dir().join(".git").exists() && git(&["remote", "get-url", "origin"]).is_ok()
 }
 
-fn quiet(cmd: &mut Command) -> &mut Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    cmd
-}
 
+/// `program <args>` in the synced folder; its output, trimmed.
 fn run(program: &str, args: &[&str]) -> Result<String, String> {
-    let mut cmd = Command::new(program);
-    cmd.current_dir(dir()).args(args);
-    let out = quiet(&mut cmd).output().map_err(|_| format!("`{program}` isn't installed or isn't on PATH"))?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-    } else {
-        let err = String::from_utf8_lossy(&out.stderr);
-        Err(err.lines().find(|l| !l.trim().is_empty()).unwrap_or("failed").trim().to_string())
-    }
+    crate::proc::run(Command::new(program).current_dir(dir()).args(args)).map(|s| s.trim().to_string())
 }
 
 fn git(args: &[&str]) -> Result<String, String> {

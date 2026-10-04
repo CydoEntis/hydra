@@ -400,32 +400,49 @@ pub(in crate::client) fn np_places(p: &Proj) -> Vec<String> {
     v
 }
 
-/// The command palette, as the other popups: type words, ↑↓, Enter; each with its key.
-pub(in crate::client) fn draw_palette(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, query: &str, sel: usize, items: &[crate::client::PickItem]) {
-    let buf = f.buffer_mut();
+/// A popup with a query row and a scrolling list under it: dims the screen, draws the
+/// panel and the query (with `hint` while it's empty), and returns where the rows go and
+/// the first one on screen (so `sel` stays visible).
+#[allow(clippy::too_many_arguments)]
+pub(in crate::client) fn query_list(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, title: &str, w: u16, rows: usize, query: &str, hint: &str, sel: usize) -> (Rect, Rect, usize) {
     dim_all(buf, area, t);
-    let h = (items.len() as u16 + 8).clamp(12, 30);
-    let r = panel(app, buf, area, 80, h, "Command palette", &[], t);
-    let q = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: 1 };
+    let h = (rows as u16 + 8).max(12).min(area.height.saturating_sub(4));
+    let r = panel(app, buf, area, w, h, title, &[], t);
+    let q = Rect { x: r.x + 1, y: r.y + 2, width: r.width.saturating_sub(2), height: 1 };
     fill(buf, q, t.card2);
     let s2 = Style::default().bg(t.card2);
     let mut qs = vec![seg("› ", s2.fg(t.accent).add_modifier(Modifier::BOLD)), seg(query.to_string(), s2.fg(t.strong)), seg("█", s2.fg(t.accent))];
     if query.is_empty() {
-        qs.push(seg(" what do you want to do?", s2.fg(t.muted)));
+        qs.push(seg(format!(" {hint}"), s2.fg(t.muted)));
     }
-    put(buf, r.x + 3, q.y, &qs, r.right() - 2);
-    let list = Rect { x: r.x + 1, y: r.y + 4, width: r.width - 2, height: r.height.saturating_sub(7) };
+    put(buf, r.x + 3, q.y, &qs, r.right().saturating_sub(2));
+    let list = Rect { x: r.x + 1, y: r.y + 4, width: r.width.saturating_sub(2), height: r.height.saturating_sub(7) };
     let start = sel.saturating_sub(list.height.saturating_sub(1) as usize);
+    (r, list, start)
+}
+
+/// One row of a `query_list`: its background (highlighted when selected or under the
+/// mouse) and the selection marker. Returns the style to draw its text with.
+pub(in crate::client) fn list_row(app: &App, buf: &mut Buffer, rr: Rect, on: bool, t: &Theme) -> Style {
+    let bg = if on || hovered(app, rr) { t.hov } else { t.card };
+    fill(buf, rr, bg);
+    let st = Style::default().bg(bg);
+    if on {
+        put(buf, rr.x + 1, rr.y, &[seg("›", st.fg(t.accent).add_modifier(Modifier::BOLD))], rr.right());
+    }
+    st
+}
+
+/// The command palette, as the other popups: type words, ↑↓, Enter; each with its key.
+pub(in crate::client) fn draw_palette(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, query: &str, sel: usize, items: &[crate::client::PickItem]) {
+    let buf = f.buffer_mut();
+    let (r, list, start) = query_list(app, buf, area, t, "Command palette", 80, items.len().min(22), query, "what do you want to do?", sel);
     for (i, item) in items.iter().enumerate().skip(start).take(list.height as usize) {
         let y = list.y + (i - start) as u16;
         let rr = Rect { y, height: 1, ..list };
         let on = i == sel;
-        let bg = if on || hovered(app, rr) { t.hov } else { t.card };
-        fill(buf, rr, bg);
-        let st = Style::default().bg(bg);
-        if on {
-            put(buf, rr.x + 1, y, &[seg("›", st.fg(t.accent).add_modifier(Modifier::BOLD))], rr.right());
-        }
+        let st = list_row(app, buf, rr, on, t);
+        let bg = st.bg.unwrap_or(t.card);
         let ls = st.fg(if on { t.strong } else { t.text });
         put(buf, rr.x + 3, y, &[seg(item.label.clone(), if on { ls.add_modifier(Modifier::BOLD) } else { ls })], rr.right().saturating_sub(14));
         let key = match &item.target {
@@ -490,30 +507,14 @@ pub(in crate::client) fn draw_goto(app: &mut App, f: &mut Frame, area: Rect, t: 
     let model = app.hy_model();
     let rows = goto_rows(&model, query);
     let buf = f.buffer_mut();
-    dim_all(buf, area, t);
-    let h = (rows.len() as u16 + 8).max(12).min(area.height.saturating_sub(4));
-    let r = panel(app, buf, area, 92, h, "Go to", &[], t);
+    let (r, list, start) = query_list(app, buf, area, t, "Go to", 92, rows.len(), query, "type a project or session", sel);
     let c = Style::default().bg(t.card);
-    let q = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: 1 };
-    fill(buf, q, t.card2);
-    let s2 = Style::default().bg(t.card2);
-    let mut qs = vec![seg("› ", s2.fg(t.accent).add_modifier(Modifier::BOLD)), seg(query.to_string(), s2.fg(t.strong)), seg("█", s2.fg(t.accent))];
-    if query.is_empty() {
-        qs.push(seg(" type a project or session", s2.fg(t.muted)));
-    }
-    put(buf, r.x + 3, q.y, &qs, r.right() - 2);
-    let list = Rect { x: r.x + 1, y: r.y + 4, width: r.width - 2, height: r.height.saturating_sub(7) };
-    let start = sel.saturating_sub(list.height.saturating_sub(1) as usize);
     for (i, row) in rows.iter().enumerate().skip(start).take(list.height as usize) {
         let y = list.y + (i - start) as u16;
         let rr = Rect { y, height: 1, ..list };
         let on = i == sel;
-        let bg = if on || hovered(app, rr) { t.hov } else { t.card };
-        fill(buf, rr, bg);
-        let st = Style::default().bg(bg);
-        if on {
-            put(buf, rr.x + 1, y, &[seg("›", st.fg(t.accent).add_modifier(Modifier::BOLD))], rr.right());
-        }
+        let st = list_row(app, buf, rr, on, t);
+        let bg = st.bg.unwrap_or(t.card);
         match row {
             GoRow::Proj(pi) => {
                 let p = &model[*pi];

@@ -13,6 +13,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthStr;
+use crate::proc::quiet;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GrepHit {
@@ -85,14 +86,6 @@ impl FindView {
     }
 }
 
-fn quiet(cmd: &mut std::process::Command) -> &mut std::process::Command {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    cmd
-}
 
 /// Every file under `dir` (respecting .gitignore), relative, up to 50k.
 pub fn list_files(dir: &Path) -> Vec<String> {

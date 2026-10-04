@@ -10,12 +10,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
     let mut cmd = Command::new("git");
     // Its messages are matched below: keep them in English whatever the user's locale.
     cmd.arg("-C").arg(dir).args(args).env("LC_ALL", "C");
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+    crate::proc::quiet(&mut cmd);
     let out = cmd.output().context("running git")?;
     if !out.status.success() {
         bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim());

@@ -35,6 +35,12 @@ pub(super) fn hook_thread(tx: mpsc::Sender<Ev>) -> std::sync::mpsc::Sender<HookJ
 /// How long after your last key, with the pane quiet, a question that's no longer on screen
 /// counts as dismissed.
 pub(super) const QUESTION_GONE_AFTER: Duration = Duration::from_secs(2);
+/// A "done" held while subagents run is let through after this, if they never report.
+const DONE_HELD_AT_MOST: Duration = Duration::from_secs(180);
+/// A permission ping this soon after a "working" is Claude repeating one already answered.
+const REPEATED_PROMPT_WITHIN: Duration = Duration::from_secs(5);
+/// The progress indicator gone this long with no turn-end: the turn was cancelled (Esc).
+const CANCELLED_AFTER: Duration = Duration::from_secs(2);
 
 impl Daemon {
     /// A status report whose sender checked out (`verdict`: did its process chain lead to
@@ -126,7 +132,7 @@ impl Daemon {
             // Claude sometimes repeats a permission ping after you've already answered and it's
             // moved on: ignore one that comes right after a "working".
             HookStatus::Blocked
-                if event == "Notification:permission_prompt" && t.last_working_hook.is_some_and(|w| w.elapsed() < Duration::from_secs(5)) =>
+                if event == "Notification:permission_prompt" && t.last_working_hook.is_some_and(|w| w.elapsed() < REPEATED_PROMPT_WITHIN) =>
             {
                 return;
             }
@@ -250,7 +256,7 @@ impl Daemon {
                     changes.push((t.id, Status::Idle));
                 }
                 // Subagents never reported back: don't hold "done" forever.
-                if t.done_held.is_some_and(|h| h.elapsed() > Duration::from_secs(180)) {
+                if t.done_held.is_some_and(|h| h.elapsed() > DONE_HELD_AT_MOST) {
                     changes.push((t.id, if Some(t.id) == focused { Status::Idle } else { Status::Done }));
                 }
                 // A question dismissed with Esc sends no hook at all. Once you've typed since
@@ -268,7 +274,7 @@ impl Daemon {
                     }
                 }
                 // The progress indicator went away and no turn-end came: cancelled (Esc).
-                if t.status == Status::Working && t.done_held.is_none() && t.progress_off.is_some_and(|p| p.elapsed() > Duration::from_secs(2)) {
+                if t.status == Status::Working && t.done_held.is_none() && t.progress_off.is_some_and(|p| p.elapsed() > CANCELLED_AFTER) {
                     changes.push((t.id, Status::Idle));
                 }
                 continue;

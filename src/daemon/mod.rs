@@ -31,6 +31,20 @@ use tokio::sync::mpsc;
 
 type ClientId = u64;
 
+/// How often the daemon looks at its timers (statuses, saves, git, sleep).
+const TICK: Duration = Duration::from_millis(250);
+/// How often each workspace's git state is read again.
+const GIT_POLL_EVERY: Duration = Duration::from_secs(3);
+/// How often a changed session is saved to disk.
+const SAVE_EVERY: Duration = Duration::from_secs(2);
+/// How often idle agents are checked for putting to sleep.
+const SLEEP_CHECK_EVERY: Duration = Duration::from_secs(30);
+/// A daemon nothing ever used (no panes, no clients) exits after this.
+const EXIT_WHEN_UNUSED_FOR: Duration = Duration::from_secs(30);
+/// Two panes ending on their own within this window means something killed them all
+/// (a reboot, a logoff): their sessions are kept for the next start.
+const MASS_EXIT_WINDOW: Duration = Duration::from_secs(5);
+
 #[allow(clippy::large_enum_variant)]
 pub enum Ev {
     Connected(ClientId, mpsc::Sender<ServerMsg>, bool),
@@ -199,7 +213,7 @@ pub fn run() -> Result<()> {
             empty_since: Instant::now(),
             pending_ops: 0,
             git_busy: false,
-            last_git: crate::clock::ago(Duration::from_secs(60)),
+            last_git: crate::clock::ago(GIT_POLL_EVERY),
             last_save: Instant::now(),
             last_saved: String::new(),
             made_worktrees: Vec::new(),
@@ -270,7 +284,7 @@ async fn serve(id: ClientId, stream: interprocess::local_socket::tokio::Stream, 
 
 impl Daemon {
     async fn run(&mut self, mut rx: mpsc::Receiver<Ev>) {
-        let mut tick = tokio::time::interval(Duration::from_millis(250));
+        let mut tick = tokio::time::interval(TICK);
         loop {
             tokio::select! {
                 Some(ev) = rx.recv() => {
@@ -282,12 +296,12 @@ impl Daemon {
                 }
                 _ = tick.tick() => {
                     self.update_statuses();
-                    if self.last_sleep_check.elapsed() >= Duration::from_secs(30) {
+                    if self.last_sleep_check.elapsed() >= SLEEP_CHECK_EVERY {
                         self.last_sleep_check = Instant::now();
                         self.sleep_idle();
                     }
                     self.poll_git();
-                    if self.last_save.elapsed() > Duration::from_secs(2) {
+                    if self.last_save.elapsed() > SAVE_EVERY {
                         self.last_save = Instant::now();
                         self.persist(false);
                     }
@@ -313,12 +327,17 @@ impl Daemon {
         }
     }
 
+    /// Look at git again on the next tick (something just changed it).
+    fn poll_git_soon(&mut self) {
+        self.last_git = crate::clock::ago(GIT_POLL_EVERY);
+    }
+
     fn should_exit(&self) -> bool {
         if !self.terms.is_empty() || self.pending_ops > 0 {
             return false;
         }
         // Exit when the last pane closes, or if nobody ever started one.
-        self.had_terms || (self.clients.is_empty() && self.empty_since.elapsed() > Duration::from_secs(30))
+        self.had_terms || (self.clients.is_empty() && self.empty_since.elapsed() > EXIT_WHEN_UNUSED_FOR)
     }
 
     fn broadcast(&self, filter: impl Fn(&Client) -> bool, msg: ServerMsg) {
@@ -355,7 +374,7 @@ impl Daemon {
     }
 
     fn poll_git(&mut self) {
-        if self.git_busy || self.workspaces.is_empty() || self.last_git.elapsed() < Duration::from_secs(3) {
+        if self.git_busy || self.workspaces.is_empty() || self.last_git.elapsed() < GIT_POLL_EVERY {
             return;
         }
         for t in self.terms.values_mut() {
@@ -442,7 +461,7 @@ impl Daemon {
                     return;
                 }
                 if self.terms.contains_key(&tid) {
-                    self.natural_exits.retain(|t| t.elapsed() < Duration::from_secs(5));
+                    self.natural_exits.retain(|t| t.elapsed() < MASS_EXIT_WINDOW);
                     self.natural_exits.push(Instant::now());
                     self.remove_term(tid);
                 }
@@ -548,7 +567,7 @@ impl Daemon {
                         {
                             w.worktree = true;
                         }
-                        self.last_git = crate::clock::ago(Duration::from_secs(60));
+                        self.poll_git_soon();
                         self.send(client, ServerMsg::Notice(format!("worktree {branch} at {}", path.display())));
                         self.send(client, ServerMsg::Reply(Reply::Ok));
                     }
@@ -595,7 +614,7 @@ impl Daemon {
                         if let Some(t) = self.terms.get_mut(&term) {
                             t.pending_move = Some(path.clone());
                         }
-                        self.last_git = crate::clock::ago(Duration::from_secs(60));
+                        self.poll_git_soon();
                         self.send(
                             client,
                             ServerMsg::Notice(format!(

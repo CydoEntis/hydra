@@ -514,37 +514,20 @@ fn draw_worktrees(
     sel: usize,
     loading: bool,
 ) {
-    use super::design::{fill, put, seg};
+    use super::design::{put, seg};
     let buf = f.buffer_mut();
-    super::hydra::dim_all(buf, area, t);
-    let r = super::hydra::panel(app, buf, area, 84, 20, "Worktrees", &[], t);
+    let (r, list, start) = super::hydra::query_list(app, buf, area, t, "Worktrees", 84, rows.len().max(12), query, "pick one, or type a new branch", sel);
     let c = Style::default().bg(t.card);
-    let q = Rect { x: r.x + 1, y: r.y + 2, width: r.width.saturating_sub(2), height: 1 };
-    fill(buf, q, t.card2);
-    let s2 = Style::default().bg(t.card2);
-    let mut qs = vec![seg("› ", s2.fg(t.accent).add_modifier(Modifier::BOLD)), seg(query.to_string(), s2.fg(t.strong)), seg("█", s2.fg(t.accent))];
-    if query.is_empty() {
-        qs.push(seg(" pick one, or type a new branch", s2.fg(t.muted)));
-    }
-    put(buf, r.x + 3, q.y, &qs, r.right().saturating_sub(2));
-    let list = Rect { x: r.x + 1, y: r.y + 4, width: r.width.saturating_sub(2), height: r.height.saturating_sub(7) };
     if loading {
         put(buf, list.x + 2, list.y, &[seg("reading worktrees…", c.fg(t.muted).add_modifier(Modifier::ITALIC))], list.right());
     } else if rows.is_empty() {
         put(buf, list.x + 2, list.y, &[seg("type a branch name to make a worktree", c.fg(t.muted).add_modifier(Modifier::ITALIC))], list.right());
     }
-    let start = sel.saturating_sub((list.height as usize).saturating_sub(1));
     for (i, row) in rows.iter().enumerate().skip(start).take(list.height as usize) {
         let y = list.y + (i - start) as u16;
         let rr = Rect { y, height: 1, ..list };
         let on = i == sel;
-        let bg = if on { t.hov } else { t.card };
-        let buf = f.buffer_mut();
-        fill(buf, rr, bg);
-        let st = Style::default().bg(bg);
-        if on {
-            put(buf, rr.x + 1, y, &[seg("›", st.fg(t.accent).add_modifier(Modifier::BOLD))], rr.right());
-        }
+        let st = super::hydra::list_row(app, f.buffer_mut(), rr, on, t);
         let line = match row {
             super::WtRow::Existing(w) => {
                 let open = app.snap.workspaces.iter().any(|x| super::same_dir(&x.cwd, &w.path));

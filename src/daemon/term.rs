@@ -535,7 +535,7 @@ impl Term {
                         .args(["/PID", &pid.to_string(), "/T", "/F"])
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::null())
-                        .creation_flags(0x0800_0000)
+                        .creation_flags(crate::proc::CREATE_NO_WINDOW)
                         .status();
                 }
                 #[cfg(not(windows))]
