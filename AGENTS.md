@@ -292,4 +292,8 @@ runs a nested server with `HYDRA_SOCKET=<name> hydra`.
   commit per logical change, pushed after the gate passes.
 - **Install locally:** `cargo install --path .` (stop a running `hydra` first on
   Windows, or the binary is locked).
+- **Releases:** set `version` in `Cargo.toml`, commit, bring `main` up to `dev`, then tag
+  `vX.Y.Z` on `main` and push the tag. `.github/workflows/release.yml` builds Windows, macOS
+  (Apple Silicon and Intel) and Linux (x64, ARM; static musl) archives with checksums and
+  publishes the GitHub Release that `install.sh` / `install.ps1` download from.
 - **Tickets:** GitHub issues on CydoEntis/hydra, labelled by phase (`phase-5`, …) and linked from the plan.
