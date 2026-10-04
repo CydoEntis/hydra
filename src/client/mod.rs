@@ -1313,7 +1313,8 @@ impl App {
         let lines = text.lines().count().max(1);
         let native = copy::to_clipboard(&text);
         let how = if native { "" } else { " (via terminal)" };
-        self.notify(format!("copied {} chars, {lines} line(s){how}", text.chars().count()), false);
+        let _ = lines;
+        self.notify(format!("Copied{how}"), false);
     }
 
     fn enter_copy(&mut self, term: TermId) -> bool {
@@ -4696,10 +4697,10 @@ mod hydra_tests {
         let (text, mut app) = super::design_tests::render_with("hydra", 160, 45);
         show(&text);
         let lines: Vec<&str> = text.lines().collect();
-        assert!(lines[0].starts_with("  >_ hydra"), "logo: {}", lines[0]);
+        assert!(!text.contains(">_ hydra") && !text.contains("Ctrl+Space"), "no logo, no keys buttons");
         let bottom = lines.iter().rev().find(|l| !l.trim().is_empty()).unwrap();
-        assert!(bottom.contains("shop-api  ›  ⎇ main  ›  claude  ● needs you  ·  Fix flaky checkout test"), "crumb at the bottom: {bottom}");
-        assert!(lines[2].contains("PROJECTS") && lines[2].contains("+ open"), "the sidebar's header: {}", lines[2]);
+        assert!(bottom.contains("● 1 needs you") && !bottom.contains("›"), "the bottom bar: what needs you, no path (the pane's title has it): {bottom}");
+        assert!(lines[1].contains("PROJECTS") && lines[1].contains("+ open"), "the sidebar's header: {}", lines[1]);
         assert!(text.contains("t new") && text.contains("j jump") && text.contains(", settings"), "quiet hints at the bottom of the sidebar");
         // Projects and their sessions, nothing in between.
         assert!(text.contains("▾ ▌shop-api") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
@@ -4717,8 +4718,8 @@ mod hydra_tests {
             assert!(text.contains(part), "the answer bar has {part:?}");
         }
         assert!(!text.contains("click or press T"), "no footer under the pane");
-        assert!(lines[1].contains("✻ claude  shop-api · main") && lines[1].contains("● needs you"), "every pane has a title bar: {}", lines[1]);
-        assert!(lines[3].contains("> fix the flaky checkout test"), "a blank row under the bar, then the output");
+        assert!(lines[0].contains("✻ claude  Fix flaky checkout test · shop-api · main") && lines[0].contains("● needs you"), "every pane has a title bar, at the top: {}", lines[0]);
+        assert!(lines[2].contains("> fix the flaky checkout test"), "a blank row under the bar, then the output");
         // Overlays are centred over a dimmed screen.
         for (mode, needle) in [
             (Mode::Jump { sel: 0 }, "NEEDS YOU"),
@@ -4768,8 +4769,8 @@ mod hydra_tests {
         assert!(o.contains("#412  Rate limit /login") && o.contains("rate-limit → main") && o.contains("+42 −7"));
         assert!(o.contains("CHECKS  1 failing") && o.contains("✕ test") && o.contains("sam asked for changes"));
         assert!(o.contains("Ask the agent to fix it f") && o.contains("Open in browser o"));
-        // The sidebar stays; the view takes the main area.
-        assert!(o.contains("⎇ main"));
+        // It opens as a tool window.
+        assert!(o.contains("Esc"));
         // And a PR tag on the branch that has one.
         app.view = None;
         app.hy.prs.insert(
@@ -5112,7 +5113,7 @@ mod hydra_tests {
         app.hy_fresh();
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("✻ claude") && o.contains("claude opus 4.5"), "status, icon and name on the row; the bottom bar has the model");
+        assert!(o.contains("✻ claude") && o.contains("shop-api · main · opus 4.5"), "status, icon and name on the row; the pane's title has the model");
         assert!(o.contains("Fix the login flow"), "its name stays");
         assert!(!o.contains("› now add a test for it"), "one line under a row, no more");
     }
@@ -5243,9 +5244,15 @@ mod hydra_tests {
         assert!(app.hy.cursor_proj.is_some() && app.hy.cursor.is_none(), "← goes to its project");
         app.on_key(key(KeyCode::Down));
         assert_eq!(app.hy.cursor, Some(first));
-        // The bottom bar says what the keys do.
+        // The bottom bar says what the keys do, the row's own included.
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains("back to the pane"), "sidebar keys in the bottom bar");
+        show(&o);
+        assert!(o.contains("x  close") && o.contains("r  rename"), "the row's keys in the bottom bar");
+        // A row's letter does what its menu says: x asks to close it.
+        app.on_key(key(KeyCode::Char('x')));
+        assert!(matches!(&app.mode, Mode::Confirm(c) if c.title == "Close pane"), "x closes (after asking)");
+        app.on_key(key(KeyCode::Esc));
+        app.hy_side_set(hydra::SideItem::Sess(first));
         // Enter opens it and gives the keys back to the pane.
         app.on_key(key(KeyCode::Enter));
         assert!(matches!(app.mode, Mode::Normal) && app.hy.cursor.is_none());
@@ -5257,7 +5264,7 @@ mod hydra_tests {
         // Typing in the sidebar goes to the pane instead.
         app.act(Action::BrowseTree);
         assert!(matches!(app.mode, Mode::Side));
-        app.on_key(key(KeyCode::Char('x')));
+        app.on_key(key(KeyCode::Char('q')));
         assert!(matches!(app.mode, Mode::Normal), "a letter leaves the sidebar (and is typed into the pane)");
     }
 
@@ -5316,6 +5323,18 @@ mod hydra_tests {
         app.hy_place(b, Some(a));
         app.menu_do(menu::Act::End(vec![b]));
         assert_eq!(app.hy.tabs[0].layout, crate::layout::Node::Leaf(a));
+    }
+
+    #[test]
+    fn copying_pops_a_toast() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        app.notify("Copied".into(), false);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        let lines: Vec<&str> = o.lines().collect();
+        let at = lines.iter().position(|l| l.contains("✓ Copied")).expect("a toast");
+        assert!(at < lines.len() - 2, "over the panes, above the bottom bar");
+        assert!(!lines.last().unwrap().contains("Copied"), "not in the bottom bar");
     }
 
     #[test]

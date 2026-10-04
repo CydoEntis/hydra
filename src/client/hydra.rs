@@ -622,7 +622,6 @@ fn session_title(t: &TermInfo, name: &str, top: &Path) -> String {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum HyHit {
-    Splash,
     /// Fold / unfold a project.
     ToggleProj(usize),
     /// The + on a project row: new, in that project.
@@ -633,7 +632,6 @@ pub(super) enum HyHit {
     Settings,
     Jump,
     NewPane,
-    Keys,
     CloseSplit(TermId),
     Divider(usize),
     /// The ⋯ on a hovered sidebar row: its menu.
@@ -749,8 +747,8 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
     };
     let right_side = app.cfg.ui.sidebar_position == "right";
     // The panes get the full height; the sidebar sits under the logo.
-    let mid = Rect { x: area.x, y: area.y + 1, width: area.width, height: area.height.saturating_sub(2) };
-    draw_top(app, f.buffer_mut(), Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(1), height: 1 }, t);
+    // No top bar: the sidebar and panes start at the top; a bottom bar for what needs you.
+    let mid = Rect { x: area.x, y: area.y, width: area.width, height: area.height.saturating_sub(1) };
     let (side, panes) = if sw == 0 {
         (Rect { width: 0, ..mid }, mid)
     } else if right_side {
@@ -778,6 +776,7 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
     draw_main(app, f, panes, &model, t);
     app.hy.crumb_x = panes.x + 1;
     draw_status(app, f.buffer_mut(), Rect { y: area.bottom().saturating_sub(1), height: 1, ..area }, &model, t);
+    draw_toast(app, f.buffer_mut(), panes, t);
     // Files, diffs and pull requests open over everything in one tool-window size; Esc
     // closes.
     if matches!(app.view, Some(super::View::Changes(_) | super::View::Pr(_) | super::View::Files(_)))
@@ -809,35 +808,6 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
 
 pub(super) fn find(model: &[Proj], term: TermId) -> Option<(&Proj, &Wt, &Session)> {
     model.iter().find_map(|p| p.wts.iter().find_map(|w| w.sessions.iter().find(|s| s.term == term).map(|s| (p, w, s))))
-}
-
-/// The logo over the sidebar (the panes use the whole height beside it).
-fn draw_top(app: &mut App, buf: &mut Buffer, r: Rect, t: &Theme) {
-    let x = put(buf, r.x + 1, r.y, &[seg(">_ hydra", Style::default().fg(t.accent).bg(t.bg).add_modifier(Modifier::BOLD))], r.right());
-    hit(app, Rect { x: r.x, y: r.y, width: x - r.x, height: 1 }, HyHit::Splash);
-}
-
-/// Where you are: ▌project › ⑂ worktree › agent ● state · what it's on.
-fn crumb(app: &App, model: &[Proj], t: &Theme, bg: Color) -> Vec<Seg> {
-    let Some((p, w, s)) = app.focused().and_then(|f| find(model, f)) else { return Vec::new() };
-    let st = Style::default().bg(bg);
-    vec![
-        seg("▌", st.fg(p.color)),
-        seg(p.name.clone(), st.fg(t.strong).add_modifier(Modifier::BOLD)),
-        seg("  ›  ", st.fg(t.muted)),
-        seg(
-            match (w.main, w.branch.is_empty()) {
-                (true, true) => String::new(),
-                (true, false) => format!("⎇ {}  ›  ", w.branch),
-                (false, _) => format!("⑂ {}  ›  ", w.name),
-            },
-            st.fg(t.text),
-        ),
-        seg(format!("{} ", s.agent), st.fg(t.strong).add_modifier(Modifier::BOLD)),
-        seg(if s.model.is_empty() { " ".to_string() } else { format!("{}  ", s.model) }, st.fg(t.muted)),
-        seg(if s.is_agent { format!("{} {}", glyph(app, s.status), state_label(s.status)) } else { String::new() }, st.fg(t.status(s.status))),
-        seg(if s.is_agent && s.title != WAITING { format!("  ·  {}", s.title) } else { String::new() }, st.fg(t.text)),
-    ]
 }
 
 /// `●1 ✓1 ⠹2`: counts of a list of sessions by state.
@@ -1409,7 +1379,10 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
     let (name, place) = found
         .map(|(p, w, s)| {
             let br = if p.git && !w.branch.is_empty() { format!(" · {}", w.branch) } else { String::new() };
-            (s.name.clone(), format!("{}{br}", p.name))
+            let model = if s.model.is_empty() { String::new() } else { format!(" · {}", s.model) };
+            // What it's on (Claude's title for the conversation, or its first task) first.
+            let on = if s.is_agent && s.title != WAITING && !s.title.is_empty() && s.title != s.name { format!("{} · ", s.title) } else { String::new() };
+            (s.name.clone(), format!("{on}{}{br}{model}", p.name))
         })
         .unwrap_or_else(|| (agent.clone(), String::new()));
     let icon = if info.agent.is_some() { format!("{} ", kind_icon(app, &agent, true)) } else { String::new() };
@@ -1523,41 +1496,72 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
 
 }
 
+/// A note (copied, saved, couldn't …) as a small pop-up just above the bottom bar, centred
+/// over the panes; it goes after a few seconds (errors stay a little longer).
+fn draw_toast(app: &App, buf: &mut Buffer, panes: Rect, t: &Theme) {
+    let Some((msg, at, err)) = &app.notice else { return };
+    if at.elapsed().as_millis() > if *err { 4500 } else { 2500 } {
+        return;
+    }
+    let text = truncate(msg, panes.width.saturating_sub(12) as usize);
+    let w = text.width() as u16 + 7;
+    if panes.height < 4 || panes.width < w + 2 {
+        return;
+    }
+    let r = Rect { x: panes.x + (panes.width - w) / 2, y: panes.bottom().saturating_sub(4), width: w, height: 3 };
+    fill(buf, r, t.card2);
+    let edge = Style::default().fg(if *err { t.err } else { t.done }).bg(t.card2);
+    for y in r.top()..r.bottom() {
+        buf[(r.x, y)].set_symbol("▌").set_style(edge);
+    }
+    let st = Style::default().bg(t.card2);
+    put(
+        buf,
+        r.x + 2,
+        r.y + 1,
+        &[seg(if *err { "✕ " } else { "✓ " }, st.fg(if *err { t.err } else { t.done }).add_modifier(Modifier::BOLD)), seg(text, st.fg(t.strong).add_modifier(Modifier::BOLD))],
+        r.right() - 1,
+    );
+}
+
 fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
     let surf = t.sidebar_bg;
     fill(buf, r, surf);
     let s = Style::default().bg(surf);
-    let left = match &app.notice {
-        Some((msg, at, err)) if at.elapsed().as_millis() < 4500 => vec![
-            seg(if *err { "✕ " } else { "✓ " }, s.fg(if *err { t.err } else { t.done }).add_modifier(Modifier::BOLD)),
-            seg(msg.clone(), s.fg(t.strong)),
-        ],
-        // In the sidebar: its keys.
-        _ if app.mode == Mode::Side => hints(t, &[("↑↓", "move"), ("→ ←", "open / fold"), ("Enter", "open"), ("Space", "message"), ("Esc", "back to the pane")])
-            .into_iter()
-            .map(|(x, st)| (x, if st.bg.is_none() || st.bg == Some(t.card) { st.bg(surf) } else { st }))
-            .collect(),
-        _ => crumb(app, model, t, surf),
+    // In the sidebar: its keys (the row's own, as its menu has them). Otherwise only what
+    // needs you; where you are is on each pane's title bar, and notes pop up as toasts.
+    let left: Vec<Seg> = if app.mode == Mode::Side {
+        let items = app.cursor_items();
+        let keys = super::menu::menu_keys(&items);
+        let mut list: Vec<(String, String)> = vec![("↑↓".into(), "move".into()), ("Enter".into(), "open".into())];
+        for ((label, _), k) in items.iter().zip(keys) {
+            if let Some(k) = k {
+                let l = label.trim_start_matches('▶').trim().trim_end_matches('…').split_whitespace().next().unwrap_or("").to_lowercase();
+                list.push((k.to_string(), l));
+            }
+        }
+        list.push(("Esc".into(), "back".into()));
+        let refs: Vec<(&str, &str)> = list.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        hints(t, &refs).into_iter().map(|(x, st)| (x, if st.bg.is_none() || st.bg == Some(t.card) { st.bg(surf) } else { st })).collect()
+    } else {
+        let needs = model.iter().flat_map(|p| p.sessions()).filter(|x| x.status == Status::Blocked).count();
+        if needs > 0 {
+            vec![seg(format!("● {needs} needs you"), s.fg(t.blocked).add_modifier(Modifier::BOLD)), seg(format!("   {} jump", k(app, &Action::Jump)), s.fg(t.muted))]
+        } else {
+            Vec::new()
+        }
     };
-    let lead = app.keymap.prefix.to_string().replace("C-", "Ctrl+");
-    let hk = k(app, &Action::Help);
     let mut right = Vec::new();
     if let Some(host) = crate::ipc::remote() {
         right.push(seg(format!(" ⇄ {host} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)));
         right.push(seg(" ", s));
     }
-    right.extend([
-        seg(" Keys ", Style::default().bg(t.btn).fg(t.strong).add_modifier(Modifier::BOLD)),
-        seg(format!("{hk} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)),
-        seg(" ", s),
-        seg(format!(" {lead} "), Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)),
-    ]);
     let rw = segs_width(&right);
     // Lined up with the panes, not under the sidebar.
     put(buf, app.hy.crumb_x.max(r.x + 1), r.y, &left, r.right().saturating_sub(rw + 2));
     hit(app, Rect { width: 60.min(r.width), ..r }, HyHit::Jump);
     put(buf, r.right().saturating_sub(rw), r.y, &right, r.right());
-    hit(app, Rect { x: r.right().saturating_sub(rw), width: rw, ..r }, HyHit::Keys);
+    let _ = rw;
 }
 
 // ---- overlays ------------------------------------------------------------------------------
@@ -3212,7 +3216,16 @@ impl App {
             },
             KeyCode::Esc => self.hy_side_leave(),
             _ if spec == self.keymap.prefix => self.mode = Mode::Prefix { since: Instant::now() },
-            // Typing goes to the pane: leave the sidebar and hand the key over.
+            // A letter from the row's menu does that (x close, r rename, m message, …).
+            KeyCode::Char(c) if plain && super::menu::menu_keys(&self.cursor_items()).contains(&Some(c)) => {
+                let items = self.cursor_items();
+                if let Some(i) = super::menu::menu_keys(&items).iter().position(|k| *k == Some(c))
+                    && let Some((_, act)) = items.get(i).cloned()
+                {
+                    self.menu_act(act);
+                }
+            }
+            // Anything else is typing: leave the sidebar and hand the key over.
             _ => {
                 self.hy_side_leave();
                 if let Some(term) = self.focused() {
@@ -3591,7 +3604,6 @@ impl App {
     /// Clicks on this layout's chips, rows and buttons.
     pub(super) fn on_hy_hit(&mut self, h: HyHit, double: bool) {
         match h {
-            HyHit::Splash => self.splash = true,
             HyHit::ToggleProj(i) => {
                 if let Some(key) = self.hy.proj_keys.get(i).cloned() {
                     self.hy_fold(&key, None);
@@ -3610,7 +3622,6 @@ impl App {
             HyHit::Settings => self.hy_settings(),
             HyHit::Jump => self.mode = Mode::Jump { sel: 0 },
             HyHit::NewPane => self.hy_open_new_pane(false),
-            HyHit::Keys => self.mode = Mode::Help { scroll: 0 },
             // The ✕ on a pane: close it (after asking).
             HyHit::CloseSplit(t) => self.menu_act(super::menu::Act::End(vec![t])),
             HyHit::Divider(i) => self.hy.drag = Some(Drag::Divider(i)),

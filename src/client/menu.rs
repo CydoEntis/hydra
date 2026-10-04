@@ -130,8 +130,16 @@ impl App {
 
     /// Right-click on an agent (or shell) row.
     pub(super) fn menu_for_session(&mut self, term: TermId, at: (u16, u16)) {
+        if let Some((title, items)) = self.session_items(term) {
+            self.menu(title, items, at);
+        }
+    }
+
+    /// A session's menu: its title and items, for right-click and for the sidebar's
+    /// letter keys.
+    pub(super) fn session_items(&self, term: TermId) -> Option<(String, Vec<(String, Act)>)> {
         let model = self.hy_model();
-        let Some((_, _, s)) = find(&model, term) else { return };
+        let (_, _, s) = find(&model, term)?;
         let agent = s.agent.clone();
         let dir = find(&model, term).map(|(_, w, _)| w.path.clone());
         if let (Some(_), Some(d)) = (&s.dev, &dir) {
@@ -140,8 +148,7 @@ impl App {
                 ("Restart".to_string(), Act::Dev(d.clone(), DevAction::Restart)),
                 ("Stop".to_string(), Act::Dev(d.clone(), DevAction::Stop)),
             ];
-            self.menu("dev server".into(), items, at);
-            return;
+            return Some(("dev server".into(), items));
         }
         let mut items = vec![(format!("Message {agent}…"), Act::Talk(term))];
         if self.focused().is_some_and(|f| f != term) {
@@ -157,13 +164,19 @@ impl App {
             items.push(("▶ Run dev server here".to_string(), Act::Dev(d, crate::protocol::DevAction::Start)));
         }
         items.push(("Close".to_string(), Act::End(vec![term])));
-        self.menu(format!("{agent} · {}", truncate(&s.title, 30)), items, at);
+        Some((format!("{} · {}", s.name, truncate(&agent, 30)), items))
     }
 
     /// Right-click on a project row.
     pub(super) fn menu_for_project(&mut self, pi: usize, at: (u16, u16)) {
+        if let Some((title, items)) = self.project_items(pi) {
+            self.menu(title, items, at);
+        }
+    }
+
+    pub(super) fn project_items(&self, pi: usize) -> Option<(String, Vec<(String, Act)>)> {
         let model = self.hy_model();
-        let Some(p) = model.get(pi) else { return };
+        let p = model.get(pi)?;
         let mut items = vec![("Rename".to_string(), Act::RenameProject(p.key.clone(), p.name.clone())), ("Close".to_string(), Act::CloseProject(pi))];
         if p.git {
             items.push(("New worktree".to_string(), Act::NewWorktree(pi)));
@@ -177,7 +190,21 @@ impl App {
         {
             items.push(("▶ Run dev server".to_string(), Act::Dev(main.path.clone(), crate::protocol::DevAction::Start)));
         }
-        self.menu(p.name.clone(), items, at);
+        Some((p.name.clone(), items))
+    }
+
+    /// The menu items for the sidebar cursor's row (what its letter keys do), in the
+    /// menu's order.
+    pub(super) fn cursor_items(&self) -> Vec<(String, Act)> {
+        let mut items = match (&self.hy.cursor_proj, self.hy.cursor) {
+            (Some(key), _) => self.hy_model().iter().position(|p| p.key == *key).and_then(|pi| self.project_items(pi)),
+            (None, Some(t)) => self.session_items(t),
+            _ => None,
+        }
+        .map(|(_, i)| i)
+        .unwrap_or_default();
+        items.sort_by_key(|(_, a)| matches!(a, Act::End(_) | Act::CloseProject(_)));
+        items
     }
 
     pub(super) fn on_hy_menu_key(&mut self, mut m: HyMenu, k: &KeyEvent) {
