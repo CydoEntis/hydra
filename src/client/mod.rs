@@ -93,6 +93,8 @@ enum Mode {
     History { sel: usize },
     /// "Close …?" with confirm / cancel.
     Confirm(Box<menu::Confirm>),
+    /// The switcher: projects and sessions, typed to filter.
+    GoTo { query: String, sel: usize },
 }
 
 /// The ship confirm: the branch and what shipping it will do.
@@ -923,6 +925,7 @@ impl App {
             Mode::Talk { input, .. } => input.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
             Mode::Ideas(v) => v.input.push_str(s.lines().next().unwrap_or("")),
             Mode::Find(v) => v.query.push_str(s.lines().next().unwrap_or("")),
+            Mode::GoTo { query, .. } => query.push_str(s.lines().next().unwrap_or("").trim()),
             Mode::Branch(v) => v.query.push_str(s.lines().next().unwrap_or("").trim()),
             Mode::Tickets(v) => v.query.push_str(s.lines().next().unwrap_or("")),
             Mode::RaceNew(v) => v.text.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
@@ -992,6 +995,7 @@ impl App {
             Mode::Branch(v) => self.on_branch_key(*v, &k),
             Mode::Memory { sel } => self.on_memory_key(sel, &k),
             Mode::History { sel } => self.on_history_key(sel, &k),
+            Mode::GoTo { query, sel } => self.on_goto_key(query, sel, &k),
             Mode::Confirm(c) => match k.code {
                 KeyCode::Enter | KeyCode::Char('y') => {
                     self.mode = Mode::Normal;
@@ -1882,6 +1886,7 @@ impl App {
             Action::Presets => self.hy_presets(),
             Action::Branches => self.open_branches(None),
             Action::Memory => self.mode = Mode::Memory { sel: 0 },
+            Action::GoTo => self.mode = Mode::Picker { query: String::new(), sel: 0, commands: false },
             // The classic layout: a shell beside the focused pane.
             Action::ShellHere => {
                 if let Some(term) = focused {
@@ -2372,6 +2377,53 @@ impl App {
     /// Every command worth offering in the palette, plus your own spawn bindings.
     fn palette_commands(&self) -> Vec<Action> {
         use crate::layout::Dir;
+        if self.cfg.ui.layout == "hydra" {
+            return vec![
+                Action::GoTo,
+                Action::Jump,
+                Action::BrowseTree,
+                Action::NewPane,
+                Action::ShellHere,
+                Action::OpenProject,
+                Action::SplitRight,
+                Action::SplitDown,
+                Action::Focus(Dir::Left),
+                Action::Focus(Dir::Right),
+                Action::Focus(Dir::Up),
+                Action::Focus(Dir::Down),
+                Action::Zoom,
+                Action::ToggleSidebar,
+                Action::ClosePane,
+                Action::NewTab,
+                Action::NextTab,
+                Action::PrevTab,
+                Action::CloseTab,
+                Action::Talk,
+                Action::Reply,
+                Action::RenameWorkspace,
+                Action::Presets,
+                Action::Files,
+                Action::Find(0),
+                Action::Find(1),
+                Action::Changes,
+                Action::Branches,
+                Action::PullRequest,
+                Action::Ship,
+                Action::Inbox,
+                Action::Ideas,
+                Action::Race,
+                Action::Toolbox,
+                Action::Map,
+                Action::CopyMode,
+                Action::PasteImage,
+                Action::Memory,
+                Action::History,
+                Action::Settings,
+                Action::Help,
+                Action::ReloadConfig,
+                Action::Detach,
+            ];
+        }
         let mut list = vec![
             Action::QuickPrompt,
             Action::SplitRight,
@@ -4619,16 +4671,15 @@ mod modal_tests {
         }
         let focus = keys.lines().find(|l| l.contains("move focus")).unwrap();
         assert!(focus.contains(" ← ") && focus.contains(" → "), "a keycap per arrow: {focus}");
-        assert!(keys.contains(" 1   2   3  answer its prompt"), "a keycap per answer key");
         assert!(pane.contains("New pane") && pane.contains("RUN") && pane.contains("WHERE"));
         // Keys are drawn as caps: the key sits on the button ground, not the card's.
         let mut term = Terminal::new(TestBackend::new(160, 45)).unwrap();
         app.mode = Mode::Help { scroll: 0 };
         term.draw(|f| render::draw(&mut app, f)).unwrap();
         let buf = term.backend().buffer();
-        let (y, line) = keys.lines().enumerate().find(|(_, l)| l.contains("give an agent a task")).unwrap();
-        let x = line.chars().take_while(|c| *c != 'q').count() as u16;
-        assert_eq!(buf[(x, y as u16)].bg, app.theme.btn, "the q key is a keycap");
+        let (y, line) = keys.lines().enumerate().find(|(_, l)| l.contains("zoom")).unwrap();
+        let x = line.chars().take_while(|c| *c != 'z').count() as u16;
+        assert_eq!(buf[(x, y as u16)].bg, app.theme.btn, "the z key is a keycap");
         // Centered: the window's title row starts well away from the left edge.
         let title = pane.lines().find(|l| l.contains("New pane")).unwrap();
         let x = title.find("New pane").unwrap();
@@ -4663,7 +4714,7 @@ mod settings_splash_tests {
             println!("{splash}\n{settings}\n{keys}");
         }
         assert!(splash.contains("██████") && splash.contains("many heads, one body"));
-        assert!(splash.contains("Jump to what needs you") && splash.contains("Open shop-api"));
+        assert!(splash.contains("Resume where you left off") && splash.contains("New: an agent or a shell") && splash.contains("Open a folder"));
         for page in ["General", "Sessions", "Appearance", "Agents", "Projects", "Keys"] {
             assert!(settings.contains(page), "page {page}");
         }
@@ -4701,7 +4752,7 @@ mod hydra_tests {
         let bottom = lines.iter().rev().find(|l| !l.trim().is_empty()).unwrap();
         assert!(bottom.contains("● 1 needs you") && !bottom.contains("›"), "the bottom bar: what needs you, no path (the pane's title has it): {bottom}");
         assert!(lines[1].contains("PROJECTS") && lines[1].contains("+ open"), "the sidebar's header: {}", lines[1]);
-        assert!(text.contains("t new") && text.contains("j jump") && text.contains(", settings"), "quiet hints at the bottom of the sidebar");
+        assert!(text.contains("t new") && text.contains("g go to") && text.contains(", settings"), "quiet hints at the bottom of the sidebar");
         // Projects and their sessions, nothing in between.
         assert!(text.contains("▾ ▌shop-api") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
         assert!(!text.contains("main folder"), "no 'main folder' wording");
@@ -4747,10 +4798,10 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains("⣿") && o.contains("██████"), "art and wordmark");
-        assert!(o.contains("while you were away") && o.contains("1 need you") && o.contains("Open shop-api Enter"));
+        assert!(o.contains("while you were away") && o.contains("1 need you") && o.contains("Resume where you left off") && o.contains("Open a folder"));
         // Small windows drop the art but keep the rest.
         let o = draw(&mut app, 100, 30);
-        assert!(!o.contains("⣿") && o.contains("Jump to what needs you"));
+        assert!(!o.contains("⣿") && o.contains("Open a folder"));
     }
 
     #[test]
@@ -4882,12 +4933,12 @@ mod hydra_tests {
         app.on_key(key(KeyCode::Char('x')));
         app.on_key(key(KeyCode::Esc));
         assert!(app.splash, "random keys don't leave the splash");
-        app.on_key(key(KeyCode::Right));
+        app.on_key(key(KeyCode::Down));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("←→ choose   Enter open"));
+        assert!(o.contains("↑↓ choose   Enter open"));
         app.on_key(key(KeyCode::Enter));
-        assert!(!app.splash && matches!(app.mode, Mode::Jump { .. }), "Enter picks the selected button (Jump)");
+        assert!(!app.splash && matches!(app.mode, Mode::HyPane(_)), "Enter picks the selected one (New)");
         app.mode = Mode::Normal;
 
         // Right-click menus.
@@ -5335,6 +5386,27 @@ mod hydra_tests {
         let at = lines.iter().position(|l| l.contains("✓ Copied")).expect("a toast");
         assert!(at < lines.len() - 2, "over the panes, above the bottom bar");
         assert!(!lines.last().unwrap().contains("Copied"), "not in the bottom bar");
+    }
+
+    #[test]
+    fn go_to_a_project_or_session() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
+        app.act(Action::GoTo);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("Go to") && o.contains("▌shop-api") && o.contains("type a project or session"));
+        for c in "rate".chars() {
+            app.on_key(key(KeyCode::Char(c)));
+        }
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("◇ rate"), "typing filters to what matches");
+        let Mode::GoTo { query, sel } = app.mode.clone() else { panic!("still open") };
+        let rows = hydra::goto_rows(&app.hy_model(), &query);
+        assert!(matches!(rows[sel], hydra::GoRow::Sess(..)), "it lands on the matching session");
+        app.on_key(key(KeyCode::Enter));
+        assert!(matches!(app.mode, Mode::Normal), "Enter goes there");
     }
 
     #[test]

@@ -452,6 +452,10 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, panes: Rect, t: &crat
             let c = (**c).clone();
             super::menu::draw_confirm(app, f, area, &t, &c);
         }
+        Mode::GoTo { query, sel } => {
+            let (q, s) = (query.clone(), *sel);
+            super::hydra::draw_goto(app, f, area, &t, &q, s);
+        }
         Mode::History { sel } => {
             let sel = *sel;
             super::hydra::draw_history(app, f, area, &t, sel);
@@ -1165,6 +1169,7 @@ pub(super) fn mode_label(app: &App, t: &crate::theme::Theme) -> (&'static str, C
         Mode::Branch(_) => ("BRANCH", t.accent),
         Mode::Memory { .. } => ("MEMORY", t.accent),
         Mode::History { .. } => ("HISTORY", t.accent),
+        Mode::GoTo { .. } => ("GO TO", t.accent),
         Mode::Confirm(_) => ("CONFIRM", t.blocked),
         Mode::Tickets(_) => ("TICKETS", t.accent),
         Mode::RaceNew(_) | Mode::Race(_) => ("RACE", t.accent),

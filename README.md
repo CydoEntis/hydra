@@ -89,31 +89,20 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 
 | keys (after the leader) | action |
 |---|---|
-| `n` | a new **shell** right away in the project's folder (no agent, no worktree) |
-| `p` / `o` | open a **project** |
-| `t` | **+ New**: type the task, pick the agent, model, project and worktree; full screen / beside |
-| `.` | **presets**: saved launches ("commit and push", "review {task}"), by number |
-| `↑` `↓` | walk the sidebar; Enter opens, bare keys work until Esc |
-| `j` | **Jump**: what needs you, what finished, PRs with failing checks or changes asked |
-| `T` / `r` / `1` `2` `3` | message an agent / reply to the focused one / answer its prompt |
-| `Space` on a sidebar row | a follow-up box beside that agent; Enter sends, `↓ Space` for the next |
-| `f` / `d` / `P` | **Files** / **Changes** / the branch's **pull request** |
-| `s` | **Ship**: commit, push, open (or update) the pull request, after one Enter |
-| `I` | **Ideas**: jot one down; later, Enter starts an agent on it in its own worktree |
-| `i` | **Tickets** from GitHub issues, Linear and Plane; Enter starts an agent on one |
-| `c` | **Race**: one task, two or three agents, each in a worktree; compare and keep the best |
-| `M` | **Map**: the project's folders and worktrees as connected boxes, coloured by status |
-| `F` / `G` | **find a file** / **search the code**; Enter puts `path:line` in the prompt |
-| `g` | **switch branch** (local and remote; asks what to do with uncommitted changes) |
-| `w` / `l` `h` | a **new tab** / next, previous tab |
-| `U` / `N` | **memory** per session / **what happened** (who finished, asked, rang) |
-| `x` / `X` | take the focused one out of the split / end it |
-| `%` `\|` `"` `-` | a shell beside this one |
-| `←` `→` `↑` `↓` | the next session in a split (open as many beside each other as you like; drag the lines) |
-| `v` / `b` / `q` | tasks & review / toolbox / quick prompt |
-| `Space` / `m` | command palette / menu |
-| `z` `B` / `[` `/` | hide the sidebar / copy mode, search |
-| `,` / `?` / `D` | settings / every key / detach |
+| `g` (or `w`) | **go to** a project or session: type to find it |
+| `e` / `a` | focus the sidebar / jump to what needs you |
+| `Space` or `:` | **command palette**: type what you want |
+| `t` / `s` / `o` | new agent (task box) / new shell here / open a project |
+| `v` / `-` | split right / split down |
+| `h j k l` or arrows | focus the pane that way (left past the edge: the sidebar) |
+| `x` / `z` / `b` | close pane / zoom pane / show or hide the sidebar |
+| `H J K L` | resize |
+| `c` / `n` `p` / `1–9` / `X` | new tab / next, previous tab / go to tab / close tab |
+| `m` / `r` / `R` | message an agent / reply to the focused one / rename a session |
+| `f` / `F` / `/` | files / find a file / search the code |
+| `d` / `B` / `P` / `S` | changes / switch branch / pull request / ship |
+| `i` / `I` / `.` / `A` | tickets / ideas / presets / agent tools |
+| `,` / `?` / `U` / `N` / `q` | settings / keys / memory / history / detach |
 
 In **Files**: Enter puts the path in the agent's prompt, `e` opens it in your editor (`editor`
 in config; nvim, helix … open inside hydra), `y` copies the path. In **Changes**: `c` commit,

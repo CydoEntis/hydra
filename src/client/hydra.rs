@@ -690,6 +690,8 @@ pub(super) enum HyHit {
     FindRow(usize),
     BranchRow(usize),
     MemRow(usize),
+    GoPick(usize),
+    GoTo,
     HistRow(usize),
     BranchChoice(usize),
 }
@@ -1183,7 +1185,7 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     let by = r.bottom().saturating_sub(3);
     hline(buf, x0 + 2, by, w.saturating_sub(4), t, surf);
     let mut hx = x0 + 2;
-    for (key, label, h) in [(k(app, &Action::NewPane), "new", HyHit::NewPane), (k(app, &Action::Jump), "jump", HyHit::Jump), (k(app, &Action::Settings), "settings", HyHit::Settings)] {
+    for (key, label, h) in [(k(app, &Action::NewPane), "new", HyHit::NewPane), (k(app, &Action::GoTo), "go to", HyHit::GoTo), (k(app, &Action::Settings), "settings", HyHit::Settings)] {
         let segs = vec![seg(key, plain.fg(t.accent).add_modifier(Modifier::BOLD)), seg(format!(" {label}"), plain.fg(t.text))];
         let sw = segs_width(&segs);
         let hr = Rect { x: hx, y: by + 1, width: sw, height: 1 };
@@ -1962,6 +1964,88 @@ pub(super) fn np_places(p: &Proj) -> Vec<String> {
     v
 }
 
+/// The go-to switcher's rows: projects and their sessions, those matching `q`.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum GoRow {
+    Proj(usize),
+    Sess(usize, TermId),
+}
+
+pub(super) fn goto_rows(model: &[Proj], q: &str) -> Vec<GoRow> {
+    let q = q.trim();
+    let hit = |text: &str| q.is_empty() || super::files::fuzzy(q, text).is_some();
+    let mut out = Vec::new();
+    for (pi, p) in model.iter().enumerate() {
+        let proj_hit = hit(&p.name);
+        let mut sess: Vec<&Session> = p.sessions().collect();
+        sess.sort_by_key(|s| (rank(s.status), s.term));
+        let sess: Vec<&Session> = sess.into_iter().filter(|s| proj_hit || hit(&format!("{} {} {} {}", p.name, s.name, s.agent, s.title))).collect();
+        if !proj_hit && sess.is_empty() {
+            continue;
+        }
+        out.push(GoRow::Proj(pi));
+        out.extend(sess.into_iter().map(|s| GoRow::Sess(pi, s.term)));
+    }
+    out
+}
+
+pub(super) fn draw_goto(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, query: &str, sel: usize) {
+    let model = app.hy_model();
+    let rows = goto_rows(&model, query);
+    let buf = f.buffer_mut();
+    dim_all(buf, area, t);
+    let h = (rows.len() as u16 + 8).clamp(12, area.height.saturating_sub(4));
+    let r = panel(app, buf, area, 92, h, "Go to", &[], t);
+    let c = Style::default().bg(t.card);
+    let q = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: 1 };
+    fill(buf, q, t.card2);
+    let s2 = Style::default().bg(t.card2);
+    let mut qs = vec![seg("› ", s2.fg(t.accent).add_modifier(Modifier::BOLD)), seg(query.to_string(), s2.fg(t.strong)), seg("█", s2.fg(t.accent))];
+    if query.is_empty() {
+        qs.push(seg(" type a project or session", s2.fg(t.muted)));
+    }
+    put(buf, r.x + 3, q.y, &qs, r.right() - 2);
+    let list = Rect { x: r.x + 1, y: r.y + 4, width: r.width - 2, height: r.height.saturating_sub(7) };
+    let start = sel.saturating_sub(list.height.saturating_sub(1) as usize);
+    for (i, row) in rows.iter().enumerate().skip(start).take(list.height as usize) {
+        let y = list.y + (i - start) as u16;
+        let rr = Rect { y, height: 1, ..list };
+        let on = i == sel;
+        let bg = if on || hovered(app, rr) { t.hov } else { t.card };
+        fill(buf, rr, bg);
+        let st = Style::default().bg(bg);
+        if on {
+            put(buf, rr.x + 1, y, &[seg("›", st.fg(t.accent).add_modifier(Modifier::BOLD))], rr.right());
+        }
+        match row {
+            GoRow::Proj(pi) => {
+                let p = &model[*pi];
+                put(buf, rr.x + 3, y, &[seg("▌", st.fg(p.color)), seg(p.name.clone(), st.fg(t.strong).add_modifier(Modifier::BOLD))], rr.right());
+                let meta: Vec<Seg> = counts(app, t, p.sessions(), None).into_iter().map(|(x, s)| (x, s.bg(bg))).collect();
+                let meta = if p.sessions().count() == 0 { vec![seg("empty", st.fg(t.muted))] } else { meta };
+                let mw = segs_width(&meta);
+                put(buf, rr.right().saturating_sub(mw + 2), y, &meta, rr.right());
+            }
+            GoRow::Sess(pi, term) => {
+                let Some((_, w, s)) = find(&model, *term) else { continue };
+                let icon = if s.is_agent { format!("{} ", kind_icon(app, &s.agent, true)) } else { "  ".into() };
+                let gl = if s.is_agent { glyph(app, s.status) } else { app.cfg.icons.shell.clone() };
+                let gc = if s.is_agent { t.status(s.status) } else { t.muted };
+                put(buf, rr.x + 6, y, &[seg(format!("{gl} "), st.fg(gc)), seg(icon, st.fg(t.muted)), seg(s.name.clone(), st.fg(if on { t.strong } else { t.text }))], rr.right());
+                let meta = if model[*pi].git && !w.branch.is_empty() { format!("{} · {}", w.branch, state_label(s.status)) } else { state_label(s.status).to_string() };
+                let col = if s.status == Status::Blocked { t.blocked } else { t.muted };
+                let mw = meta.width() as u16;
+                put(buf, rr.right().saturating_sub(mw + 2), y, &[seg(meta, st.fg(col))], rr.right());
+            }
+        }
+        hit(app, rr, HyHit::GoPick(i));
+    }
+    if rows.is_empty() {
+        put(buf, list.x + 2, list.y, &[seg("nothing matches", c.fg(t.muted).add_modifier(Modifier::ITALIC))], list.right());
+    }
+    put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("↑↓", "move"), ("Enter", "go"), ("Esc", "close")]), r.right());
+}
+
 /// Every session with what it uses, biggest first: (term, label, where, bytes, asleep).
 pub(super) fn memory_rows(app: &App) -> Vec<(TermId, String, String, u64, bool)> {
     let model = app.hy_model();
@@ -2521,49 +2605,49 @@ pub(super) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
     #[allow(clippy::type_complexity)]
     let cols: [(&str, Vec<(Vec<Action>, &str)>); 4] = [
         (
-            "MOVE",
+            "GET AROUND",
             vec![
-                (vec![Action::BrowseTree], "sidebar"),
-                (vec![Action::Jump], "jump"),
-                (vec![Action::NextAttention], "next waiting"),
-                (vec![Action::Focus(Dir::Left), Action::Focus(Dir::Right)], "other pane"),
-                (vec![Action::NextTab], "next tab"),
+                (vec![Action::GoTo], "go to…"),
+                (vec![Action::BrowseTree], "focus sidebar"),
+                (vec![Action::Focus(Dir::Left), Action::Focus(Dir::Right)], "focus pane"),
+                (vec![Action::Jump], "needs you"),
+                (vec![Action::NextTab, Action::PrevTab], "next / prev tab"),
+                (vec![Action::Palette], "palette"),
             ],
         ),
         (
-            "DO",
+            "PANES",
             vec![
+                (vec![Action::SplitRight], "split right"),
+                (vec![Action::SplitDown], "split down"),
+                (vec![Action::Zoom], "zoom"),
+                (vec![Action::ToggleSidebar], "sidebar on/off"),
+                (vec![Action::ClosePane], "close pane"),
+                (vec![Action::NewTab], "new tab"),
+            ],
+        ),
+        (
+            "START & TALK",
+            vec![
+                (vec![Action::NewPane], "new agent"),
+                (vec![Action::ShellHere], "new shell"),
+                (vec![Action::OpenProject], "open project"),
                 (vec![Action::Talk], "message"),
                 (vec![Action::Reply], "reply"),
-                (vec![Action::ShellHere], "new shell"),
-                (vec![Action::NewPane], "new agent"),
-                (vec![Action::OpenProject], "open project"),
-                (vec![Action::CloseSplit], "unsplit"),
-                (vec![Action::ClosePane], "close pane"),
+                (vec![Action::RenameWorkspace], "rename"),
                 (vec![Action::Presets], "presets"),
             ],
         ),
         (
-            "CODE",
+            "CODE & APP",
             vec![
                 (vec![Action::Files], "files"),
-                (vec![Action::Find(0)], "find file"),
                 (vec![Action::Find(1)], "search code"),
                 (vec![Action::Changes], "changes"),
                 (vec![Action::Branches], "branch"),
                 (vec![Action::Inbox], "tickets"),
-                (vec![Action::Toolbox], "toolbox"),
-            ],
-        ),
-        (
-            "APP",
-            vec![
                 (vec![Action::Settings], "settings"),
-                (vec![Action::Help], "keys"),
-                (vec![Action::Zoom], "hide sidebar"),
-                (vec![Action::NewTab], "new tab"),
                 (vec![Action::History], "history"),
-                (vec![Action::Memory], "memory"),
             ],
         ),
     ];
@@ -2638,6 +2722,18 @@ const ART: [&str; 22] = [
 ];
 
 /// The splash: the hydra, the wordmark, what happened while you were away, and buttons.
+/// The splash's choices: (label, key shown, action key).
+pub(super) fn splash_options(app: &App) -> Vec<(String, String, char)> {
+    let mut v = Vec::new();
+    if !app.snap.terms.is_empty() {
+        let n = app.snap.terms.len();
+        v.push((format!("Resume where you left off  ·  {n} running"), "r".to_string(), 'r'));
+    }
+    v.push(("New: an agent or a shell".to_string(), "n".to_string(), 'n'));
+    v.push(("Open a folder".to_string(), "o".to_string(), 'o'));
+    v
+}
+
 pub(super) fn draw_splash(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
     let model = app.hy_model();
     let buf = f.buffer_mut();
@@ -2694,36 +2790,26 @@ pub(super) fn draw_splash(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
     put(buf, center(segs_width(&away)), y, &away, area.right());
     y += 3;
     let last = app.focused().and_then(|fo| find(&model, fo)).map(|(p, w, s)| (p.name.clone(), p.color, w.name.clone(), s.title.clone()));
-    let open_label = format!("Open {}", last.as_ref().map(|l| l.0.clone()).unwrap_or_else(|| "hydra".into()));
-    let btns: [(&str, &str, BtnKind, char); 4] = [
-        (&open_label, "Enter", BtnKind::Primary, '\n'),
-        ("Jump to what needs you", "j", BtnKind::Normal, 'j'),
-        ("Open a folder", "o", BtnKind::Normal, 'o'),
-        ("Settings", ",", BtnKind::Ghost, ','),
-    ];
-    let total: u16 = btns.iter().map(|(l, k, kind, _)| segs_width(&button(t, l, k, *kind, false))).sum::<u16>() + 3 * 3;
-    let mut x = center(total);
-    let sel = app.hy.splash_sel.min(3);
-    for (i, (l, key, _, c)) in btns.into_iter().enumerate() {
-        // The selected button is the bright one; arrows, Tab and the mouse move it.
-        let kind = if i == sel { BtnKind::Primary } else { BtnKind::Normal };
-        let b = button(t, l, key, kind, false);
-        let br = Rect { x, y, width: segs_width(&b), height: 1 };
-        let b = button(t, l, key, kind, hovered(app, br));
-        put(f.buffer_mut(), x, y, &b, area.right());
-        if i == sel {
-            put(f.buffer_mut(), x, y + 1, &[seg("▔".repeat(br.width as usize), Style::default().fg(t.accent).bg(t.bg))], area.right());
-        }
-        hit(app, br, HyHit::SplashKey(c));
-        x += br.width + 3;
+    // A short list, one under the other: Resume (when there's something to go back to),
+    // New, Open a folder. ↑↓ choose, Enter or the letter picks.
+    let opts = splash_options(app);
+    let wmax = opts.iter().map(|(l, ..)| l.width() as u16).max().unwrap_or(10) + 10;
+    let x = center(wmax);
+    let sel = app.hy.splash_sel.min(opts.len().saturating_sub(1));
+    for (i, (label, key, c)) in opts.iter().enumerate() {
+        let yy = y + i as u16 * 2;
+        let br = Rect { x, y: yy, width: wmax, height: 1 };
+        let on = i == sel;
+        let hov = hovered(app, br);
+        let (bg, fg, kf) = if on { (t.accent, t.acc_ink, t.acc_ink) } else if hov { (t.hov, t.strong, t.accent) } else { (t.btn, t.strong, t.accent) };
+        fill(f.buffer_mut(), br, bg);
+        put(f.buffer_mut(), x + 2, yy, &[seg(label.clone(), Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD))], br.right());
+        let kw = key.width() as u16;
+        put(f.buffer_mut(), br.right().saturating_sub(kw + 2), yy, &[seg(key.clone(), Style::default().bg(bg).fg(kf).add_modifier(Modifier::BOLD))], br.right());
+        hit(app, br, HyHit::SplashKey(*c));
     }
-    put(
-        f.buffer_mut(),
-        center(44),
-        y + 3,
-        &[seg("←→ choose   Enter open   or press a button's key", Style::default().fg(t.muted).bg(t.bg))],
-        area.right(),
-    );
+    let hy = y + opts.len() as u16 * 2 + 1;
+    put(f.buffer_mut(), center(36), hy, &[seg("↑↓ choose   Enter open   or its key", Style::default().fg(t.muted).bg(t.bg))], area.right());
     // Status line: version and where you were.
     let sy = area.bottom().saturating_sub(1);
     let buf = f.buffer_mut();
@@ -3090,7 +3176,38 @@ impl App {
                     self.cmd(Command::FocusPane { term: to });
                 }
             }
+            Action::GoTo => self.mode = Mode::GoTo { query: String::new(), sel: 0 },
+            Action::SelectTab(n) => {
+                if let Some(tab) = self.hy.tabs.get(n.saturating_sub(1)) {
+                    let to = tab.focus;
+                    self.hy.tab = n - 1;
+                    self.cmd(Command::FocusPane { term: to });
+                }
+            }
+            // A tab is a view: closing it keeps its sessions (they're in the sidebar).
+            Action::CloseTab => {
+                if self.hy.tabs.len() > 1 {
+                    let i = self.hy.tab.min(self.hy.tabs.len() - 1);
+                    self.hy.tabs.remove(i);
+                    self.hy.tab = self.hy.tab.min(self.hy.tabs.len() - 1);
+                    let to = self.hy.tabs[self.hy.tab].focus;
+                    self.cmd(Command::FocusPane { term: to });
+                } else {
+                    self.notify("it's the only tab".into(), false);
+                }
+            }
+            Action::ToggleSidebar => self.sidebar = !self.sidebar,
+            Action::RenameWorkspace => {
+                if let Some(t) = self.hy.cursor.or(focused) {
+                    self.menu_do(super::menu::Act::RenamePane(t));
+                }
+            }
             Action::SplitRight | Action::SplitDown | Action::SplitLeft | Action::SplitUp | Action::Spawn(..) => {
+                self.hy.split_dir = Some(match a {
+                    Action::SplitDown | Action::SplitUp => crate::layout::Dir::Down,
+                    Action::Spawn(d, _) => *d,
+                    _ => crate::layout::Dir::Right,
+                });
                 let cwd = focused.and_then(|f| self.snap.terms.get(&f)).map(|t| t.cwd.clone()).unwrap_or_else(|| self.here_dir());
                 let cmd = match a {
                     Action::Spawn(_, c) => Some(c.clone()),
@@ -3377,6 +3494,46 @@ impl App {
         }
     }
 
+    pub(super) fn on_goto_key(&mut self, mut query: String, mut sel: usize, k: &KeyEvent) {
+        let model = self.hy_model();
+        let rows = goto_rows(&model, &query);
+        match k.code {
+            KeyCode::Esc => {
+                self.mode = Mode::Normal;
+                return;
+            }
+            KeyCode::Down => sel = (sel + 1).min(rows.len().saturating_sub(1)),
+            KeyCode::Up => sel = sel.saturating_sub(1),
+            KeyCode::PageDown => sel = (sel + 10).min(rows.len().saturating_sub(1)),
+            KeyCode::PageUp => sel = sel.saturating_sub(10),
+            KeyCode::Enter => {
+                self.mode = Mode::Normal;
+                match rows.get(sel) {
+                    Some(GoRow::Sess(_, t)) => self.hy_focus(*t),
+                    // A project: its most urgent session, or a shell there.
+                    Some(GoRow::Proj(pi)) => match model[*pi].sessions().min_by_key(|s| (rank(s.status), s.term)) {
+                        Some(s) => self.hy_focus(s.term),
+                        None => self.on_hy_hit(HyHit::ShellIn(*pi), false),
+                    },
+                    None => {}
+                }
+                return;
+            }
+            KeyCode::Backspace => {
+                query.pop();
+                sel = 0;
+            }
+            KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) => {
+                query.push(c);
+                // Land on the first session that matches, when there is one.
+                let rows = goto_rows(&model, &query);
+                sel = rows.iter().position(|r| matches!(r, GoRow::Sess(..))).unwrap_or(0);
+            }
+            _ => {}
+        }
+        self.mode = Mode::GoTo { query, sel };
+    }
+
     pub(super) fn on_history_key(&mut self, sel: usize, k: &KeyEvent) {
         let n = self.history.len();
         match k.code {
@@ -3568,15 +3725,17 @@ impl App {
     /// Keys on the splash: move between its buttons, Enter picks one, or a button's own key.
     /// Nothing else leaves it.
     pub(super) fn on_hy_splash_key(&mut self, k: &KeyEvent) {
-        const KEYS: [char; 4] = ['\n', 'j', 'o', ','];
+        let opts = splash_options(self);
+        let n = opts.len().max(1);
         match k.code {
-            KeyCode::Left | KeyCode::Up | KeyCode::BackTab => self.hy.splash_sel = (self.hy.splash_sel + 3) % 4,
-            KeyCode::Right | KeyCode::Down | KeyCode::Tab => self.hy.splash_sel = (self.hy.splash_sel + 1) % 4,
+            KeyCode::Up | KeyCode::Left | KeyCode::BackTab | KeyCode::Char('k') => self.hy.splash_sel = (self.hy.splash_sel + n - 1) % n,
+            KeyCode::Down | KeyCode::Right | KeyCode::Tab | KeyCode::Char('j') => self.hy.splash_sel = (self.hy.splash_sel + 1) % n,
             KeyCode::Enter => {
-                let c = KEYS[self.hy.splash_sel.min(3)];
-                self.hy_splash_action(c);
+                if let Some((_, _, c)) = opts.get(self.hy.splash_sel.min(n - 1)) {
+                    self.hy_splash_action(*c);
+                }
             }
-            KeyCode::Char(c @ ('j' | 'o' | ',' | '?')) => self.hy_splash_action(c),
+            KeyCode::Char(c) if opts.iter().any(|(_, _, k)| *k == c) || c == '?' || c == ',' => self.hy_splash_action(c),
             _ => {}
         }
     }
@@ -3585,10 +3744,11 @@ impl App {
         self.splash = false;
         self.hy.splash_sel = 0;
         match c {
-            'j' => self.mode = Mode::Jump { sel: 0 },
+            'n' => self.hy_open_new_pane(false),
             'o' => self.hy_open_finder(),
             ',' => self.hy_settings(),
             '?' => self.mode = Mode::Help { scroll: 0 },
+            // r: resume, just the app as you left it.
             _ => {}
         }
     }
@@ -3804,6 +3964,17 @@ impl App {
                     *sel = i;
                     if again || double {
                         self.on_history_key(i, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                    }
+                }
+            }
+            HyHit::GoTo => self.mode = Mode::GoTo { query: String::new(), sel: 0 },
+            HyHit::GoPick(i) => {
+                if let Mode::GoTo { query, sel } = &mut self.mode {
+                    let again = *sel == i;
+                    *sel = i;
+                    let q = query.clone();
+                    if again || double {
+                        self.on_goto_key(q, i, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                     }
                 }
             }
