@@ -1571,6 +1571,31 @@ fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &The
     let s = Style::default().bg(surf);
     // In the sidebar: its keys (the row's own, as its menu has them). Otherwise only what
     // needs you; where you are is on each pane's title bar, and notes pop up as toasts.
+    // Leader pressed: the whole bar turns the accent and says what the next key can do.
+    if matches!(app.mode, Mode::Prefix { .. }) {
+        fill(buf, r, t.accent);
+        let ink = Style::default().bg(t.accent).fg(t.acc_ink);
+        let lead = app.keymap.prefix.to_string().replace("C-", "Ctrl+");
+        let mut row = vec![seg(format!(" {lead} "), ink.add_modifier(Modifier::BOLD | Modifier::REVERSED)), seg("  then:  ", ink)];
+        for (a, what) in [
+            (Action::GoTo, "go to"),
+            (Action::Palette, "palette"),
+            (Action::ShellHere, "new session"),
+            (Action::NewPane, "new agent"),
+            (Action::SplitRight, "split"),
+            (Action::Help, "all keys"),
+        ] {
+            let key = k(app, &a);
+            if !key.is_empty() {
+                row.push(seg(key, ink.add_modifier(Modifier::BOLD)));
+                row.push(seg(format!(" {what}   "), ink));
+            }
+        }
+        row.push(seg("Esc", ink.add_modifier(Modifier::BOLD)));
+        row.push(seg(" cancel", ink));
+        put(buf, r.x + 1, r.y, &row, r.right());
+        return;
+    }
     let left: Vec<Seg> = if app.mode == Mode::Side {
         let items = app.cursor_items();
         let keys = super::menu::menu_keys(&items);

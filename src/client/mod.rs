@@ -5483,6 +5483,22 @@ mod hydra_tests {
     }
 
     #[test]
+    fn leader_then_a_key_does_it() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        app.cfg.ui.which_key = false;
+        let lead = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL);
+        for (c, what) in [('g', "go to"), ('p', "palette"), ('?', "keys"), (',', "settings")] {
+            app.mode = Mode::Normal;
+            app.on_key(lead);
+            assert!(matches!(app.mode, Mode::Prefix { .. }), "leader waits");
+            let o = draw(&mut app, 160, 45);
+            assert!(o.lines().last().unwrap_or("").contains("then:") && o.contains("g go to"), "the bottom bar shows leader mode");
+            app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+            assert!(!matches!(app.mode, Mode::Normal | Mode::Prefix { .. }), "leader + {c} opens {what}: {:?}", std::mem::discriminant(&app.mode));
+        }
+    }
+
+    #[test]
     fn quick_follow_up_from_the_sidebar() {
         let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
