@@ -2456,7 +2456,7 @@ pub(super) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
     use super::modal::Cat;
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let r = panel(app, buf, area, 84, 30.min(area.height.saturating_sub(2)), "Settings", &[], t);
+    let r = panel(app, buf, area, 84, 40.min(area.height.saturating_sub(2)), "Settings", &[], t);
     let c = Style::default().bg(t.card);
     // Tabs
     let mut x = r.x + 3;
@@ -2483,11 +2483,11 @@ pub(super) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
         Some(SRow::Project(_)) => "Forget this project (its sessions keep running).".into(),
         Some(SRow::Theme(_)) | None => String::new(),
     };
-    // Lines: headings, rows, the help under the selected one, a blank between groups.
+    // Lines: headings, rows with a blank between them, a wider gap between groups. The
+    // selected row's help sits in its own line at the bottom, so nothing moves.
     enum L {
         Head(&'static str),
         Row(usize),
-        Help,
         Blank,
     }
     let mut lines: Vec<L> = Vec::new();
@@ -2499,15 +2499,14 @@ pub(super) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
                 lines.push(L::Blank);
             }
             lines.push(L::Head(g));
+            lines.push(L::Blank);
             last = g;
         }
         lines.push(L::Row(i));
-        if i == v.sel && !help.is_empty() {
-            lines.push(L::Help);
-        }
+        lines.push(L::Blank);
     }
     let top = r.y + 5;
-    let h = r.height.saturating_sub(9) as usize;
+    let h = r.height.saturating_sub(11) as usize;
     let at = lines.iter().position(|l| matches!(l, L::Row(i) if *i == v.sel)).unwrap_or(0);
     let start = (at + 2).saturating_sub(h);
     for (k, line) in lines.iter().enumerate().skip(start).take(h) {
@@ -2516,9 +2515,6 @@ pub(super) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
             L::Blank => {}
             L::Head(g) => {
                 put(buf, r.x + 3, y, &[seg(*g, c.fg(t.muted).add_modifier(Modifier::BOLD))], r.right());
-            }
-            L::Help => {
-                put(buf, lx, y, &[seg(truncate(&help, (r.right() - lx - 2) as usize), c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right() - 2);
             }
             L::Row(i) => {
                 let row = &rows[*i];
@@ -2590,9 +2586,14 @@ pub(super) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
         put(buf, lx, top, &[seg(msg, c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right());
     }
     if cat == Cat::Appearance {
-        let y = (top + lines.len() as u16 + 1).min(r.bottom().saturating_sub(5));
+        let y = (top + lines.len() as u16 + 1).min(r.bottom().saturating_sub(8));
         put(buf, lx, y, &[seg("Swatches: background, surface, accent, needs you, done, error, two ANSI.", c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right() - 2);
         put(buf, lx, y + 1, &[seg("Agent output follows the theme's 16 ANSI colours.", c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right() - 2);
+    }
+    // The selected row's help, always in the same place.
+    hline(buf, r.x + 3, r.bottom() - 5, r.width.saturating_sub(6), t, t.card);
+    if !help.is_empty() {
+        put(buf, r.x + 3, r.bottom() - 4, &[seg(truncate(&help, (r.width - 6) as usize), c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right() - 2);
     }
     put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("↑↓", "move"), ("←→", "change"), ("Tab", "section")]), r.right());
     let file = vec![seg("config.toml  ", c.fg(t.muted)), seg("o", c.fg(t.accent).add_modifier(Modifier::BOLD)), seg(" open", c.fg(t.muted))];

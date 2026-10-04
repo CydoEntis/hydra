@@ -619,7 +619,10 @@ impl Config {
             let over: toml::Table = toml::from_str(&s).with_context(|| format!("parsing {}", local.display()))?;
             merge(&mut value, over);
         }
-        toml::Value::Table(value).try_into().with_context(|| format!("parsing {}", path.display()))
+        let mut cfg: Config = toml::Value::Table(value).try_into().with_context(|| format!("parsing {}", path.display()))?;
+        // One layout: an old `layout = "…"` in a config file is ignored.
+        cfg.ui.layout = "hydra".into();
+        Ok(cfg)
     }
 
     /// Load, falling back to defaults and returning the error message for display.
