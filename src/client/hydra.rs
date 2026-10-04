@@ -1188,6 +1188,10 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     for (key, label, h) in [(k(app, &Action::NewPane), "new", HyHit::NewPane), (k(app, &Action::GoTo), "go to", HyHit::GoTo), (k(app, &Action::Settings), "settings", HyHit::Settings)] {
         let segs = vec![seg(key, plain.fg(t.accent).add_modifier(Modifier::BOLD)), seg(format!(" {label}"), plain.fg(t.text))];
         let sw = segs_width(&segs);
+        // A narrow sidebar shows the hints that fit, whole.
+        if hx + sw > r.right().saturating_sub(1) {
+            break;
+        }
         let hr = Rect { x: hx, y: by + 1, width: sw, height: 1 };
         let segs: Vec<Seg> = if hovered(app, hr) { segs.into_iter().map(|(x, st)| (x, st.bg(t.hov))).collect() } else { segs };
         put(buf, hx, by + 1, &segs, r.right());
