@@ -6,9 +6,11 @@ use crate::protocol::{self, ClientMsg, ServerMsg};
 use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
 use interprocess::local_socket::tokio::{RecvHalf, SendHalf, Stream, prelude::*};
-use interprocess::local_socket::{
-    GenericFilePath, GenericNamespaced, ListenerOptions, Name, NameType, ToFsName, ToNsName,
-};
+#[cfg(unix)]
+use interprocess::local_socket::{GenericFilePath, ToFsName};
+#[cfg(windows)]
+use interprocess::local_socket::{GenericNamespaced, ToNsName};
+use interprocess::local_socket::{ListenerOptions, Name};
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 
 pub type Reader = FramedRead<Box<dyn tokio::io::AsyncRead + Send + Unpin>, LengthDelimitedCodec>;
@@ -27,14 +29,41 @@ pub fn socket_id() -> String {
     format!("hydra-{user}-{label}.sock")
 }
 
+/// Windows: a named pipe (its default security lets only this user and admins write).
+/// Unix: a socket file in a folder only this user can open, so no other local user can
+/// reach the daemon (an abstract socket would have no permissions at all).
 fn name() -> Result<Name<'static>> {
     let id = socket_id();
-    if GenericNamespaced::is_supported() {
+    #[cfg(windows)]
+    {
         Ok(id.to_ns_name::<GenericNamespaced>()?.into_owned())
-    } else {
-        let path = std::env::temp_dir().join(id);
+    }
+    #[cfg(unix)]
+    {
+        let path = socket_dir()?.join(id);
         Ok(path.to_fs_name::<GenericFilePath>()?.into_owned())
     }
+}
+
+/// `$XDG_RUNTIME_DIR/hydra-<uid>` (or the temp folder's), created 0700 and checked to be
+/// ours and private before use.
+#[cfg(unix)]
+fn socket_dir() -> Result<std::path::PathBuf> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    // SAFETY: getuid has no preconditions and can't fail.
+    let uid = unsafe { libc::getuid() };
+    let base = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).filter(|p| p.is_dir()).unwrap_or_else(std::env::temp_dir);
+    let dir = base.join(format!("hydra-{uid}"));
+    match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(e).with_context(|| format!("creating {}", dir.display())),
+    }
+    let meta = std::fs::symlink_metadata(&dir).with_context(|| format!("checking {}", dir.display()))?;
+    if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
+        anyhow::bail!("{} isn't a private folder of yours; remove it and start hydra again", dir.display());
+    }
+    Ok(dir)
 }
 
 fn codec() -> LengthDelimitedCodec {
@@ -160,10 +189,11 @@ pub async fn connect() -> Result<Stream> {
 }
 
 pub fn listen() -> Result<interprocess::local_socket::tokio::Listener> {
-    // A stale socket file from a crashed daemon would make bind fail on macOS.
-    if !GenericNamespaced::is_supported() {
-        let path = std::env::temp_dir().join(socket_id());
-        let _ = std::fs::remove_file(path);
+    // A stale socket file from a crashed daemon would make bind fail. (Callers check
+    // that no daemon answers first.)
+    #[cfg(unix)]
+    {
+        let _ = std::fs::remove_file(socket_dir()?.join(socket_id()));
     }
     ListenerOptions::new()
         .name(name()?)
