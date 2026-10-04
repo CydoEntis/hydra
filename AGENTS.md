@@ -287,10 +287,9 @@ runs a nested server with `HYDRA_SOCKET=<name> hydra`.
 
 ## Project-specific: workflow and tooling
 
-- **Plan:** `docs/ROADMAP.md` (batches of features, ticked when built, tested and
-  pushed). Design references: `docs/design-brief.md`, `docs/design-brief-v3.md`.
+- **Plan:** `docs/ROADMAP.md` (the plan doc: phases, scope, decisions, rules). Design references: `docs/design-brief.md`, `docs/design-brief-v3.md`.
 - **Branches:** work lands on `dev` at https://github.com/CydoEntis/hydra; one
   commit per logical change, pushed after the gate passes.
 - **Install locally:** `cargo install --path .` (stop a running `hydra` first on
   Windows, or the binary is locked).
-- **No tracker** yet; requests come from the user directly.
+- **Tickets:** GitHub issues on CydoEntis/hydra, labelled by phase (`phase-5`, …) and linked from the plan.
