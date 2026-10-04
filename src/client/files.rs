@@ -192,11 +192,48 @@ fn spawn_detached(mut cmd: std::process::Command) -> std::io::Result<()> {
 
 /// Open a file (or folder) in its default app.
 pub fn open_default(path: &Path) -> std::io::Result<()> {
+    // A leading '-' would be read as an option by open / xdg-open.
+    if path.as_os_str().to_string_lossy().starts_with('-') {
+        return Err(std::io::Error::other("won't open a name starting with '-'"));
+    }
+    #[cfg(windows)]
+    {
+        // ShellExecute, not `cmd /C start`: cmd would treat & | ^ in a link or file
+        // name as commands of its own.
+        shell_open(path.as_os_str())
+    }
+    #[cfg(not(windows))]
+    {
+        open_with_tool(path)
+    }
+}
+
+#[cfg(windows)]
+fn wide(s: &std::ffi::OsStr) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    s.encode_wide().chain(Some(0)).collect()
+}
+
+#[cfg(windows)]
+fn shell_open(target: &std::ffi::OsStr) -> std::io::Result<()> {
+    use std::ffi::c_void;
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn ShellExecuteW(hwnd: *mut c_void, op: *const u16, file: *const u16, params: *const u16, dir: *const u16, show: i32) -> *mut c_void;
+    }
+    const SW_SHOWNORMAL: i32 = 1;
+    let (op, file) = (wide("open".as_ref()), wide(target));
+    // SAFETY: both strings are NUL-terminated UTF-16 that outlive the call; null
+    // window, parameters and directory are allowed.
+    let r = unsafe { ShellExecuteW(std::ptr::null_mut(), op.as_ptr(), file.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL) } as isize;
+    // ShellExecute reports success as a value above 32.
+    if r > 32 { Ok(()) } else { Err(std::io::Error::other(format!("Windows couldn't open it (code {r})"))) }
+}
+
+#[cfg(not(windows))]
+fn open_with_tool(path: &Path) -> std::io::Result<()> {
     let mut cmd;
-    if cfg!(windows) {
-        cmd = std::process::Command::new("cmd");
-        cmd.args(["/C", "start", ""]).arg(path);
-    } else if cfg!(target_os = "macos") {
+    if cfg!(target_os = "macos") {
         cmd = std::process::Command::new("open");
         cmd.arg(path);
     } else {
@@ -238,5 +275,17 @@ mod tests {
     fn quoting() {
         assert_eq!(quote_path(Path::new("a/b.txt")), "a/b.txt");
         assert_eq!(quote_path(Path::new("my docs/b.txt")), "\"my docs/b.txt\"");
+    }
+}
+
+#[cfg(all(test, windows))]
+mod open_tests {
+    #[test]
+    fn links_reach_windows_untouched() {
+        // The whole link, & and all, is one string to ShellExecute: nothing parses it.
+        let url = "https://x.io/a&calc|b^c";
+        let w = super::wide(url.as_ref());
+        assert_eq!(String::from_utf16(&w[..w.len() - 1]).unwrap(), url);
+        assert!(super::open_default(std::path::Path::new("-x")).is_err());
     }
 }
