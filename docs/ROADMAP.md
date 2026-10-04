@@ -1,30 +1,161 @@
-# Hydra roadmap: what nebula and fut have that Hydra didn't
+# Plan: Hydra
 
-Ticked when built, tested and pushed (dev branch).
+Source of truth for scope, order, decisions and rules. Tickets hold the detail.
+Read this before starting work. If work conflicts with it, stop and say so.
+Last reconciled: 2026-10-03 at `7a161e9` on `dev`.
+Verify: `cargo test && cargo clippy --all-targets -- -D warnings && cargo check --target x86_64-unknown-linux-gnu && cargo check --target aarch64-apple-darwin`
 
-## Batch A: working with agents, everyday feel
-- [x] Quick follow-ups: Space on an agent row opens a small box; Enter sends; the view never moves; ↓ Space type Enter for the next one. Shift+Enter for a new line (sent as one paste).
-- [x] "Done, not seen": finished agents stay marked until you look (cursor rests on it or you open it); counted on project rows.
-- [x] Smarter status: no "done" while subagents still run (with a drain timeout); Esc-cancel noticed (OSC 9;4 progress); late duplicate permission prompts ignored; status reports only trusted from the pane's own process tree.
-- [x] Speed: output in panes you can't see doesn't redraw the screen; measure and keep frame times low.
-- [x] Find file (fuzzy) and search code (git grep) popups that open at the line or put the path in the agent's prompt.
-- [x] Agents move themselves into a worktree: `hydra worktree --move <name>` from inside a pane; when the turn ends the agent restarts, resumed, in the new worktree.
+Hydra is a terminal multiplexer built for running many coding agents at once: see
+which ones need you, jump to them, and keep them running when you leave. See
+`AGENTS.md` for the mission and `docs/ARCHITECTURE.md` for how it is built.
 
-## Batch B: launching and steering
-- [x] Task box: one box for the task with pickers for project, worktree (or new), agent, model/effort; keeps a draft; Duplicate from an existing agent.
-- [x] Agent presets: saved launches (agent, model, effort, prompt prefix/suffix, ask-for-task or not), e.g. "commit and push" in one key; usable from tickets and PRs.
-- [x] Prompt and wait: `hydra send --wait` (and the MCP `hydra_send` wait / `hydra_wait`) waits for a real new turn to finish; `hydra wait --regex`.
-- [x] Each agent row shows its last prompt and the live model; auto-title on the first prompt; names sync with Claude's /rename.
+## Now
 
-## Batch C: code and environment
-- [x] Branch switcher for the repo folder (fuzzy, local and remote) that handles uncommitted changes (stash / bring along / commit / discard).
-- [x] Review marks in Changes: mark a file reviewed; it sinks; marks clear when the file changes.
-- [x] Dev server per worktree (`.hydra.toml` run command): Run / Stop / Restart, ready marker, logs; worktree create/delete hooks (e.g. pick a port).
-- [x] Prewarm: a booted agent waiting so + New starts instantly.
+Active phase: **5 — Safe and steady: no way in for other users or hostile repos, no freezes, no crashes, no lost edits**
+Next unblocked: #1 — Open links and files on Windows without cmd.exe
 
-## Batch D: reach and extras
-- [x] Remote machines over SSH (UI here, agents there).
-- [x] Extensions: a manifest plus commands; palette entries, sidebar labels, lifecycle hooks.
-- [x] Real tabs and any number of splits in the hydra layout.
-- [x] Memory view: RAM per agent.
-- [x] Extras: notification history, `hydra doctor`, more agent types (Cursor, OpenCode, Grok, …), BEL tracking.
+## Phases
+
+### 1 — Working with agents feels effortless (Batch A) · complete 2026-10-03 at `54855dd`
+
+Quick follow-ups, done-not-seen, smarter status, render speed, find file / search
+code, agents moving themselves into worktrees. (Tracked as a checklist before
+tickets existed.)
+
+### 2 — Launching and steering agents from one place (Batch B) · complete 2026-10-03 at `54855dd`
+
+Task box, agent presets, `hydra send --wait` / `hydra wait`, live model and
+last-prompt per row.
+
+### 3 — Code and environment without leaving Hydra (Batch C) · complete 2026-10-03 at `54855dd`
+
+Branch switcher, review marks in Changes, dev server per worktree with hooks,
+prewarmed agents.
+
+### 4 — Reach and extras (Batch D) · complete 2026-10-03 at `54855dd`
+
+SSH remotes, extensions, tabs and splits in the hydra layout, memory view,
+notification history, `hydra doctor`, more agent types, BEL tracking.
+
+### 5 — Safe and steady · active
+
+Exit when:
+- every ticket below is closed and its change is on `dev`;
+- the Verify command passes on `dev`;
+- a test draws every popup at 20×6 without panicking, and a paste into a pane that
+  never reads input leaves the daemon responsive.
+
+Tickets live in GitHub issues (label `phase-5`) on CydoEntis/hydra.
+
+Security first:
+1. #1 — Open links and files on Windows without cmd.exe
+2. #2 — Restrict the daemon socket to the current user on Unix
+3. #3 — MCP: only start configured agents, and respect approval on send
+4. #4 — Unforgeable pane tokens for status reports
+5. #5 — Ask before running a repo's .hydra.toml hooks
+
+Then freezes, crashes and data loss (any order):
+6. #6 — Pane input never blocks the daemon
+7. #7 — Move blocking work off the daemon's event loop · after 4
+8. #8 — Move blocking work off the client's UI thread
+9. #9 — Popups never draw outside the screen
+10. #10 — Restore the terminal after a crash
+11. #11 — Editor doesn't overwrite changes made while it was open
+12. #12 — Write state files atomically
+
+### 6 — Clean code: one layout's worth of code, in files a person can read
+
+Work: remove the legacy layouts (about 2,900 lines across `render.rs`,
+`client/mod.rs`, `design.rs`, `keys.rs`, `config.rs`) after porting the screens
+hydra still borrows from them (toolbox panel, worktrees, rename prompt, quick);
+split `daemon/mod.rs`, `client/mod.rs` and `client/hydra.rs` by job; one shared
+popup-list helper; one process helper (git / curl / `CREATE_NO_WINDOW`); named
+timing constants; tests for the daemon's tree, spare and hook logic and a
+protocol round-trip.
+Open decisions:
+- remove the `ui.layout` field outright, or keep it parsed and ignored for old configs.
+
+## In scope
+
+Everything below is shipped on `dev` unless marked.
+
+**Core**
+- Daemon owns sessions; detach / reattach; many clients — shipped — `src/daemon/mod.rs`, ADR-0001
+- Sessions survive a daemon restart (agents resumed, commands re-run) — shipped — `src/daemon/persist.rs`, `restore` in `src/daemon/mod.rs`
+- Windows (ConPTY, named pipes, PowerShell folder tracking), macOS, Linux — shipped — `src/daemon/term.rs`, `src/ipc.rs`
+- SSH remotes (`--remote host`) — shipped — `src/ipc.rs` `connect_remote`
+
+**Agents**
+- Status detection: working / needs you / done (until seen) / idle, from screen patterns, OSC progress and agent hooks — shipped — `src/daemon/scan.rs`, `hydra hook` in `src/cli.rs`
+- Trusted status reports (process tree or `HYDRA_PANE_TOKEN`) — shipped — `src/daemon/term.rs`, `src/cli.rs`
+- Agent kinds: Claude, Codex, Gemini, OpenCode, Cursor, Copilot, Amp, Qwen, Aider, Goose, Crush, Droid, Pi, Kiro, Grok, custom `[[agents]]` — shipped — `src/config.rs`
+- New agent task box (project, worktree, agent, model, effort), presets, prewarm — shipped — `src/client/work.rs`
+- Message / reply / quick follow-up, answer prompts — shipped — `src/client/hydra.rs`
+- Race agents on one task — shipped — `Action::Race`
+- Agents talk to agents (MCP server `hydra mcp`) — shipped — `src/mcp.rs`
+- `hydra send --wait`, `hydra wait`, `hydra read` — shipped — `src/cli.rs`
+- Memory per session — shipped — `Mode::Memory`
+
+**The UI (one layout, ADR-0004)**
+- Sidebar: projects → sessions, status glyph + agent icon + name, attention sort, keyboard and mouse, row letter keys — shipped — `src/client/hydra.rs` `draw_side`
+- Panes: tabs, any number of splits (grid for 3+), zoom, drag dividers, title bar with ✕ — shipped — `src/client/hydra.rs` `draw_session`
+- Go to switcher, command palette (plain-word commands), Jump to what needs you, Keys screen — shipped — `draw_goto`, `draw_palette`, `draw_keys`
+- Right-click menus, confirm before closing, toasts — shipped — `src/client/menu.rs`
+- Splash: Resume / New / Open a folder — shipped — `draw_splash`
+- Settings popup grouped by section, key rebinding, themes with contrast audit — shipped — `draw_settings`, `src/theme.rs`
+- herdr-compatible leader keys — shipped — `src/keys.rs` `DEFAULT_PREFIX_KEYS`, ADR-0005
+- Copy on select with toast, copy mode, Ctrl+click paths, paste images — shipped — `src/client/copy.rs`, `src/client/pick.rs`
+
+**Code and git**
+- Worktrees per agent, create / move / remove with hooks — shipped — `src/daemon/git.rs`, `src/project.rs`
+- Files (tree, preview, in-place edit, external editor), find file, search code — shipped — `src/client/files.rs`, `src/client/find.rs`, `src/client/views.rs`
+- Changes (diff, review marks, commit, git init offer), branch switcher, pull requests, Ship — shipped — `src/client/branch.rs`, `src/client/pr.rs`
+- Tickets: GitHub issues/PRs, Linear, Plane — shipped — `src/client/inbox.rs`
+- Dev server per worktree (`.hydra.toml`) — shipped — `src/project.rs`
+- Ideas, map of the project, tasks — shipped — `Action::Ideas`, `Action::Map`, `src/client/tasks.rs`
+- Agent tools view (MCP, skills, plugins; per project / global) — shipped — `src/client/toolbox.rs`
+
+**Extras**
+- Extensions (manifest, commands, hooks) — shipped — `src/ext.rs`
+- Desktop alerts and sounds, notification history — shipped — `src/alert.rs`
+- Config sync across machines (local file never synced) — shipped — `src/sync.rs`
+- `hydra doctor` — shipped — `src/cli.rs`
+
+## Out
+
+- Other UI layouts (workspaces, tree, dock, sidebar) — declined 2026-10-03: one layout to build and test (ADR-0004). Bringing them back needs a new decision.
+
+## Later
+
+- Published releases / installers — deferred 2026-10-03: installed from source for now. Comes back when others start using Hydra.
+- CI (build, test, clippy, cross-checks on push) — deferred 2026-10-03: the gate is run by hand. Comes back when a second contributor arrives or a regression slips through.
+
+## Decisions
+
+- [ADR-0001](docs/adr/0001-daemon-owns-sessions.md) — A daemon owns every session; clients only draw. Rules out: sessions inside the UI process.
+- [ADR-0002](docs/adr/0002-portable-pty-and-vt100.md) — portable-pty (ConPTY) and vt100 for terminals. Rules out: a home-grown PTY layer.
+- [ADR-0003](docs/adr/0003-msgpack-over-local-sockets.md) — msgpack frames over local sockets, versioned. Rules out: unversioned message changes; network listeners.
+- [ADR-0004](docs/adr/0004-one-layout.md) — One UI layout. Rules out: a layout setting, new code for old layouts.
+- [ADR-0005](docs/adr/0005-herdr-compatible-keys.md) — Leader keys follow herdr where they overlap. Rules out: default bindings that clash with herdr's for shared actions.
+
+## Rules
+
+- The daemon's socket only accepts the user who started it — `src/ipc.rs` — SECURITY.md · not yet: #2
+- Status reports need the pane's token or its process chain — `src/daemon/mod.rs` hook handling — AGENTS.md non-negotiable 5 · not yet: #4
+- Nothing in a cloned repo runs without the user's approval — `src/project.rs` — SECURITY.md · not yet: #5
+- Client and daemon refuse to talk across protocol versions — `src/protocol.rs` `PROTOCOL_VERSION`, checked on `Hello` — ADR-0003
+- Config always loads the hydra layout — `src/config.rs` `Config::load` — ADR-0004
+- Every built-in theme passes the contrast audit — `cargo test` (theme audit test in `src/theme.rs`) — readability
+- Both platform sides compile — `cargo check --target x86_64-unknown-linux-gnu` / `aarch64-apple-darwin` — AGENTS.md non-negotiable 3
+- clippy is clean — `cargo clippy --all-targets -- -D warnings` — CODE-STANDARDS
+
+## Records
+
+Docs: `AGENTS.md`, `docs/` (architecture, standards, testing, security, UI, API patterns), `docs/stack/rust.md`.
+Design references: [design brief](design-brief.md), [design brief v3](design-brief-v3.md).
+Glossary: none yet.
+Feature docs: `docs/features/` (none yet).
+
+## Rework
+
+- none recorded yet.
