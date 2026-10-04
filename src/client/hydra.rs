@@ -1105,8 +1105,9 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                     left.push(seg("⚑ ", st.fg(ink.unwrap_or(t.accent))));
                 }
                 let focused_row = Some(s.term) == focus;
-                let mut ns = st.fg(ink.unwrap_or(if focused_row { t.strong } else { t.text }));
-                if focused_row {
+                let needs = s.status == Status::Blocked && !s.asleep;
+                let mut ns = st.fg(ink.unwrap_or(if needs { t.blocked } else if focused_row { t.strong } else { t.text }));
+                if focused_row || needs {
                     ns = ns.add_modifier(Modifier::BOLD);
                 }
                 if s.is_agent && s.status == Status::Working && ink.is_none() && !s.asleep {
