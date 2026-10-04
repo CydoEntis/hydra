@@ -1579,11 +1579,66 @@ pub(super) enum SRow {
     Bind { label: &'static str, acts: Vec<crate::keys::Action> },
     /// A project the user opened (Settings → Projects).
     Project(std::path::PathBuf),
+    /// One theme (Settings → Appearance): index into theme::BUILTIN.
+    Theme(usize),
+}
+
+/// The small caps heading a settings row sits under.
+pub(super) fn settings_group(row: &SRow) -> &'static str {
+    match row {
+        SRow::Theme(_) => "THEME",
+        SRow::Project(_) => "PROJECTS",
+        SRow::Bind { .. } => "KEYS",
+        SRow::Setting(s) => match s.path {
+            "prefix" | "ui.mouse" | "ui.which_key" => "INPUT",
+            "ui.sidebar_position" | "ui.splash" | "ui.layout" => "LAYOUT",
+            "shell" | "editor" | "shell_integration" => "SHELL",
+            "ui.attention_sort" => "SIDEBAR",
+            p if p.starts_with("notify.") => "ALERTS",
+            "worktree.delete_with_last" | "worktree.per_agent" | "worktree.command" => "WORKTREES",
+            p if p.starts_with("restore.") || p == "sleep_after" => "RESTARTS",
+            "scrollback" => "HISTORY",
+            "quick.place" => "QUICK PROMPT",
+            p if p.starts_with("mcp.") => "AGENTS TALKING TO AGENTS",
+            p if p.starts_with("detection.") => "STATUS DETECTION",
+            _ => "OTHER",
+        },
+    }
+}
+
+/// A theme's name as people say it.
+pub(super) fn theme_label(name: &str) -> String {
+    if let Some((_, l)) = crate::theme::DESIGN.iter().find(|(n, _)| *n == name) {
+        return l.to_string();
+    }
+    name.split('-').map(|w| {
+        let mut c = w.chars();
+        c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+    }).collect::<Vec<_>>().join(" ")
 }
 
 /// The rows of one settings page.
 pub(super) fn settings_rows(app: &App, cat: super::modal::Cat) -> Vec<SRow> {
-    let mut rows: Vec<SRow> = super::modal::in_cat(cat).into_iter().map(SRow::Setting).collect();
+    let mut rows: Vec<SRow> = super::modal::in_cat(cat)
+        .into_iter()
+        .flat_map(|s| {
+            // Appearance: one row per theme.
+            if s.path == "theme" {
+                crate::theme::BUILTIN.iter().enumerate().filter(|(_, n)| **n != "mono").map(|(i, _)| SRow::Theme(i)).collect::<Vec<_>>()
+            } else {
+                vec![SRow::Setting(s)]
+            }
+        })
+        .collect();
+    // Grouped under their headings, in the order the headings first come.
+    let order: Vec<&str> = rows.iter().map(settings_group).fold(Vec::new(), |mut v, g| {
+        if !v.contains(&g) {
+            v.push(g);
+        }
+        v
+    });
+    let order: Vec<&str> = ["INPUT", "LAYOUT", "SHELL"].into_iter().filter(|g| order.contains(g)).chain(order.iter().copied().filter(|g| !["INPUT", "LAYOUT", "SHELL"].contains(g))).collect();
+    rows.sort_by_key(|r| order.iter().position(|g| *g == settings_group(r)).unwrap_or(99));
     if cat == super::modal::Cat::Projects {
         rows.extend(app.hy.saved.known.iter().cloned().map(SRow::Project));
     }
@@ -1614,6 +1669,7 @@ pub(super) fn control(app: &App, t: &Theme, row: &SRow, v: &SettingsView, select
         return vec![seg(" press the new key… ", Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD))];
     }
     match row {
+        SRow::Theme(_) => vec![],
         SRow::Project(_) => vec![seg(" forget ", Style::default().bg(t.btn).fg(t.text))],
         SRow::Bind { acts, .. } => {
             let keys = key_text(app, acts);
@@ -1769,6 +1825,7 @@ pub(super) fn draw_settings_view(app: &mut App, buf: &mut Buffer, area: Rect, t:
                 (label.to_string(), help)
             }
             SRow::Project(p) => (tilde(p), "Enter forgets it; its sessions keep running.".to_string()),
+            SRow::Theme(i) => (theme_label(crate::theme::BUILTIN[*i]), String::new()),
         };
         let mut ls = s.fg(t.strong);
         if selected {

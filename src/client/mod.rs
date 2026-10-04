@@ -3322,6 +3322,11 @@ impl App {
             {
                 app.save_setting(s.path, val);
             }
+            if let Some(design::SRow::Theme(i)) = &row
+                && let Some(name) = crate::theme::BUILTIN.get(*i)
+            {
+                app.save_setting("theme", (*name).into());
+            }
         };
         match k.code {
             KeyCode::Esc => return false,
@@ -3355,6 +3360,7 @@ impl App {
                     let p = p.clone();
                     self.hy_forget(&p);
                 }
+                Some(design::SRow::Theme(_)) => step(self, 1),
                 None => {}
             },
             _ => {}
@@ -4656,7 +4662,7 @@ mod settings_splash_tests {
             assert!(settings.contains(page), "page {page}");
         }
         assert!(settings.contains("Leader key") && settings.contains("Splash screen") && settings.contains("Press it, let go"));
-        assert!(keys.contains("Theme") && keys.contains("Changes the whole app live"));
+        assert!(keys.contains("Default") && keys.contains("Monokai"), "a row per theme");
     }
 }
 
@@ -4728,7 +4734,7 @@ mod hydra_tests {
         app.mode = Mode::HySettings(Box::new(design::SettingsView { cat: 2, sel: 0, editing: None, capturing: false, scroll: 0 }));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains(" Default ") && o.contains(" Tokyo Night") && o.contains("needs you"));
+        assert!(o.contains("● Default") && o.contains("○ Tokyo Night") && o.contains("needs you, done, error"), "a row per theme, with what the swatches are");
         // The splash: the braille hydra, the wordmark, what happened, buttons.
         app.mode = Mode::Normal;
         app.splash = true;
@@ -5255,6 +5261,28 @@ mod hydra_tests {
         show(&o);
         assert!(o.contains("isn't a git repository yet.") && o.contains(" Make it a git repo g") && o.contains(" Cancel Esc"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn settings_grouped_like_the_redesign() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        app.act(Action::Settings);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        for g in ["INPUT", "LAYOUT", "SHELL"] {
+            assert!(o.contains(g), "General is grouped: {g}");
+        }
+        let input = o.find("INPUT").unwrap();
+        let layout = o.find("LAYOUT").unwrap();
+        assert!(input < layout, "INPUT before LAYOUT");
+        assert!(o.contains("› Leader key"), "the first row is selected");
+        // Appearance: one theme per row.
+        app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("THEME") && o.contains("● Default") && o.contains("○ Monokai") && o.contains("○ Tokyo Night"));
+        assert!(o.contains("Swatches: background, surface"));
     }
 
     #[test]

@@ -2353,13 +2353,14 @@ pub(super) fn set_chip(app: &mut App, row: &SRow, vi: usize) {
 }
 
 pub(super) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, v: &SettingsView) {
+    use super::design::{settings_group, theme_label};
     use super::modal::Cat;
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let r = panel(app, buf, area, 100, 26, "Settings", &[], t);
+    let r = panel(app, buf, area, 84, 30.min(area.height.saturating_sub(2)), "Settings", &[], t);
     let c = Style::default().bg(t.card);
     // Tabs
-    let mut x = r.x + 2;
+    let mut x = r.x + 3;
     for (i, cat) in Cat::ALL.iter().enumerate() {
         let on = i == v.cat;
         let txt = format!(" {} ", cat.label());
@@ -2370,79 +2371,134 @@ pub(super) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
         hit(app, tr, HyHit::SetTab(i));
         x += txt.width() as u16 + 2;
     }
-    hline(buf, r.x + 1, r.y + 3, r.width - 2, t, t.card);
+    hline(buf, r.x + 3, r.y + 3, r.width.saturating_sub(6), t, t.card);
     let cat = Cat::ALL[v.cat.min(Cat::ALL.len() - 1)];
     let rows = super::design::settings_rows(app, cat);
-    let lx = r.x + 4;
-    let vx = r.x + 46;
-    let list_top = r.y + 5;
-    let list_h = r.height.saturating_sub(12) as usize;
-    let start = v.sel.saturating_sub(list_h.saturating_sub(1));
-    for (i, row) in rows.iter().enumerate().skip(start).take(list_h) {
-        let y = list_top + (i - start) as u16;
-        let sel = i == v.sel;
-        let bg = sel_row(app, buf, r, y, sel, t);
-        let st = Style::default().bg(bg);
-        let label = match row {
-            SRow::Setting(s) => s.label.to_string(),
-            SRow::Bind { label, .. } => label.to_string(),
-            SRow::Project(p) => tilde(p),
-        };
-        let mut ls = st.fg(t.strong);
-        if sel {
-            ls = ls.add_modifier(Modifier::BOLD);
-        }
-        put(buf, lx, y, &[seg(truncate(&label, (vx - lx - 2) as usize), ls)], vx - 1);
-        hit(app, Rect { x: r.x + 1, y, width: vx - r.x - 2, height: 1 }, HyHit::SetRow(i));
-        // The value: chips where the design has them, else the control.
-        if let Some((opts, cur)) = chips_for(app, row) {
-            let theme_row = matches!(row, SRow::Setting(s) if s.path == "theme");
-            let mut cx = if theme_row { lx + 12 } else { vx };
-            for (vi, o) in opts.iter().enumerate() {
-                let on = Some(vi) == cur;
-                let txt = format!(" {o} ");
-                if cx + txt.width() as u16 >= r.right() - 1 {
-                    break;
-                }
-                let s2 = if on { Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD) } else { Style::default().bg(t.btn).fg(t.text) };
-                put(buf, cx, y, &[seg(txt.clone(), s2)], r.right() - 1);
-                hit(app, Rect { x: cx, y, width: txt.width() as u16, height: 1 }, HyHit::SetVal(i, vi));
-                cx += txt.width() as u16 + 1;
-            }
-        } else if let SRow::Project(_) = row {
-            put(buf, vx, y, &[seg(" forget ", Style::default().bg(t.btn).fg(t.text))], r.right() - 1);
-            hit(app, Rect { x: vx, y, width: 8, height: 1 }, HyHit::SetVal(i, 0));
-        } else {
-            let ctrl: Vec<Seg> = super::design::control(app, t, row, v, sel).into_iter().map(|(x, s)| (x, if s.bg.is_none() { s.bg(bg) } else { s })).collect();
-            put(buf, vx, y, &ctrl, r.right() - 1);
-            hit(app, Rect { x: vx, y, width: segs_width(&ctrl).max(1), height: 1 }, HyHit::SetVal(i, usize::MAX));
-        }
-    }
-    if rows.is_empty() {
-        let msg = if cat == Cat::Projects { "No projects opened yet. Press o to open one." } else { "Nothing to change here." };
-        put(buf, lx, list_top, &[seg(msg, c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right());
-    }
-    // What the selected row does.
+    let lx = r.x + 5;
+    let vx = r.x + 34;
+    // What the selected row does (shown under it).
     let help = match rows.get(v.sel) {
         Some(SRow::Setting(s)) => s.help.to_string(),
         Some(SRow::Bind { acts, .. }) if acts.len() > 1 => "Several keys; change them in the config file (o).".into(),
         Some(SRow::Bind { .. }) => "Enter, then press the new key.".into(),
-        Some(SRow::Project(_)) => "Forget this project (its sessions keep running). Projects with sessions show up by themselves.".into(),
-        None => String::new(),
+        Some(SRow::Project(_)) => "Forget this project (its sessions keep running).".into(),
+        Some(SRow::Theme(_)) | None => String::new(),
     };
-    let hy = r.bottom().saturating_sub(6);
-    put(buf, lx, hy, &[seg(truncate(&help, (r.width - 8) as usize), c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right() - 2);
-    // Appearance: swatches of the current theme.
-    if cat == Cat::Appearance {
-        let mut sx = lx;
-        for (n, col) in [("bg", t.bg), ("surface", t.sidebar_bg), ("accent", t.accent), ("needs you", t.blocked), ("done", t.done), ("error", t.err)] {
-            fill(buf, Rect { x: sx, y: hy - 2, width: 4, height: 1 }, col);
-            put(buf, sx + 5, hy - 2, &[seg(n, c.fg(t.muted))], r.right());
-            sx += 6 + n.width() as u16 + 3;
+    // Lines: headings, rows, the help under the selected one, a blank between groups.
+    enum L {
+        Head(&'static str),
+        Row(usize),
+        Help,
+        Blank,
+    }
+    let mut lines: Vec<L> = Vec::new();
+    let mut last = "";
+    for (i, row) in rows.iter().enumerate() {
+        let g = settings_group(row);
+        if g != last {
+            if !last.is_empty() {
+                lines.push(L::Blank);
+            }
+            lines.push(L::Head(g));
+            last = g;
+        }
+        lines.push(L::Row(i));
+        if i == v.sel && !help.is_empty() {
+            lines.push(L::Help);
         }
     }
-    put(buf, lx, r.bottom() - 4, &hints(t, &[("↑↓", "move"), ("Enter", "change"), ("←→", "change"), ("Tab", "next section"), ("Esc", "close")]), r.right());
-    put(buf, lx, r.bottom() - 2, &[seg(tilde(&crate::config::config_path()), c.fg(t.muted)), seg("   o", c.fg(t.accent).add_modifier(Modifier::BOLD)), seg(" open file", c.fg(t.muted))], r.right());
+    let top = r.y + 5;
+    let h = r.height.saturating_sub(9) as usize;
+    let at = lines.iter().position(|l| matches!(l, L::Row(i) if *i == v.sel)).unwrap_or(0);
+    let start = (at + 2).saturating_sub(h);
+    for (k, line) in lines.iter().enumerate().skip(start).take(h) {
+        let y = top + (k - start) as u16;
+        match line {
+            L::Blank => {}
+            L::Head(g) => {
+                put(buf, r.x + 3, y, &[seg(*g, c.fg(t.muted).add_modifier(Modifier::BOLD))], r.right());
+            }
+            L::Help => {
+                put(buf, lx, y, &[seg(truncate(&help, (r.right() - lx - 2) as usize), c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right() - 2);
+            }
+            L::Row(i) => {
+                let row = &rows[*i];
+                let sel = *i == v.sel;
+                let rr = Rect { x: r.x + 1, y, width: r.width - 2, height: 1 };
+                let bg = if sel || hovered(app, rr) { t.hov } else { t.card };
+                fill(buf, rr, bg);
+                let st = Style::default().bg(bg);
+                if sel {
+                    put(buf, r.x + 3, y, &[seg("›", st.fg(t.accent).add_modifier(Modifier::BOLD))], r.right());
+                }
+                let mut ls = st.fg(if sel { t.strong } else { t.text });
+                if sel {
+                    ls = ls.add_modifier(Modifier::BOLD);
+                }
+                hit(app, Rect { x: r.x + 1, y, width: vx - r.x - 2, height: 1 }, HyHit::SetRow(*i));
+                match row {
+                    // One theme: ● if it's yours, its name, eight swatches.
+                    SRow::Theme(ti) => {
+                        let name = crate::theme::BUILTIN[*ti];
+                        let cur = if app.cfg.theme.is_empty() { "hydra" } else { app.cfg.theme.as_str() };
+                        let mine = cur == name || (cur == "drover" && name == "hydra");
+                        put(buf, lx, y, &[seg(if mine { "●" } else { "○" }, st.fg(if mine { t.accent } else { t.muted })), seg(format!(" {}", theme_label(name)), ls)], vx - 1);
+                        let th = Theme::named(name);
+                        let a = th.ansi.unwrap_or([th.err, th.done, th.blocked, th.accent, th.accent, th.accent, th.muted]);
+                        let mut sx = vx;
+                        for col in [th.bg, th.sidebar_bg, th.accent, th.blocked, th.done, th.err, a[3], a[4]] {
+                            fill(buf, Rect { x: sx, y, width: 3, height: 1 }, col);
+                            sx += 4;
+                        }
+                        hit(app, rr, HyHit::SetVal(*i, 0));
+                    }
+                    _ => {
+                        let label = match row {
+                            SRow::Setting(s) => s.label.to_string(),
+                            SRow::Bind { label, .. } => label.to_string(),
+                            SRow::Project(p) => tilde(p),
+                            SRow::Theme(_) => String::new(),
+                        };
+                        put(buf, lx, y, &[seg(truncate(&label, (vx - lx - 2) as usize), ls)], vx - 1);
+                        if let Some((opts, cur)) = chips_for(app, row) {
+                            let mut cx = vx;
+                            for (vi, o) in opts.iter().enumerate() {
+                                let on = Some(vi) == cur;
+                                let txt = format!(" {o} ");
+                                if cx + txt.width() as u16 >= r.right() - 1 {
+                                    break;
+                                }
+                                let s2 = if on { Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD) } else { st.fg(t.muted) };
+                                put(buf, cx, y, &[seg(txt.clone(), s2)], r.right() - 1);
+                                hit(app, Rect { x: cx, y, width: txt.width() as u16, height: 1 }, HyHit::SetVal(*i, vi));
+                                cx += txt.width() as u16 + 1;
+                            }
+                        } else if let SRow::Project(_) = row {
+                            put(buf, vx, y, &[seg(" forget ", Style::default().bg(t.btn).fg(t.text))], r.right() - 1);
+                            hit(app, Rect { x: vx, y, width: 8, height: 1 }, HyHit::SetVal(*i, 0));
+                        } else {
+                            let ctrl: Vec<Seg> = super::design::control(app, t, row, v, sel).into_iter().map(|(x, s)| (x, if s.bg.is_none() { s.bg(bg) } else { s })).collect();
+                            put(buf, vx, y, &ctrl, r.right() - 1);
+                            hit(app, Rect { x: vx, y, width: segs_width(&ctrl).max(1), height: 1 }, HyHit::SetVal(*i, usize::MAX));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if rows.is_empty() {
+        let msg = if cat == Cat::Projects { "No projects opened yet. Press o to open one." } else { "Nothing to change here." };
+        put(buf, lx, top, &[seg(msg, c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right());
+    }
+    if cat == Cat::Appearance {
+        let y = (top + lines.len() as u16 + 1).min(r.bottom().saturating_sub(5));
+        put(buf, lx, y, &[seg("Swatches: background, surface, accent, needs you, done, error, two ANSI.", c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right() - 2);
+        put(buf, lx, y + 1, &[seg("Agent output follows the theme's 16 ANSI colours.", c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right() - 2);
+    }
+    put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("↑↓", "move"), ("←→", "change"), ("Tab", "section")]), r.right());
+    let file = vec![seg("config.toml  ", c.fg(t.muted)), seg("o", c.fg(t.accent).add_modifier(Modifier::BOLD)), seg(" open", c.fg(t.muted))];
+    let fw = segs_width(&file);
+    put(buf, r.right().saturating_sub(fw + 3), r.bottom() - 2, &file, r.right());
 }
 
 // Keys ----------------------------------------------------------------------------------------
