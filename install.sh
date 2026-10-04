@@ -49,7 +49,7 @@ fetch() {
   fi
 }
 
-say "Downloading hydra for $target…"
+say "Downloading hydra for ${target}..."
 fetch "$asset"
 fetch sha256sums.txt
 
