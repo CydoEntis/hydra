@@ -552,21 +552,24 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, panes: Rect, t: &crat
         }
         Mode::Files(_) => {
             let v = files_panel(app, &t);
-            draw_panel(f, area, &t, v);
+            draw_panel(app, f, area, &t, v);
         }
         Mode::Tasks { .. } => {
             let v = tasks_panel(app, &t);
-            draw_panel(f, area, &t, v);
+            draw_panel(app, f, area, &t, v);
         }
         Mode::Inbox(_) => {
             let v = inbox_panel(app, &t);
-            draw_panel(f, area, &t, v);
+            draw_panel(app, f, area, &t, v);
         }
         Mode::Toolbox(_) => {
             let v = toolbox_panel(app, &t);
-            draw_panel(f, area, &t, v);
+            draw_panel(app, f, area, &t, v);
         }
-        Mode::Prompt { kind, input } => draw_prompt(f, area, &t, kind.label(), input, kind.is_confirm()),
+        Mode::Prompt { kind, input } => {
+            let (label, input, confirm) = (kind.label().to_string(), input.clone(), kind.is_confirm());
+            draw_prompt(app, f, area, &t, &label, &input, confirm)
+        }
         Mode::Help { .. } if app.cfg.ui.layout == "workspaces" => super::design::draw_keys(app, f, area, &t, false),
         Mode::Help { scroll } => draw_help(app, f, area, &t, *scroll),
         Mode::Talk { term, input } => {
@@ -1360,12 +1363,8 @@ fn wrap_chars(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
-fn draw_quick(app: &App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, q: &modal::Quick) {
-    let r = centered(area, 76, 12);
-    f.render_widget(Clear, r);
-    let block = overlay_block(t, "quick prompt");
-    let inner = block.inner(r);
-    f.render_widget(block, r);
+fn draw_quick(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, q: &modal::Quick) {
+    use super::design::{fill, put, seg};
     let agent = if q.place == modal::Place::Here {
         app.focused().and_then(|id| app.snap.terms.get(&id)).map(|ti| ti.display_name().to_string()).unwrap_or_default()
     } else {
@@ -1373,43 +1372,31 @@ fn draw_quick(app: &App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, q: 
     };
     let ws = app.active_ws();
     let ws_name = ws.map(|w| w.name.clone()).unwrap_or_default();
-    let ws_color = ws.map(|w| app.ws_color(w)).unwrap_or(t.accent);
-    let chip = |s: String, c| Span::styled(format!(" {s} "), Style::default().fg(t.bg).bg(c).add_modifier(Modifier::BOLD));
-    let header = Line::from(vec![
-        chip(agent, t.idle),
-        Span::raw(" in "),
-        chip(q.place.label().into(), t.accent),
-        Span::raw(" of "),
-        chip(ws_name, ws_color),
-    ]);
-    f.render_widget(Paragraph::new(header), Rect { height: 1, ..inner });
-
-    let text_area = Rect { y: inner.y + 2, height: inner.height.saturating_sub(4), ..inner };
-    let lines = wrap_chars(&q.text, text_area.width.saturating_sub(2) as usize);
+    let buf = f.buffer_mut();
+    super::hydra::dim_all(buf, area, t);
+    let r = super::hydra::panel(app, buf, area, 76, 13, "Quick prompt", &[], t);
+    let c = Style::default().bg(t.card);
+    let chip = |s: String| seg(format!(" {s} "), Style::default().fg(t.strong).bg(t.btn).add_modifier(Modifier::BOLD));
+    let head = vec![chip(agent), seg("  in  ", c.fg(t.muted)), chip(q.place.label().into()), seg("  of  ", c.fg(t.muted)), chip(ws_name)];
+    put(buf, r.x + 3, r.y + 2, &head, r.right().saturating_sub(2));
+    let text_area = Rect { x: r.x + 2, y: r.y + 4, width: r.width.saturating_sub(4), height: r.height.saturating_sub(7) };
+    fill(buf, text_area, t.card2);
+    let lines = wrap_chars(&q.text, text_area.width.saturating_sub(4) as usize);
     let visible = text_area.height as usize;
     let skip = lines.len().saturating_sub(visible);
+    let s2 = Style::default().bg(t.card2);
     for (i, l) in lines.iter().skip(skip).enumerate() {
         let prefix = if i == 0 && skip == 0 { "› " } else { "  " };
-        f.render_widget(
-            Paragraph::new(Line::from(vec![Span::styled(prefix, Style::default().fg(t.accent)), Span::raw(l.clone())])),
-            Rect { y: text_area.y + i as u16, height: 1, ..text_area },
-        );
+        put(buf, text_area.x + 1, text_area.y + i as u16, &[seg(prefix, s2.fg(t.accent)), seg(l.clone(), s2.fg(t.strong))], text_area.right());
     }
     if q.text.is_empty() {
-        f.render_widget(
-            Paragraph::new(Span::styled("  describe the task…", Style::default().fg(t.muted))),
-            Rect { height: 1, ..text_area },
-        );
+        put(buf, text_area.x + 1, text_area.y, &[seg("› ", s2.fg(t.accent)), seg("describe the task…", s2.fg(t.muted))], text_area.right());
     }
     let last = lines.last().map(|l| l.width()).unwrap_or(0) as u16;
     let row = (lines.len() - skip).saturating_sub(1) as u16;
-    f.set_cursor_position(Position::new(text_area.x + 2 + last, text_area.y + row));
-
-    let hint = "Enter start · Tab agent · Shift+Tab where · Alt+Enter newline · Esc cancel";
-    f.render_widget(
-        Paragraph::new(Span::styled(truncate(hint, inner.width as usize), Style::default().fg(t.muted))),
-        Rect { y: inner.bottom().saturating_sub(1), height: 1, ..inner },
-    );
+    f.set_cursor_position(Position::new(text_area.x + 3 + last, text_area.y + row));
+    let keys = super::hydra::hints(t, &[("Enter", "start"), ("Tab", "agent"), ("Shift+Tab", "where"), ("Alt+Enter", "new line"), ("Esc", "cancel")]);
+    put(f.buffer_mut(), r.x + 3, r.bottom().saturating_sub(2), &keys, r.right());
 }
 
 fn draw_settings(app: &App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, s: &modal::Settings) {
@@ -1462,7 +1449,7 @@ fn draw_settings(app: &App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, 
 
 #[allow(clippy::too_many_arguments)]
 fn draw_worktrees(
-    app: &App,
+    app: &mut App,
     f: &mut Frame,
     area: Rect,
     t: &crate::theme::Theme,
@@ -1471,70 +1458,77 @@ fn draw_worktrees(
     sel: usize,
     loading: bool,
 ) {
-    let r = centered(area, 80, 18);
-    f.render_widget(Clear, r);
-    let block = overlay_block(t, "worktrees: Enter opens, type a new branch to create");
-    let inner = block.inner(r);
-    f.render_widget(block, r);
-    let input = Line::from(vec![Span::styled("› ", Style::default().fg(t.accent)), Span::raw(query.to_string())]);
-    f.render_widget(Paragraph::new(input), Rect { height: 1, ..inner });
-    f.set_cursor_position(Position::new(inner.x + 2 + query.width() as u16, inner.y));
-    if loading {
-        f.render_widget(
-            Paragraph::new(Span::styled("  reading worktrees…", Style::default().fg(t.muted))),
-            Rect { y: inner.y + 2, height: 1, ..inner },
-        );
-        return;
+    use super::design::{fill, put, seg};
+    let buf = f.buffer_mut();
+    super::hydra::dim_all(buf, area, t);
+    let r = super::hydra::panel(app, buf, area, 84, 20, "Worktrees", &[], t);
+    let c = Style::default().bg(t.card);
+    let q = Rect { x: r.x + 1, y: r.y + 2, width: r.width.saturating_sub(2), height: 1 };
+    fill(buf, q, t.card2);
+    let s2 = Style::default().bg(t.card2);
+    let mut qs = vec![seg("› ", s2.fg(t.accent).add_modifier(Modifier::BOLD)), seg(query.to_string(), s2.fg(t.strong)), seg("█", s2.fg(t.accent))];
+    if query.is_empty() {
+        qs.push(seg(" pick one, or type a new branch", s2.fg(t.muted)));
     }
-    let list_h = inner.height.saturating_sub(2) as usize;
-    let start = sel.saturating_sub(list_h.saturating_sub(1));
-    for (i, row) in rows.iter().enumerate().skip(start).take(list_h) {
-        let y = inner.y + 2 + (i - start) as u16;
-        let selected_row = i == sel;
-        let bg = if selected_row { focus_bg(t) } else { t.sidebar_bg };
+    put(buf, r.x + 3, q.y, &qs, r.right().saturating_sub(2));
+    let list = Rect { x: r.x + 1, y: r.y + 4, width: r.width.saturating_sub(2), height: r.height.saturating_sub(7) };
+    if loading {
+        put(buf, list.x + 2, list.y, &[seg("reading worktrees…", c.fg(t.muted).add_modifier(Modifier::ITALIC))], list.right());
+    } else if rows.is_empty() {
+        put(buf, list.x + 2, list.y, &[seg("type a branch name to make a worktree", c.fg(t.muted).add_modifier(Modifier::ITALIC))], list.right());
+    }
+    let start = sel.saturating_sub((list.height as usize).saturating_sub(1));
+    for (i, row) in rows.iter().enumerate().skip(start).take(list.height as usize) {
+        let y = list.y + (i - start) as u16;
+        let rr = Rect { y, height: 1, ..list };
+        let on = i == sel;
+        let bg = if on { t.hov } else { t.card };
+        let buf = f.buffer_mut();
+        fill(buf, rr, bg);
+        let st = Style::default().bg(bg);
+        if on {
+            put(buf, rr.x + 1, y, &[seg("›", st.fg(t.accent).add_modifier(Modifier::BOLD))], rr.right());
+        }
         let line = match row {
             super::WtRow::Existing(w) => {
-                let open = app.snap.workspaces.iter().find(|x| super::same_dir(&x.cwd, &w.path));
-                let (dot, dot_color) = match open {
-                    Some(ws) => ("● ", app.ws_color(ws)),
-                    None => ("○ ", t.muted),
-                };
-                let tag = if w.main { " main" } else { "" };
-                Line::from(vec![
-                    Span::styled(format!(" {dot}"), Style::default().fg(dot_color).bg(bg)),
-                    Span::styled(format!("{:<24}", truncate(&w.branch, 24)), Style::default().fg(t.fg).bg(bg).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("{tag:<6}"), Style::default().fg(t.accent).bg(bg)),
-                    Span::styled(truncate(&w.path.display().to_string(), inner.width.saturating_sub(34) as usize), Style::default().fg(t.muted).bg(bg)),
-                ])
+                let open = app.snap.workspaces.iter().any(|x| super::same_dir(&x.cwd, &w.path));
+                let mut l = vec![
+                    seg(if open { "● " } else { "○ " }, st.fg(if open { t.accent } else { t.muted })),
+                    seg(truncate(&w.branch, 28), st.fg(if on { t.strong } else { t.text }).add_modifier(Modifier::BOLD)),
+                ];
+                if w.main {
+                    l.push(seg("  main", st.fg(t.accent)));
+                }
+                l.push(seg(format!("   {}", truncate(&w.path.display().to_string(), rr.width.saturating_sub(42) as usize)), st.fg(t.muted)));
+                l
             }
-            super::WtRow::Create(text) => Line::from(vec![
-                Span::styled(" + ", Style::default().fg(t.idle).bg(bg)),
-                Span::styled("create worktree ", Style::default().fg(t.fg).bg(bg)),
-                Span::styled(text.clone(), Style::default().fg(t.idle).bg(bg).add_modifier(Modifier::BOLD)),
-            ]),
+            super::WtRow::Create(text) => vec![seg("+ ", st.fg(t.done)), seg("new worktree ", st.fg(t.text)), seg(text.clone(), st.fg(t.done).add_modifier(Modifier::BOLD))],
         };
-        f.render_widget(Paragraph::new(if selected_row { focus_row(line, t) } else { line }).style(Style::default().bg(bg)), Rect { y, height: 1, ..inner });
+        put(f.buffer_mut(), rr.x + 3, y, &line, rr.right().saturating_sub(1));
     }
-    if rows.is_empty() {
-        f.render_widget(
-            Paragraph::new(Span::styled("  type a branch name to create a worktree", Style::default().fg(t.muted))),
-            Rect { y: inner.y + 2, height: 1, ..inner },
-        );
-    }
+    let keys = super::hydra::hints(t, &[("↑↓", "move"), ("Enter", "open"), ("Esc", "close")]);
+    put(f.buffer_mut(), r.x + 3, r.bottom().saturating_sub(2), &keys, r.right());
 }
 
-fn draw_prompt(f: &mut Frame, area: Rect, t: &crate::theme::Theme, label: &str, input: &str, confirm: bool) {
-    let r = centered(area, 64, 3);
-    f.render_widget(Clear, r);
-    let block = overlay_block(t, label);
-    let inner = block.inner(r);
-    f.render_widget(block, r);
-    if !confirm {
-        f.render_widget(Paragraph::new(Line::from(vec![Span::styled("› ", Style::default().fg(t.accent)), Span::raw(input.to_string())])), inner);
-        f.set_cursor_position(Position::new(inner.x + 2 + input.width() as u16, inner.y));
-    } else {
-        f.render_widget(Paragraph::new(Span::styled("y to confirm, any other key cancels", Style::default().fg(t.muted))), inner);
+fn draw_prompt(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, label: &str, input: &str, confirm: bool) {
+    use super::design::{fill, put, seg};
+    let buf = f.buffer_mut();
+    super::hydra::dim_all(buf, area, t);
+    let title = label.trim().trim_end_matches(':');
+    let mut chars = title.chars();
+    let title: String = chars.next().map(|c| c.to_uppercase().collect::<String>() + chars.as_str()).unwrap_or_default();
+    let r = super::hydra::panel(app, buf, area, 64, 7, &title, &[], t);
+    if confirm {
+        let keys = super::hydra::hints(t, &[("y", "yes"), ("n", "no")]);
+        put(buf, r.x + 3, r.y + 3, &keys, r.right());
+        return;
     }
+    let field = Rect { x: r.x + 2, y: r.y + 2, width: r.width.saturating_sub(4), height: 1 };
+    fill(buf, field, t.card2);
+    let s2 = Style::default().bg(t.card2);
+    put(buf, field.x + 1, field.y, &[seg("› ", s2.fg(t.accent).add_modifier(Modifier::BOLD)), seg(input.to_string(), s2.fg(t.strong)), seg("█", s2.fg(t.accent))], field.right());
+    let keys = super::hydra::hints(t, &[("Enter", "save"), ("Esc", "cancel")]);
+    put(buf, r.x + 3, r.bottom().saturating_sub(2), &keys, r.right());
 }
 
 fn draw_help(app: &App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, scroll: u16) {
@@ -1591,74 +1585,71 @@ struct PanelView {
     left_pct: u16,
 }
 
-fn draw_panel(f: &mut Frame, area: Rect, t: &crate::theme::Theme, v: PanelView) {
-    let w = (area.width.saturating_mul(92) / 100).max(60).min(area.width);
-    let h = (area.height.saturating_mul(88) / 100).max(16).min(area.height);
-    let r = Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h };
-    f.render_widget(Clear, r);
-    let block = overlay_block(t, &v.title);
-    let inner = block.inner(r);
-    f.render_widget(block, r);
-
+fn draw_panel(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, v: PanelView) {
+    use super::design::{fill, put, seg};
+    let w = (area.width.saturating_mul(92) / 100).clamp(60.min(area.width), area.width);
+    let h = (area.height.saturating_mul(88) / 100).clamp(16.min(area.height), area.height);
+    let title = {
+        let mut cs = v.title.chars();
+        cs.next().map(|c| c.to_uppercase().collect::<String>() + cs.as_str()).unwrap_or_default()
+    };
+    let buf = f.buffer_mut();
+    super::hydra::dim_all(buf, area, t);
+    let r = super::hydra::panel(app, buf, area, w, h, &title, &[], t);
+    let c = Style::default().bg(t.card);
+    let inner = Rect { x: r.x + 2, y: r.y + 2, width: r.width.saturating_sub(4), height: r.height.saturating_sub(3) };
     let mut y = inner.y;
     if !v.tabs.is_empty() {
-        let mut spans = Vec::new();
+        let mut x = inner.x + 1;
         for (i, name) in v.tabs.iter().enumerate() {
-            let style = if i == v.tab {
-                Style::default().fg(t.bg).bg(t.accent).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(t.muted)
-            };
-            spans.push(Span::styled(format!(" {name} "), style));
-            spans.push(Span::raw(" "));
+            let on = i == v.tab;
+            let txt = format!(" {name} ");
+            let st = if on { Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD) } else { c.fg(t.text) };
+            x = put(buf, x, y, &[seg(txt, st)], inner.right()) + 2;
         }
-        spans.push(Span::styled("Tab switches", Style::default().fg(t.muted)));
-        f.render_widget(Paragraph::new(Line::from(spans)), Rect { y, height: 1, ..inner });
-        y += 1;
+        put(buf, x, y, &[seg("Tab", c.fg(t.accent).add_modifier(Modifier::BOLD)), seg(" switches", c.fg(t.muted))], inner.right());
+        y += 2;
     }
     if let Some(q) = &v.query {
-        let line = Line::from(vec![
-            Span::styled("› ", Style::default().fg(t.accent)),
-            Span::raw(q.clone()),
-            Span::styled(if q.is_empty() { "type to filter" } else { "" }, Style::default().fg(t.muted)),
-        ]);
-        f.render_widget(Paragraph::new(line), Rect { y, height: 1, ..inner });
-        f.set_cursor_position(Position::new(inner.x + 2 + q.width() as u16, y));
-        y += 1;
+        let field = Rect { x: inner.x, y, width: inner.width, height: 1 };
+        fill(buf, field, t.card2);
+        let s2 = Style::default().bg(t.card2);
+        let mut qs = vec![seg("› ", s2.fg(t.accent).add_modifier(Modifier::BOLD)), seg(q.clone(), s2.fg(t.strong)), seg("█", s2.fg(t.accent))];
+        if q.is_empty() {
+            qs.push(seg(" type to filter", s2.fg(t.muted)));
+        }
+        put(buf, field.x + 1, y, &qs, field.right());
+        y += 2;
     }
-    y += 1;
     let body = Rect { y, height: inner.bottom().saturating_sub(y + 1), ..inner };
     let left_w = body.width * v.left_pct / 100;
     let left = Rect { width: left_w, ..body };
-    let right = Rect { x: body.x + left_w + 1, width: body.width.saturating_sub(left_w + 1), ..body };
+    let right = Rect { x: body.x + left_w + 2, width: body.width.saturating_sub(left_w + 2), ..body };
     for yy in body.y..body.bottom() {
-        f.render_widget(
-            Paragraph::new(Span::styled("│", Style::default().fg(t.border))),
-            Rect { x: body.x + left_w, y: yy, width: 1, height: 1 },
-        );
+        if let Some(px) = buf.cell_mut((body.x + left_w, yy)) {
+            px.set_symbol("│").set_style(Style::default().fg(t.line).bg(t.card));
+        }
     }
-
     if v.rows.is_empty() {
         f.render_widget(
-            Paragraph::new(v.empty.clone()).style(Style::default().fg(t.muted)).wrap(ratatui::widgets::Wrap { trim: false }),
+            Paragraph::new(v.empty.clone()).style(c.fg(t.muted)).wrap(ratatui::widgets::Wrap { trim: false }),
             Rect { height: body.height.min(6), ..left },
         );
     }
-    let h = left.height as usize;
+    let hgt = left.height as usize;
     let sel = v.sel.unwrap_or(0);
-    let start = sel.saturating_sub(h.saturating_sub(1));
-    for (i, row) in v.rows.into_iter().enumerate().skip(start).take(h) {
+    let start = sel.saturating_sub(hgt.saturating_sub(1));
+    for (i, row) in v.rows.into_iter().enumerate().skip(start).take(hgt) {
         let ry = left.y + (i - start) as u16;
-        let selected_row = Some(i) == v.sel;
-        let style = if selected_row { Style::default().bg(focus_bg(t)) } else { Style::default() };
-        let row = if selected_row { focus_row(row, t) } else { row };
-        f.render_widget(Paragraph::new(row).style(style), Rect { y: ry, height: 1, ..left });
+        let on = Some(i) == v.sel;
+        let bg = if on { t.hov } else { t.card };
+        let rr = Rect { y: ry, height: 1, ..left };
+        fill(f.buffer_mut(), rr, bg);
+        let row = Line::from(row.spans.into_iter().map(|sp| { let st = sp.style.bg(bg); Span::styled(sp.content, st) }).collect::<Vec<_>>());
+        f.render_widget(Paragraph::new(row).style(Style::default().bg(bg)), rr);
     }
-    f.render_widget(
-        Paragraph::new(v.detail).scroll((v.detail_scroll, 0)).wrap(ratatui::widgets::Wrap { trim: false }),
-        right,
-    );
-    f.render_widget(Paragraph::new(v.footer), Rect { y: inner.bottom().saturating_sub(1), height: 1, ..inner });
+    f.render_widget(Paragraph::new(v.detail).style(c.fg(t.text)).scroll((v.detail_scroll, 0)).wrap(ratatui::widgets::Wrap { trim: false }), right);
+    f.render_widget(Paragraph::new(v.footer).style(c), Rect { x: r.x + 3, y: r.bottom().saturating_sub(2), width: r.width.saturating_sub(6), height: 1 });
 }
 
 pub(super) fn hint(t: &crate::theme::Theme, pairs: &[(&str, &str)]) -> Line<'static> {
@@ -1942,7 +1933,7 @@ fn toolbox_panel(app: &App, t: &crate::theme::Theme) -> PanelView {
         detail.push(Line::from(Span::styled(format!("defined in {}", it.source.display()), Style::default().fg(t.muted))));
     }
     PanelView {
-        title: format!("toolbox · {}", truncate(&v.project.display().to_string(), 50)),
+        title: format!("agent tools · {}", truncate(&v.project.display().to_string(), 50)),
         tabs: vec!["This project".into(), "Everywhere".into()],
         tab: v.everywhere as usize,
         query: Some(v.query.clone()),

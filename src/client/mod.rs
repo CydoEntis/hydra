@@ -5613,6 +5613,17 @@ mod hydra_tests {
     }
 
     #[test]
+    fn borrowed_screens_look_like_hydra() {
+        for (a, title) in [(Action::Toolbox, "Agent tools"), (Action::RenameWorkspace, "Rename"), (Action::NewWorktree(None), "Worktrees")] {
+            let (_, mut app) = super::design_tests::render_with("hydra", 120, 34);
+            app.act(a);
+            let o = draw(&mut app, 120, 34);
+            show(&o);
+            assert!(o.contains("Esc close"), "{title}: a hydra panel (title bar with Esc close)");
+        }
+    }
+
+    #[test]
     fn quick_follow_up_from_the_sidebar() {
         let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
