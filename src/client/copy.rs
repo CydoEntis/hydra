@@ -119,7 +119,7 @@ impl Copy {
         let h = self.height.max(1);
         let max_top = self.lines.len().saturating_sub(h);
         self.top = (self.top as isize + delta).clamp(0, max_top as isize) as usize;
-        self.cur.0 = self.cur.0.clamp(self.top, self.top + h - 1).min(self.last_line());
+        self.cur.0 = self.cur.0.min((self.top + h).saturating_sub(1)).max(self.top).min(self.last_line());
         self.cur.1 = self.cur.1.min(self.line_len(self.cur.0));
     }
 

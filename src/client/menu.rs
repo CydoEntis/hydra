@@ -483,15 +483,25 @@ pub(super) fn draw_menu(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, m: 
     fill(buf, r, bgm);
     let edge = Style::default().fg(super::render::blend(t.line, t.text, 0.35)).bg(bgm);
     for xx in r.x..r.right() {
-        buf[(xx, r.y)].set_symbol("─").set_style(edge);
-        buf[(xx, r.bottom() - 1)].set_symbol("─").set_style(edge);
+        if let Some(px) = buf.cell_mut((xx, r.y)) {
+            px.set_symbol("─").set_style(edge);
+        }
+        if let Some(px) = buf.cell_mut((xx, r.bottom() - 1)) {
+            px.set_symbol("─").set_style(edge);
+        }
     }
     for yy in r.y..r.bottom() {
-        buf[(r.x, yy)].set_symbol("│").set_style(edge);
-        buf[(r.right() - 1, yy)].set_symbol("│").set_style(edge);
+        if let Some(px) = buf.cell_mut((r.x, yy)) {
+            px.set_symbol("│").set_style(edge);
+        }
+        if let Some(px) = buf.cell_mut((r.right() - 1, yy)) {
+            px.set_symbol("│").set_style(edge);
+        }
     }
     for (cx, cy, g) in [(r.x, r.y, "╭"), (r.right() - 1, r.y, "╮"), (r.x, r.bottom() - 1, "╰"), (r.right() - 1, r.bottom() - 1, "╯")] {
-        buf[(cx, cy)].set_symbol(g).set_style(edge);
+        if let Some(px) = buf.cell_mut((cx, cy)) {
+            px.set_symbol(g).set_style(edge);
+        }
     }
     hit(app, r, HyHit::Noop);
     put(buf, r.x + 2, r.y, &[seg(format!(" {} ", truncate(&m.title, (w - 6) as usize)), Style::default().fg(t.text).bg(bgm).add_modifier(Modifier::BOLD))], r.right() - 2);

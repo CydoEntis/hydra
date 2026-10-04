@@ -775,7 +775,9 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
         let edge = Rect { x: ex, y: side.y, width: 1, height: side.height };
         let c = if app.hy.drag == Some(Drag::Side) || hovered(app, edge) || app.mode == Mode::Side { t.accent } else { t.line };
         for yy in edge.top()..edge.bottom() {
-            f.buffer_mut()[(ex, yy)].set_symbol("│").set_style(Style::default().fg(c).bg(t.bg));
+            if let Some(px) = f.buffer_mut().cell_mut((ex, yy)) {
+                px.set_symbol("│").set_style(Style::default().fg(c).bg(t.bg));
+            }
         }
         hit(app, edge, HyHit::SideEdge);
     }
@@ -843,7 +845,9 @@ pub(super) fn counts<'a>(app: &App, t: &Theme, list: impl Iterator<Item = &'a Se
 
 fn hline(buf: &mut Buffer, x: u16, y: u16, w: u16, t: &Theme, bg: Color) {
     for i in 0..w {
-        buf[(x + i, y)].set_symbol("─").set_style(Style::default().fg(t.line).bg(bg));
+        if let Some(px) = buf.cell_mut((x + i, y)) {
+            px.set_symbol("─").set_style(Style::default().fg(t.line).bg(bg));
+        }
     }
 }
 
@@ -925,13 +929,17 @@ fn outline_side(buf: &mut Buffer, r: Rect, right_side: bool, t: &Theme) {
     for x in r.left()..r.right() {
         if blank(buf, x, bottom) {
             let bg = buf[(x, bottom)].bg;
-            buf[(x, bottom)].set_symbol("▁").set_style(Style::default().fg(t.accent).bg(bg));
+            if let Some(px) = buf.cell_mut((x, bottom)) {
+                px.set_symbol("▁").set_style(Style::default().fg(t.accent).bg(bg));
+            }
         }
     }
     for y in r.top()..r.bottom() {
         if blank(buf, outer, y) {
             let bg = buf[(outer, y)].bg;
-            buf[(outer, y)].set_symbol(if right_side { "▕" } else { "▏" }).set_style(Style::default().fg(t.accent).bg(bg));
+            if let Some(px) = buf.cell_mut((outer, y)) {
+                px.set_symbol(if right_side { "▕" } else { "▏" }).set_style(Style::default().fg(t.accent).bg(bg));
+            }
         }
     }
 }
@@ -951,7 +959,9 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     if focused_side {
         // The keys are here: an accent line along the sidebar's top too.
         for xx in r.x..r.right() {
-            buf[(xx, r.y)].set_symbol("▔").set_style(Style::default().fg(t.accent).bg(surf));
+            if let Some(px) = buf.cell_mut((xx, r.y)) {
+                px.set_symbol("▔").set_style(Style::default().fg(t.accent).bg(surf));
+            }
         }
     }
     let ok = k(app, &Action::OpenProject);
@@ -1015,9 +1025,10 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     };
     // The open one is marked by a bar on its left, not a fill.
     let bar = |buf: &mut Buffer, term: TermId, y: u16, bg: Color| {
-        if Some(term) == focus {
-            buf[(x0, y)].set_symbol("▌").set_style(Style::default().fg(t.accent).bg(bg));
-        }
+        if Some(term) == focus
+            && let Some(px) = buf.cell_mut((x0, y)) {
+                px.set_symbol("▌").set_style(Style::default().fg(t.accent).bg(bg));
+            }
     };
 
     for (i, line) in lines.iter().enumerate().skip(scroll).take(list_h) {
@@ -1298,7 +1309,9 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
                 if (ci as u16) + 1 < cols {
                     let buf = f.buffer_mut();
                     for yy in y..y + h {
-                        buf[(x + w + 1, yy)].set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
+                        if let Some(px) = buf.cell_mut((x + w + 1, yy)) {
+                            px.set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
+                        }
                     }
                 }
             }
@@ -1332,9 +1345,10 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
         let div = if horizontal { Rect { x: div.x.saturating_sub(1), ..div } } else { div };
         for yy in div.top()..div.bottom() {
             for xx in div.left()..div.right() {
-                if horizontal || c == t.accent {
-                    buf[(xx, yy)].set_symbol(if horizontal { "│" } else { "─" }).set_style(Style::default().fg(c).bg(t.bg));
-                }
+                if (horizontal || c == t.accent)
+                    && let Some(px) = buf.cell_mut((xx, yy)) {
+                        px.set_symbol(if horizontal { "│" } else { "─" }).set_style(Style::default().fg(c).bg(t.bg));
+                    }
             }
         }
         hit(app, div, HyHit::Divider(i));
@@ -1485,7 +1499,9 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
         for yy in track.top()..track.bottom() {
             let on = yy >= top && yy < top + thumb as u16;
             let (sym, c) = if on { ("┃", if hot { t.accent } else { t.muted }) } else { ("│", t.line) };
-            f.buffer_mut()[(track.x, yy)].set_symbol(sym).set_style(Style::default().fg(c).bg(t.bg));
+            if let Some(px) = f.buffer_mut().cell_mut((track.x, yy)) {
+                px.set_symbol(sym).set_style(Style::default().fg(c).bg(t.bg));
+            }
         }
         if app.hy.drag.is_none() || app.hy.drag == Some(Drag::Scroll(term)) {
             app.hy.bar = Some((term, track, total));
@@ -1554,7 +1570,9 @@ fn draw_toast(app: &App, buf: &mut Buffer, panes: Rect, t: &Theme) {
     fill(buf, r, t.card2);
     let edge = Style::default().fg(if *err { t.err } else { t.done }).bg(t.card2);
     for y in r.top()..r.bottom() {
-        buf[(r.x, y)].set_symbol("▌").set_style(edge);
+        if let Some(px) = buf.cell_mut((r.x, y)) {
+            px.set_symbol("▌").set_style(edge);
+        }
     }
     let st = Style::default().bg(t.card2);
     put(
@@ -2120,7 +2138,7 @@ pub(super) fn draw_goto(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, que
     let rows = goto_rows(&model, query);
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let h = (rows.len() as u16 + 8).clamp(12, area.height.saturating_sub(4));
+    let h = (rows.len() as u16 + 8).max(12).min(area.height.saturating_sub(4));
     let r = panel(app, buf, area, 92, h, "Go to", &[], t);
     let c = Style::default().bg(t.card);
     let q = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: 1 };
@@ -2194,7 +2212,7 @@ pub(super) fn draw_history(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, 
     let items: Vec<(u64, Option<TermId>, char, String)> = app.history.iter().rev().cloned().collect();
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let h = (items.len() as u16 + 7).clamp(10, area.height.saturating_sub(4));
+    let h = (items.len() as u16 + 7).max(10).min(area.height.saturating_sub(4));
     let r = panel(app, buf, area, 104, h, "What happened", &[], t);
     let c = Style::default().bg(t.card);
     let list = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: r.height.saturating_sub(5) };
@@ -2246,7 +2264,7 @@ pub(super) fn draw_memory(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, s
     let total: u64 = rows.iter().map(|r| r.3).sum();
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let h = (rows.len() as u16 + 8).clamp(10, area.height.saturating_sub(4));
+    let h = (rows.len() as u16 + 8).max(10).min(area.height.saturating_sub(4));
     let r = panel(app, buf, area, 92, h, &format!("Memory · {} in all", mb(total)), &[], t);
     let c = Style::default().bg(t.card);
     let top = rows.first().map(|r| r.3).unwrap_or(1).max(1);
@@ -2331,6 +2349,8 @@ pub(super) fn draw_new_pane(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
     };
     // A row of chips; the selected one is filled. Long rows scroll to keep it in view.
     let chips = |app: &mut App, buf: &mut Buffer, y: u16, items: &[String], cur: usize, mk: fn(usize) -> HyHit| {
+        // The list can shrink under the selection (a session closed while this is open).
+        let cur = cur.min(items.len().saturating_sub(1));
         let mut start = 0;
         let room = (r.right() - 2).saturating_sub(r.x + 14) as usize;
         while start < cur && items[start..=cur].iter().map(|s| s.width() + 3).sum::<usize>() > room {
@@ -2882,7 +2902,9 @@ pub(super) fn draw_splash(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
                 if ch == '\u{2800}' || ch == ' ' {
                     continue;
                 }
-                buf[(ax + ci as u16, y + r as u16)].set_char(ch).set_style(Style::default().fg(col).bg(t.bg));
+                if let Some(px) = buf.cell_mut((ax + ci as u16, y + r as u16)) {
+                    px.set_char(ch).set_style(Style::default().fg(col).bg(t.bg));
+                }
             }
         }
         y += ART.len() as u16 + 1;
@@ -2898,7 +2920,9 @@ pub(super) fn draw_splash(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
                 }
                 let col = k as u16 * 8 + ci as u16;
                 let c = blend(t.accent, teal, col as f32 / lw as f32);
-                buf[(lx + col, y + r as u16)].set_char(ch).set_style(Style::default().fg(c).bg(t.bg));
+                if let Some(px) = buf.cell_mut((lx + col, y + r as u16)) {
+                    px.set_char(ch).set_style(Style::default().fg(c).bg(t.bg));
+                }
             }
         }
     }
@@ -3334,9 +3358,11 @@ impl App {
             }
             Action::GoTo => self.mode = Mode::GoTo { query: String::new(), sel: 0 },
             Action::SelectTab(n) => {
-                if let Some(tab) = self.hy.tabs.get(n.saturating_sub(1)) {
+                if let Some(i) = n.checked_sub(1)
+                    && let Some(tab) = self.hy.tabs.get(i)
+                {
                     let to = tab.focus;
-                    self.hy.tab = n - 1;
+                    self.hy.tab = i;
                     self.cmd(Command::FocusPane { term: to });
                 }
             }
@@ -4498,12 +4524,13 @@ pub(super) fn draw_map(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, v
     );
     hit(app, Rect { x: area.right().saturating_sub(2), y: area.y, width: 2, height: 1 }, HyHit::ViewKey('\x1b'));
     let line = |buf: &mut Buffer, x: u16, y: u16, sym: &str, c: Color| {
-        if x < area.right() && y < area.bottom() {
-            buf[(x, y)].set_symbol(sym).set_style(Style::default().fg(c).bg(t.bg));
-        }
+        if x < area.right() && y < area.bottom()
+            && let Some(px) = buf.cell_mut((x, y)) {
+                px.set_symbol(sym).set_style(Style::default().fg(c).bg(t.bg));
+            }
     };
     // The project at the top.
-    let rw = (p.name.width() as u16 + 18).clamp(24, area.width.saturating_sub(4));
+    let rw = (p.name.width() as u16 + 18).max(24).min(area.width.saturating_sub(4));
     let rx = area.x + area.width.saturating_sub(rw) / 2;
     let ry = area.y + 2;
     let worst = p.sessions().filter(|s| s.is_agent).map(|s| s.status).min_by_key(|s| rank(*s));
@@ -4616,17 +4643,33 @@ pub(super) fn draw_map(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme, v
 fn draw_box(buf: &mut Buffer, r: Rect, c: Color, t: &Theme) {
     let st = Style::default().fg(c).bg(t.bg);
     for x in r.x..r.right() {
-        buf[(x, r.y)].set_symbol("─").set_style(st);
-        buf[(x, r.bottom() - 1)].set_symbol("─").set_style(st);
+        if let Some(px) = buf.cell_mut((x, r.y)) {
+            px.set_symbol("─").set_style(st);
+        }
+        if let Some(px) = buf.cell_mut((x, r.bottom() - 1)) {
+            px.set_symbol("─").set_style(st);
+        }
     }
     for y in r.y..r.bottom() {
-        buf[(r.x, y)].set_symbol("│").set_style(st);
-        buf[(r.right() - 1, y)].set_symbol("│").set_style(st);
+        if let Some(px) = buf.cell_mut((r.x, y)) {
+            px.set_symbol("│").set_style(st);
+        }
+        if let Some(px) = buf.cell_mut((r.right() - 1, y)) {
+            px.set_symbol("│").set_style(st);
+        }
     }
-    buf[(r.x, r.y)].set_symbol("╭");
-    buf[(r.right() - 1, r.y)].set_symbol("╮");
-    buf[(r.x, r.bottom() - 1)].set_symbol("╰");
-    buf[(r.right() - 1, r.bottom() - 1)].set_symbol("╯");
+    if let Some(px) = buf.cell_mut((r.x, r.y)) {
+        px.set_symbol("╭");
+    }
+    if let Some(px) = buf.cell_mut((r.right() - 1, r.y)) {
+        px.set_symbol("╮");
+    }
+    if let Some(px) = buf.cell_mut((r.x, r.bottom() - 1)) {
+        px.set_symbol("╰");
+    }
+    if let Some(px) = buf.cell_mut((r.right() - 1, r.bottom() - 1)) {
+        px.set_symbol("╯");
+    }
 }
 
 impl App {

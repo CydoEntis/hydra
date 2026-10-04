@@ -1796,8 +1796,8 @@ impl App {
                         } else if pos.y >= r.bottom() {
                             c.scroll(1);
                         }
-                        let row = pos.y.clamp(r.y, r.bottom().saturating_sub(1)) - r.y;
-                        let col = pos.x.clamp(r.x, r.right().saturating_sub(1)) - r.x;
+                        let row = pos.y.min(r.bottom().saturating_sub(1)).max(r.y) - r.y;
+                        let col = pos.x.min(r.right().saturating_sub(1)).max(r.x) - r.x;
                         let at = c.at_cell(row, col);
                         if c.anchor.is_none() {
                             c.anchor = Some(c.cur);
@@ -1816,8 +1816,8 @@ impl App {
                     let s = c.at_cell(start.y.saturating_sub(r.y), start.x.saturating_sub(r.x));
                     c.cur = s;
                     c.anchor = Some(s);
-                    let row = pos.y.clamp(r.y, r.bottom().saturating_sub(1)) - r.y;
-                    let col = pos.x.clamp(r.x, r.right().saturating_sub(1)) - r.x;
+                    let row = pos.y.min(r.bottom().saturating_sub(1)).max(r.y) - r.y;
+                    let col = pos.x.min(r.right().saturating_sub(1)).max(r.x) - r.x;
                     let at = c.at_cell(row, col);
                     c.move_to(at);
                 }
@@ -3618,9 +3618,15 @@ impl App {
 
     fn spawn_bg(&self, f: impl FnOnce() -> Bg + Send + 'static) {
         let tx = self.bg.clone();
-        tokio::task::spawn_blocking(move || {
+        let job = move || {
             let _ = tx.send(f());
-        });
+        };
+        // Tests (and anything else outside the runtime) get a plain thread.
+        if tokio::runtime::Handle::try_current().is_ok() {
+            tokio::task::spawn_blocking(job);
+        } else {
+            std::thread::spawn(job);
+        }
     }
 
     fn on_bg(&mut self, b: Bg) {
@@ -5535,6 +5541,51 @@ mod hydra_tests {
             assert!(o.lines().last().unwrap_or("").contains("then:") && o.contains("g go to"), "the bottom bar shows leader mode");
             app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
             assert!(!matches!(app.mode, Mode::Normal | Mode::Prefix { .. }), "leader + {c} opens {what}: {:?}", std::mem::discriminant(&app.mode));
+        }
+    }
+
+    #[test]
+    fn every_popup_fits_a_tiny_window() {
+        use crate::layout::Dir;
+        let actions = [
+            Action::GoTo,
+            Action::Palette,
+            Action::Help,
+            Action::Settings,
+            Action::NewPane,
+            Action::Jump,
+            Action::OpenProject,
+            Action::Talk,
+            Action::Files,
+            Action::Find(0),
+            Action::Find(1),
+            Action::Changes,
+            Action::Branches,
+            Action::Inbox,
+            Action::Ideas,
+            Action::Race,
+            Action::Toolbox,
+            Action::Map,
+            Action::Memory,
+            Action::History,
+            Action::Presets,
+            Action::RenameWorkspace,
+            Action::BrowseTree,
+            Action::SplitRight,
+            Action::Focus(Dir::Left),
+        ];
+        for (w, h) in [(20, 6), (1, 1), (80, 3), (40, 10), (40, 15), (60, 12)] {
+            for a in &actions {
+                let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+                app.act(a.clone());
+                let _ = draw(&mut app, w, h);
+                // And a right-click menu, and a question.
+                app.mode = Mode::Normal;
+                app.menu_for_session(1, (w.saturating_sub(1), h.saturating_sub(1)));
+                let _ = draw(&mut app, w, h);
+                app.menu_act(menu::Act::End(vec![1]));
+                let _ = draw(&mut app, w, h);
+            }
         }
     }
 

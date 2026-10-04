@@ -263,7 +263,7 @@ impl Edit {
             self.col = 0;
             return;
         }
-        self.row = (self.row as isize + drow).clamp(0, self.lines.len() as isize - 1) as usize;
+        self.row = (self.row as isize + drow).min(self.lines.len() as isize - 1).max(0) as usize;
         self.col = ((self.col as isize + dcol).max(0) as usize).min(self.len(self.row));
     }
 

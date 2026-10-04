@@ -13,6 +13,10 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget};
 use std::time::Duration;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+/// The smallest window hydra draws into (below it, a note to make it bigger).
+const MIN_WIDTH: u16 = 40;
+const MIN_HEIGHT: u16 = 10;
+
 pub fn draw(app: &mut App, f: &mut Frame) {
     app.hits.clear();
     app.panes.clear();
@@ -30,6 +34,15 @@ pub fn draw(app: &mut App, f: &mut Frame) {
         app.osc_bg = Some(t.bg);
     }
 
+    // Smaller than this, nothing fits: say so instead of drawing a broken screen.
+    if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+        let buf = f.buffer_mut();
+        super::design::fill(buf, area, t.bg);
+        let msg = "make the window bigger";
+        let x = area.x + area.width.saturating_sub(msg.width() as u16) / 2;
+        super::design::put(buf, x, area.y + area.height / 2, &[super::design::seg(msg, Style::default().fg(t.muted).bg(t.bg))], area.right());
+        return;
+    }
     if app.splash {
         super::hydra::draw_splash(app, f, area, &t);
         return;
@@ -1008,16 +1021,21 @@ pub(super) fn render_copy(c: &Copy, area: Rect, buf: &mut Buffer, t: &crate::the
                 style = style.add_modifier(Modifier::REVERSED);
             }
             let mut tmp = [0u8; 4];
-            buf[(x, y)].set_symbol(ch.encode_utf8(&mut tmp)).set_style(style);
+            if let Some(px) = buf.cell_mut((x, y)) {
+                px.set_symbol(ch.encode_utf8(&mut tmp)).set_style(style);
+            }
             x += w;
         }
         // Show the cursor (and line selections) past the end of the text.
         if x < area.right() {
             if c.cur.0 == li && c.cur.1 >= n {
-                buf[(x, y)].set_symbol(" ").set_style(Style::default().add_modifier(Modifier::REVERSED));
-            } else if c.selected(li, n) {
-                buf[(x, y)].set_symbol(" ").set_style(select);
-            }
+                if let Some(px) = buf.cell_mut((x, y)) {
+                    px.set_symbol(" ").set_style(Style::default().add_modifier(Modifier::REVERSED));
+                }
+            } else if c.selected(li, n)
+                && let Some(px) = buf.cell_mut((x, y)) {
+                    px.set_symbol(" ").set_style(select);
+                }
         }
     }
     let bar = if let Some(input) = &c.input {

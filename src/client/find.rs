@@ -310,7 +310,9 @@ pub(super) fn draw_find(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, v: 
     }
     for xx in [list.right() + 1] {
         for yy in list.top()..list.bottom() {
-            buf[(xx, yy)].set_symbol("│").set_style(Style::default().fg(t.line).bg(t.card));
+            if let Some(px) = buf.cell_mut((xx, yy)) {
+                px.set_symbol("│").set_style(Style::default().fg(t.line).bg(t.card));
+            }
         }
     }
     let hl = v.selected().and_then(|tg| tg.line);

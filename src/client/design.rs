@@ -237,6 +237,12 @@ pub(super) fn segs_width(s: &[Seg]) -> u16 {
 
 /// Write segments from (x, y), not past `max_x`; returns the x after the last cell written.
 pub(super) fn put(buf: &mut Buffer, x: u16, y: u16, segs: &[Seg], max_x: u16) -> u16 {
+    // Off the screen (a popup taller or wider than a small window): draw nothing.
+    let area = buf.area;
+    if y < area.top() || y >= area.bottom() || x < area.left() {
+        return x;
+    }
+    let max_x = max_x.min(area.right());
     let mut x = x;
     for (text, style) in segs {
         if x >= max_x {
@@ -249,10 +255,13 @@ pub(super) fn put(buf: &mut Buffer, x: u16, y: u16, segs: &[Seg], max_x: u16) ->
 }
 
 pub(super) fn fill(buf: &mut Buffer, r: Rect, bg: Color) {
+    let r = r.intersection(buf.area);
     buf.set_style(r, Style::reset().bg(bg));
     for y in r.top()..r.bottom() {
         for x in r.left()..r.right() {
-            buf[(x, y)].set_symbol(" ");
+            if let Some(px) = buf.cell_mut((x, y)) {
+                px.set_symbol(" ");
+            }
         }
     }
 }
@@ -620,7 +629,9 @@ fn draw_tab_strip(app: &mut App, buf: &mut Buffer, r: Rect, t: &Theme) {
         if active {
             // A lime underline marks the tab you're in.
             for cx in x..x + wdt {
-                buf[(cx, r.y)].set_style(Style::default().add_modifier(Modifier::UNDERLINED).underline_color(t.accent));
+                if let Some(px) = buf.cell_mut((cx, r.y)) {
+                    px.set_style(Style::default().add_modifier(Modifier::UNDERLINED).underline_color(t.accent));
+                }
             }
         }
         app.hits.push((rr, Hit::Tab(w.id, tab.id)));
@@ -669,7 +680,9 @@ fn draw_panes(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
         if r.right() < area.right() {
             let buf = f.buffer_mut();
             for y in r.top()..r.bottom() {
-                buf[(r.right() - 1, y)].set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
+                if let Some(px) = buf.cell_mut((r.right() - 1, y)) {
+                    px.set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
+                }
             }
         }
         let pr = Rect { width: w, ..r };
@@ -967,7 +980,9 @@ pub(super) fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Them
         }
     }
     for yy in body.top()..body.bottom() {
-        buf[(body.x + fw, yy)].set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
+        if let Some(px) = buf.cell_mut((body.x + fw, yy)) {
+            px.set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
+        }
     }
     // Diff of the selected file
     let dx = body.x + fw + 3;
@@ -1107,7 +1122,9 @@ pub(super) fn draw_files(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme,
         put(buf, body.x + 2, body.bottom().saturating_sub(2), &legend, body.x + fw);
     }
     for yy in body.top()..body.bottom() {
-        buf[(body.x + fw, yy)].set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
+        if let Some(px) = buf.cell_mut((body.x + fw, yy)) {
+            px.set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
+        }
     }
     // Preview
     let px = body.x + fw + 3;
@@ -1152,7 +1169,9 @@ pub(super) fn draw_files(app: &mut App, buf: &mut Buffer, area: Rect, t: &Theme,
                 // The side the arrows are on gets the accent line.
                 if v.in_preview {
                     for yy in body.top()..body.bottom() {
-                        buf[(body.x + fw, yy)].set_symbol("┃").set_style(Style::default().fg(t.accent).bg(t.bg));
+                        if let Some(px) = buf.cell_mut((body.x + fw, yy)) {
+                            px.set_symbol("┃").set_style(Style::default().fg(t.accent).bg(t.bg));
+                        }
                     }
                 }
                 for (k, l) in lines.iter().enumerate().skip(v.scroll).take(prect.height as usize) {
@@ -1273,7 +1292,9 @@ fn render_screen_from(screen: &vt100::Screen, area: Rect, buf: &mut Buffer, bg: 
                 style = style.add_modifier(Modifier::BOLD);
             }
             let c = cell.contents();
-            buf[(area.x + col, area.y + row)].set_symbol(if c.is_empty() { " " } else { c }).set_style(style);
+            if let Some(px) = buf.cell_mut((area.x + col, area.y + row)) {
+                px.set_symbol(if c.is_empty() { " " } else { c }).set_style(style);
+            }
         }
     }
 }
@@ -1800,7 +1821,9 @@ pub(super) fn draw_settings_view(app: &mut App, buf: &mut Buffer, area: Rect, t:
         app.hits.push((rr, Hit::Button(super::Btn::SettingsCat(i))));
     }
     for yy in body.top()..body.bottom() {
-        buf[(body.x + nav_w, yy)].set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
+        if let Some(px) = buf.cell_mut((body.x + nav_w, yy)) {
+            px.set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
+        }
     }
 
     // Settings on this page
