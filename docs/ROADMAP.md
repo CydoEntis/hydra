@@ -12,7 +12,7 @@ which ones need you, jump to them, and keep them running when you leave. See
 ## Now
 
 Active phase: **6 — Clean code: one layout's worth of code, in files a person can read**
-Next unblocked: none yet — phase 6 needs its tickets (and the open decision below) first
+Next unblocked: #13 — Small fixes left from the audit
 
 ## Phases
 
@@ -41,17 +41,24 @@ notification history, `hydra doctor`, more agent types, BEL tracking.
 
 #1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12
 
-### 6 — Clean code: one layout's worth of code, in files a person can read · active (no tickets yet)
+### 6 — Clean code: one layout's worth of code, in files a person can read · active
 
-Work: remove the legacy layouts (about 2,900 lines across `render.rs`,
-`client/mod.rs`, `design.rs`, `keys.rs`, `config.rs`) after porting the screens
-hydra still borrows from them (toolbox panel, worktrees, rename prompt, quick);
-split `daemon/mod.rs`, `client/mod.rs` and `client/hydra.rs` by job; one shared
-popup-list helper; one process helper (git / curl / `CREATE_NO_WINDOW`); named
-timing constants; tests for the daemon's tree, spare and hook logic and a
-protocol round-trip.
-Open decisions:
-- remove the `ui.layout` field outright, or keep it parsed and ignored for old configs.
+Exit when:
+- every ticket below is closed and its change is on `dev`;
+- the Verify command passes on `dev`;
+- no code checks `ui.layout`, and no source file is over ~2,000 lines.
+
+Tickets: GitHub issues, label `phase-6`.
+
+1. #13 — Small fixes left from the audit
+2. #14 — Port the last screens hydra borrows from the old layouts
+3. #15 — Remove the old layouts · after 2
+4. #16 — Split the big files by job · after 3
+5. #17 — Shared helpers instead of copies · after 4
+6. #18 — Tests for the daemon's own logic · can run alongside 3-5
+
+Decided 2026-10-04: the `ui.layout` field is removed outright; old config files still
+load because unknown keys are ignored.
 
 ## In scope
 
