@@ -9,6 +9,7 @@ mod persist;
 mod scan;
 mod term;
 mod commands;
+mod contain;
 mod restore;
 mod status;
 mod worktrees;
@@ -247,6 +248,7 @@ async fn serve(id: ClientId, stream: interprocess::local_socket::tokio::Stream, 
 impl Daemon {
     /// A daemon with no panes yet; its process scanner and hook thread are running.
     fn new(cfg: Config, tx: mpsc::Sender<Ev>) -> Daemon {
+        contain::children_die_with_us();
         let agents = cfg.agent_defs();
         let scan = Arc::new(Mutex::new(scan::Shared {
             roots: Vec::new(),
