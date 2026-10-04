@@ -116,6 +116,8 @@ pub struct Term {
     pub progress_off: Option<Instant>,
     /// When a hook last said "working" (late duplicate permission pings are ignored).
     pub last_working_hook: Option<Instant>,
+    /// When it last started needing you (cleared when it stops).
+    pub blocked_at: Option<Instant>,
     /// Processes known to run inside this pane (trusted to report its status).
     pub trusted: std::collections::HashSet<u32>,
     /// A secret only this pane's processes have (HYDRA_PANE_TOKEN).
@@ -380,6 +382,7 @@ impl Term {
             done_held: None,
             progress_off: None,
             last_working_hook: None,
+            blocked_at: None,
             trusted: std::collections::HashSet::new(),
             token,
             restore_unseen: false,

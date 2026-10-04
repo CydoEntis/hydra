@@ -493,6 +493,9 @@ pub fn builtin_agents() -> Vec<AgentDef> {
                 r"❯ 1\. Yes",
                 r"Would you like to proceed",
                 r"Do you trust the files",
+                // Its question and permission dialogs.
+                r"Enter to select",
+                r"Esc to cancel",
             ],
         ), "claude --resume {session}", "claude --continue"),
         resumable(agent(

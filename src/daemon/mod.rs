@@ -287,6 +287,10 @@ pub fn run() -> Result<()> {
     })
 }
 
+/// How long after your last key, with the pane quiet, a question that's no longer on screen
+/// counts as dismissed.
+const QUESTION_GONE_AFTER: Duration = Duration::from_secs(2);
+
 fn init_logging() {
     let dir = crate::config::data_dir();
     let _ = std::fs::create_dir_all(&dir);
@@ -958,6 +962,7 @@ impl Daemon {
     }
 
     fn hook(&mut self, term: TermId, agent: String, status: HookStatus, event: &str) {
+        tracing::debug!("hook for pane {term}: {event} -> {status:?}");
         let focused = self.focused_term() == Some(term) && self.has_viewer();
         if matches!(status, HookStatus::Done | HookStatus::Idle)
             && let Some(dest) = self.terms.get_mut(&term).and_then(|t| t.pending_move.take())
@@ -1029,6 +1034,7 @@ impl Daemon {
         if t.status == new {
             return;
         }
+        t.blocked_at = (new == Status::Blocked).then(Instant::now);
         t.status = new;
         t.status_since = term::unix_now();
         self.dirty = true;
@@ -1230,6 +1236,20 @@ impl Daemon {
                 // Subagents never reported back: don't hold "done" forever.
                 if t.done_held.is_some_and(|h| h.elapsed() > Duration::from_secs(180)) {
                     changes.push((t.id, if Some(t.id) == focused { Status::Idle } else { Status::Done }));
+                }
+                // A question dismissed with Esc sends no hook at all. Once you've typed since
+                // it was asked, the pane has gone quiet, and no question shows on screen, it's
+                // over.
+                if t.status == Status::Blocked
+                    && t.blocked_at.is_some_and(|b| t.last_input > b)
+                    && t.last_input.elapsed() > QUESTION_GONE_AFTER
+                    && t.last_output.elapsed() > QUESTION_GONE_AFTER
+                {
+                    let text = t.tail_text(rows);
+                    let asking = self.agents.iter().find(|a| &a.name == name).is_some_and(|d| d.blocked.iter().any(|r| r.is_match(&text)));
+                    if !asking {
+                        changes.push((t.id, Status::Idle));
+                    }
                 }
                 // The progress indicator went away and no turn-end came: cancelled (Esc).
                 if t.status == Status::Working && t.done_held.is_none() && t.progress_off.is_some_and(|p| p.elapsed() > Duration::from_secs(2)) {
