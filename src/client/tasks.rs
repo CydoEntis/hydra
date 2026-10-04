@@ -2,27 +2,13 @@
 //! is at; the review screen shows what it changed and ships it (commit, merge, PR) or throws
 //! it away.
 
-use crate::protocol::{Snapshot, Status, TermId, WsId};
+use crate::protocol::{TermId, WsId};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Stage {
-    NeedsYou,
     Ready,
-    Working,
-    Idle,
-}
-
-impl Stage {
-    pub fn label(self) -> &'static str {
-        match self {
-            Stage::NeedsYou => "needs you",
-            Stage::Ready => "ready for review",
-            Stage::Working => "working",
-            Stage::Idle => "no changes yet",
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,44 +24,6 @@ pub struct TaskRow {
     pub agent: Option<TermId>,
     pub dir: PathBuf,
     pub root: PathBuf,
-}
-
-/// Every linked-worktree workspace, most urgent first.
-pub fn rows(snap: &Snapshot) -> Vec<TaskRow> {
-    let mut out: Vec<TaskRow> = snap
-        .workspaces
-        .iter()
-        .filter_map(|w| {
-            let g = w.git.as_ref().filter(|g| g.linked)?;
-            let terms: Vec<_> =
-                w.tabs.iter().flat_map(|t| t.layout.leaves()).filter_map(|id| snap.terms.get(&id)).collect();
-            let agent = terms.iter().filter(|t| t.agent.is_some()).min_by_key(|t| t.status.urgency());
-            let status = agent.map(|a| a.status).unwrap_or(Status::None);
-            let stage = match status {
-                Status::Blocked => Stage::NeedsYou,
-                Status::Working => Stage::Working,
-                _ if g.dirty > 0 || g.ahead > 0 => Stage::Ready,
-                _ => Stage::Idle,
-            };
-            let base = g.worktrees.iter().find(|e| e.main).map(|e| e.branch.clone()).unwrap_or_else(|| "main".into());
-            let name = if w.name == format!("{}:{}", g.repo, g.branch) { g.branch.clone() } else { w.name.clone() };
-            Some(TaskRow {
-                ws: w.id,
-                name,
-                branch: g.branch.clone(),
-                base,
-                stage,
-                summary: agent.map(|a| a.summary.clone()).unwrap_or_default(),
-                dirty: g.dirty,
-                ahead: g.ahead,
-                agent: agent.map(|a| a.id),
-                dir: w.cwd.clone(),
-                root: g.root.clone(),
-            })
-        })
-        .collect();
-    out.sort_by_key(|r| (r.stage, r.ws));
-    out
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -262,8 +262,8 @@ has to be right, and sessions survive the UI closing.
 3. **Windows is a first-class target.** Every change builds and behaves on
    Windows (ConPTY, named pipes, PowerShell) as well as Linux and macOS; the
    cross-checks in the gate are not optional.
-4. **One layout.** The `hydra` layout is the only UI. Don't add layout switches;
-   older layout code is legacy to be removed, not extended.
+4. **One layout.** The `hydra` layout is the only UI. Don't add layout switches
+   (see ADR 0004).
 5. **Status reports are only trusted from the pane itself**: its process tree, or
    its `HYDRA_PANE_TOKEN`. Never accept a status change from an unverified source.
 6. **No blocking work on the UI thread.** Git, file walks, network and process

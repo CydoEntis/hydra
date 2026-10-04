@@ -1257,7 +1257,6 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
                 draw_map(app, buf, area, t, &v);
                 app.view = Some(super::View::Map(v));
             }
-            other => app.view = Some(other),
         }
         if app.view.as_ref().is_some_and(|v| !matches!(v, super::View::Changes(_) | super::View::Pr(_) | super::View::Files(_))) {
             return;

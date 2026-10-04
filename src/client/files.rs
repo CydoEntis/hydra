@@ -14,55 +14,6 @@ pub struct FileEntry {
     pub place: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct FilesView {
-    /// 0 = recent, 1 = project
-    pub tab: usize,
-    pub query: String,
-    pub sel: usize,
-    pub root: PathBuf,
-    pub recent: Option<Vec<FileEntry>>,
-    pub project: Option<Vec<FileEntry>>,
-    /// Preview of the selected file: (path, lines).
-    pub preview: Option<(PathBuf, Vec<String>)>,
-}
-
-impl FilesView {
-    pub fn new(root: PathBuf) -> FilesView {
-        FilesView { tab: 0, query: String::new(), sel: 0, root, recent: None, project: None, preview: None }
-    }
-
-    /// The current tab's entries that match the query, best first.
-    pub fn visible(&self) -> Vec<&FileEntry> {
-        let list = if self.tab == 0 { &self.recent } else { &self.project };
-        let Some(list) = list else { return Vec::new() };
-        if self.query.is_empty() {
-            return list.iter().collect();
-        }
-        let mut scored: Vec<(i32, &FileEntry)> = list
-            .iter()
-            .filter_map(|e| {
-                let text = self.label(e);
-                fuzzy(&self.query, &text).map(|s| (s, e))
-            })
-            .collect();
-        scored.sort_by_key(|(s, _)| -s);
-        scored.into_iter().map(|(_, e)| e).collect()
-    }
-
-    /// Path shown for an entry: relative inside the project, else with ~ for home.
-    pub fn label(&self, e: &FileEntry) -> String {
-        if let Ok(rel) = e.path.strip_prefix(&self.root) {
-            return rel.display().to_string();
-        }
-        if let Some(home) = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
-            && let Ok(rel) = e.path.strip_prefix(&home)
-        {
-            return format!("~{}{}", std::path::MAIN_SEPARATOR, rel.display());
-        }
-        e.path.display().to_string()
-    }
-}
 
 /// Subsequence match, scoring consecutive runs and matches at word starts. `None` = no match.
 pub fn fuzzy(query: &str, text: &str) -> Option<i32> {
@@ -127,19 +78,6 @@ pub fn scan_recent(root: &Path) -> Vec<FileEntry> {
     out
 }
 
-/// Every file in the project, honouring .gitignore.
-pub fn scan_project(root: &Path) -> Vec<FileEntry> {
-    let mut out: Vec<FileEntry> = ignore::WalkBuilder::new(root)
-        .max_depth(Some(16))
-        .build()
-        .flatten()
-        .take(30_000)
-        .filter_map(|e| entry(e.into_path(), "project"))
-        .collect();
-    out.sort_by(|a, b| a.path.cmp(&b.path));
-    out
-}
-
 /// The first lines of a text file, or a one-line description of anything else.
 pub fn preview(path: &Path) -> Vec<String> {
     use std::io::Read;
@@ -180,16 +118,6 @@ pub fn quote_path(p: &Path) -> String {
     if s.contains(' ') { format!("\"{s}\"") } else { s }
 }
 
-fn spawn_detached(mut cmd: std::process::Command) -> std::io::Result<()> {
-    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    cmd.spawn().map(|_| ())
-}
-
 /// Whether a file looks like text: no NUL in its first 8 KB (only those are read).
 pub fn looks_like_text(path: &Path) -> bool {
     use std::io::Read;
@@ -197,6 +125,13 @@ pub fn looks_like_text(path: &Path) -> bool {
     match std::fs::File::open(path).and_then(|f| f.take(8192).read_to_end(&mut head)) {
         Ok(_) => !head.contains(&0),
         Err(_) => false,
+    }
+}
+
+/// Open a link in the browser (https only).
+pub fn open_url(url: &str) {
+    if url.starts_with("https://") {
+        let _ = open_default(Path::new(url));
     }
 }
 
@@ -240,6 +175,13 @@ fn shell_open(target: &std::ffi::OsStr) -> std::io::Result<()> {
     if r > 32 { Ok(()) } else { Err(std::io::Error::other(format!("Windows couldn't open it (code {r})"))) }
 }
 
+/// Start a program without waiting for it or keeping its output.
+#[cfg(not(windows))]
+fn spawn_detached(mut cmd: std::process::Command) -> std::io::Result<()> {
+    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    cmd.spawn().map(|_| ())
+}
+
 #[cfg(not(windows))]
 fn open_with_tool(path: &Path) -> std::io::Result<()> {
     let mut cmd;
@@ -251,21 +193,6 @@ fn open_with_tool(path: &Path) -> std::io::Result<()> {
         cmd.arg(path);
     }
     spawn_detached(cmd)
-}
-
-/// Show a file in the system file manager.
-pub fn reveal(path: &Path) -> std::io::Result<()> {
-    if cfg!(windows) {
-        let mut cmd = std::process::Command::new("explorer");
-        cmd.arg(format!("/select,{}", path.display()));
-        spawn_detached(cmd)
-    } else if cfg!(target_os = "macos") {
-        let mut cmd = std::process::Command::new("open");
-        cmd.arg("-R").arg(path);
-        spawn_detached(cmd)
-    } else {
-        open_default(path.parent().unwrap_or(path))
-    }
 }
 
 #[cfg(test)]

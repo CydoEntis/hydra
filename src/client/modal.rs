@@ -2,7 +2,6 @@
 //! the key handling that needs the whole app lives in mod.rs.
 
 use crate::config::Config;
-use crate::keys::Action;
 use anyhow::{Context, Result};
 
 /// Where the quick prompt sends its task.
@@ -78,22 +77,6 @@ pub fn branch_for(task: &str) -> String {
     format!("q/{slug}-{nonce:04x}")
 }
 
-/// One row of the pane menu.
-#[derive(Debug, Clone, PartialEq)]
-pub struct MenuItem {
-    pub label: String,
-    pub key: String,
-    pub action: Action,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Menu {
-    pub items: Vec<MenuItem>,
-    pub sel: usize,
-    /// Screen position to open at (mouse), else centred.
-    pub at: Option<(u16, u16)>,
-}
-
 // ---- settings --------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -142,16 +125,6 @@ impl Cat {
         }
     }
 
-    pub fn icon(self) -> &'static str {
-        match self {
-            Cat::General => "⚙",
-            Cat::Sessions => "↻",
-            Cat::Appearance => "◐",
-            Cat::Agents => "●",
-            Cat::Projects => "▌",
-            Cat::Keys => "⌨",
-        }
-    }
 }
 
 pub const SETTINGS: &[Setting] = &[
@@ -189,15 +162,6 @@ pub const SETTINGS: &[Setting] = &[
 
 pub fn in_cat(cat: Cat) -> Vec<&'static Setting> {
     SETTINGS.iter().filter(|s| s.cat == cat).collect()
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Settings {
-    pub sel: usize,
-    /// Text being typed for a Text setting.
-    pub editing: Option<String>,
-    /// Waiting for a key press to become the leader key.
-    pub capturing: bool,
 }
 
 /// The effective value of a setting (defaults included), as TOML.
@@ -306,15 +270,15 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("hydra-settings-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("config.toml");
-        std::fs::write(&file, "# my notes\ntheme = \"nord\"\n\n[ui]\n# tint comment\nsidebar = true\n").unwrap();
+        std::fs::write(&file, "# my notes\ntheme = \"nord\"\n\n[ui]\n# my ui notes\nsidebar = true\n").unwrap();
         // SAFETY: tests touching HYDRA_CONFIG run in this one test only.
         unsafe { std::env::set_var("HYDRA_CONFIG", &file) };
-        write("ui.workspace_tint", 0.2.into()).unwrap();
+        write("ui.which_key_delay_ms", 500.into()).unwrap();
         write("worktree.command", "claude".into()).unwrap();
         let out = std::fs::read_to_string(&file).unwrap();
         unsafe { std::env::remove_var("HYDRA_CONFIG") };
-        assert!(out.contains("# my notes") && out.contains("# tint comment"), "{out}");
-        assert!(out.contains("workspace_tint = 0.2"), "{out}");
+        assert!(out.contains("# my notes") && out.contains("# my ui notes"), "{out}");
+        assert!(out.contains("which_key_delay_ms = 500"), "{out}");
         assert!(out.contains("[worktree]") && out.contains("command = \"claude\""), "{out}");
         let _ = std::fs::remove_dir_all(dir);
     }

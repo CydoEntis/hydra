@@ -523,7 +523,7 @@ impl App {
             KeyCode::Up => v.sel = v.sel.saturating_sub(1),
             KeyCode::Char('o') if ctrl => {
                 if let Some(t) = v.visible().get(v.sel) {
-                    super::inbox::open_url(&t.url);
+                    super::files::open_url(&t.url);
                 }
             }
             KeyCode::Char('r') if ctrl => {

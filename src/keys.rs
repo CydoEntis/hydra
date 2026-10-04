@@ -186,11 +186,8 @@ pub enum Action {
     RenameTab,
     SelectTab(usize),
     NewWorkspace,
-    NextWorkspace,
-    PrevWorkspace,
     CloseWorkspace,
     RenameWorkspace,
-    SelectWorkspace(usize),
     ToggleSidebar,
     Picker,
     NextAttention,
@@ -201,23 +198,15 @@ pub enum Action {
     /// Prompt for a branch, create a worktree, open it; optionally run a command there.
     NewWorktree(Option<String>),
     RemoveWorktree,
-    CycleWorkspaceColor,
     /// Search every command, workspace, agent and pane.
     Palette,
     /// Type a task; an agent starts on it.
     QuickPrompt,
-    /// Actions for the focused pane.
-    Menu,
     Settings,
     /// Move through the sidebar tree with the arrow keys.
     BrowseTree,
-    ToggleDock,
-    /// Move the focused pane into a workspace of its own, at its current folder.
-    PaneToWorkspace,
     /// Recent and project files; Enter puts the path in the prompt.
     Files,
-    /// Agent jobs by stage, with review.
-    Tasks,
     /// GitHub pull requests and issues, Linear tickets.
     Inbox,
     /// Each AI tool's MCP servers, skills, plugins, hooks.
@@ -237,10 +226,6 @@ pub enum Action {
     OpenFolder,
     /// Interrupt the selected worktree's agent (Ctrl+C).
     StopAgent,
-    /// Put the pane in a sidebar group (None: take it out of its group).
-    SetGroup(Option<String>),
-    /// Ask for a name and put the pane in that new group.
-    NewGroup,
     /// Sessions that need you, then finished ones, across every project.
     Jump,
     /// The folder finder: open a repo (or any folder) as a project.
@@ -320,11 +305,8 @@ impl Action {
             Action::RenameTab => "rename tab".into(),
             Action::SelectTab(n) => format!("Go to tab {n}"),
             Action::NewWorkspace => "new group".into(),
-            Action::NextWorkspace => "next pane".into(),
-            Action::PrevWorkspace => "previous pane".into(),
             Action::CloseWorkspace => "close this pane (all its tabs)".into(),
             Action::RenameWorkspace => "Rename session".into(),
-            Action::SelectWorkspace(n) => format!("group {n}"),
             Action::ToggleSidebar => "Show / hide the sidebar".into(),
             Action::Picker => "jump to…".into(),
             Action::NextAttention => "Next agent that needs you".into(),
@@ -335,16 +317,11 @@ impl Action {
             Action::NewWorktree(None) => "Worktrees…".into(),
             Action::NewWorktree(Some(c)) => format!("worktrees… running `{c}`"),
             Action::RemoveWorktree => "remove worktree".into(),
-            Action::CycleWorkspaceColor => "pane colour".into(),
             Action::Palette => "Command palette".into(),
             Action::QuickPrompt => "quick prompt (start an agent on a task)".into(),
-            Action::Menu => "pane menu".into(),
             Action::Settings => "Settings".into(),
             Action::BrowseTree => "Focus the sidebar".into(),
-            Action::ToggleDock => "show / hide agent dock".into(),
-            Action::PaneToWorkspace => "group…".into(),
             Action::Files => "Files".into(),
-            Action::Tasks => "tasks & review".into(),
             Action::Inbox => "Tickets (GitHub, Linear, Plane)".into(),
             Action::Toolbox => "Agent tools (MCP, skills, plugins)".into(),
             Action::NewPane => "New agent (task, agent, model, worktree)".into(),
@@ -355,9 +332,6 @@ impl Action {
             Action::UndoAutoWorkspace => "undo automatic workspace".into(),
             Action::OpenFolder => "open folder".into(),
             Action::StopAgent => "stop agent (Ctrl+C)".into(),
-            Action::SetGroup(Some(g)) => format!("move to group {g}"),
-            Action::SetGroup(None) => "take out of its group".into(),
-            Action::NewGroup => "new group with this pane".into(),
             Action::Jump => "Jump to what needs you".into(),
             Action::OpenProject => "Open a project (folder)".into(),
             Action::NewSession => "+ new, beside this one".into(),
@@ -418,11 +392,8 @@ impl Action {
             Action::RenameTab => "rename-tab".into(),
             Action::SelectTab(n) => format!("select-tab-{n}"),
             Action::NewWorkspace => "new-workspace".into(),
-            Action::NextWorkspace => "next-workspace".into(),
-            Action::PrevWorkspace => "prev-workspace".into(),
             Action::CloseWorkspace => "close-workspace".into(),
             Action::RenameWorkspace => "rename-workspace".into(),
-            Action::SelectWorkspace(n) => format!("select-workspace-{n}"),
             Action::ToggleSidebar => "toggle-sidebar".into(),
             Action::Picker => "picker".into(),
             Action::NextAttention => "next-attention".into(),
@@ -433,16 +404,11 @@ impl Action {
             Action::NewWorktree(None) => "new-worktree".into(),
             Action::NewWorktree(Some(c)) => format!("new-worktree:{c}"),
             Action::RemoveWorktree => "remove-worktree".into(),
-            Action::CycleWorkspaceColor => "cycle-workspace-color".into(),
             Action::Palette => "palette".into(),
             Action::QuickPrompt => "quick-prompt".into(),
-            Action::Menu => "menu".into(),
             Action::Settings => "settings".into(),
             Action::BrowseTree => "browse-tree".into(),
-            Action::ToggleDock => "toggle-dock".into(),
-            Action::PaneToWorkspace => "pane-to-workspace".into(),
             Action::Files => "files".into(),
-            Action::Tasks => "tasks".into(),
             Action::Inbox => "inbox".into(),
             Action::Toolbox => "toolbox".into(),
             Action::NewPane => "new".into(),
@@ -473,13 +439,12 @@ impl Action {
             Action::UndoAutoWorkspace => "undo".into(),
             Action::OpenFolder => "open-folder".into(),
             Action::StopAgent => "stop-agent".into(),
-            Action::NewGroup => "new-group".into(),
             Action::Detach => "detach".into(),
             Action::Help => "help".into(),
             Action::ReloadConfig => "reload-config".into(),
             Action::SendPrefix => "send-prefix".into(),
             Action::KillServer => "kill-server".into(),
-            Action::SetGroup(_) | Action::None => return None,
+            Action::None => return None,
         })
     }
 }
@@ -499,16 +464,12 @@ impl FromStr for Action {
                 "spawn-tab" => Action::SpawnTab(arg),
                 "new-worktree" => Action::NewWorktree(Some(arg).filter(|a| !a.is_empty())),
                 "select-tab" => Action::SelectTab(arg.parse()?),
-                "select-workspace" => Action::SelectWorkspace(arg.parse()?),
                 "answer" => Action::Answer(arg.chars().next().unwrap_or('1')),
                 _ => bail!("unknown action `{s}`"),
             });
         }
         if let Some(n) = s.strip_prefix("select-tab-") {
             return Ok(Action::SelectTab(n.parse()?));
-        }
-        if let Some(n) = s.strip_prefix("select-workspace-") {
-            return Ok(Action::SelectWorkspace(n.parse()?));
         }
         Ok(match s {
             "split-right" => Action::SplitRight,
@@ -533,8 +494,6 @@ impl FromStr for Action {
             "close-tab" => Action::CloseTab,
             "rename-tab" => Action::RenameTab,
             "new-workspace" => Action::NewWorkspace,
-            "next-workspace" => Action::NextWorkspace,
-            "prev-workspace" => Action::PrevWorkspace,
             "close-workspace" => Action::CloseWorkspace,
             "rename-workspace" => Action::RenameWorkspace,
             "toggle-sidebar" => Action::ToggleSidebar,
@@ -546,17 +505,11 @@ impl FromStr for Action {
             "search" => Action::Search,
             "new-worktree" => Action::NewWorktree(None),
             "remove-worktree" => Action::RemoveWorktree,
-            "cycle-workspace-color" | "cycle-workspace-colour" => Action::CycleWorkspaceColor,
             "palette" | "command-palette" => Action::Palette,
             "quick-prompt" => Action::QuickPrompt,
-            "menu" => Action::Menu,
             "settings" => Action::Settings,
             "browse-tree" | "browse" => Action::BrowseTree,
-            "toggle-dock" => Action::ToggleDock,
-            "pane-to-workspace" | "group" => Action::PaneToWorkspace,
-            "new-group" => Action::NewGroup,
             "files" => Action::Files,
-            "tasks" => Action::Tasks,
             "inbox" => Action::Inbox,
             "toolbox" => Action::Toolbox,
             "new-pane" | "new" => Action::NewPane,

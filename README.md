@@ -6,42 +6,27 @@ natively on Windows, macOS and Linux, and is inspired by
 and [fut](https://github.com/mikker/fut).
 
 - **Agents keep running after you close the UI.** A background daemon owns every pseudoterminal
-  (ConPTY on Windows). `<prefix> d` detaches, and running `hydra` again reattaches with scrollback replayed.
-- **Survives restarts.** The layout is saved as it changes. After a reboot, `hydra` rebuilds every
-  workspace, tab and pane in the right directory and resumes agents (`claude --resume <id>`,
-  `codex resume --last`, ...).
-- **Workspaces → tabs → split panes**, tmux style, with a sidebar listing every workspace (with
-  its git branch and uncommitted-change count) and every agent.
-- **A tree of everything.** The sidebar groups each repo's workspaces and worktrees, with the
-  agents running in each underneath, plus the repo's worktrees you haven't opened yet. Click any
-  row, or `<prefix> e` and use the arrow keys, to jump to a workspace or agent or open a worktree.
-- **Agent dock.** Along the bottom, one card per agent shows its workspace, whether it needs you,
-  and the last thing you asked it. Click a card to jump. `<prefix> B` hides it.
-  (`[ui] layout` = `tree` (default), `dock` for no sidebar, or `sidebar` for a classic flat list.)
-- **Leader key + key for everything**, with popups that list what you can do:
-  - a command palette (`<prefix> Space`) that searches every command, workspace, agent and pane
-  - a quick prompt (`<prefix> q`): type a task, Enter, and an agent starts on it in a split, a
-    tab or a fresh worktree, or the task goes to the agent you're looking at
-  - a pane menu (`<prefix> m`, or right-click)
-  - a settings screen (`<prefix> S`) that saves to your config with its comments kept
-- **Colour per workspace.** Every workspace gets its own colour: a faint wash behind its panes,
-  the focused border, its tab and its sidebar marker. A glance tells you which workspace you're
-  typing into. `<prefix> *` cycles the colour.
-- **Workspace-scoped agents.** The sidebar lists the agents in the workspace you're in, plus one
-  line summarising what the others need (`elsewhere ▲1 ◆2`, click to jump).
-- **Git worktrees in one key.** `<prefix> W` lists the repo's worktrees: Enter opens one as a
-  workspace (or switches to it), and typing a new branch name creates it. `<prefix> R` removes it.
-- **Copy mode and search.** `<prefix> [` gives vim-style motion over the whole history, `v`/`V` select
-  and `y` copies to the clipboard. `<prefix> /` searches history. Dragging with the mouse also
-  selects and copies.
-- **Status at a glance.** Each agent shows as working ● / blocked ▲ / done ◆ / idle ○ in the sidebar, the tab
-  bar and the pane border. A bell rings when one needs you, and `<prefix> a` jumps to the next one.
+  (ConPTY on Windows). `<leader> q` detaches, and running `hydra` again reattaches.
+- **Survives restarts.** Sessions are saved as they change; after a reboot `hydra` rebuilds them
+  in the right folders and resumes agents (`claude --resume <id>`, `codex resume --last`, ...).
+- **One screen for everything.** A sidebar of your projects and the sessions in each (agent icon,
+  name, status), panes on the right with tabs and splits, and popups for the rest. The leader is
+  `Ctrl+Space`; keys follow herdr's where they overlap (`v`/`-` split, `h j k l` focus, `x` close,
+  `z` zoom, `[`/`]` tabs).
+- **Find anything.** `<leader> g` goes to any project or session by typing its name,
+  `<leader> p` is a command palette in plain words, `<leader> a` jumps to what needs you, and
+  `<leader> ?` lists every key.
+- **Status at a glance.** Working (yellow, its name shimmering), needs you (red), done (green until
+  you look), idle. An alert or a sound tells you when one needs you or finishes out of view.
 - **Detection without setup.** The process tree finds `claude`, `codex`, `gemini`, `opencode`,
   `cursor-agent`, `copilot`, `amp`, `qwen`, `aider` and others, and screen patterns tell
   working from blocked. Hooks (`hydra integrate claude`) make it exact.
-- **Everything is configurable.** Prefix, every binding, commands bound to keys, themes and
-  per-colour overrides, icons, spinner, sidebar side and width, border style, detection
-  patterns and your own agents.
+- **Git without leaving.** New agents get their own worktree; Changes (`d`) shows the diff with
+  review marks, then commit, ship, or open a pull request. Files (`f`), find (`F`), search the
+  code (`/`), switch branch (`B`).
+- **Everything is configurable.** The leader, every binding, commands bound to keys, themes and
+  per-colour overrides, icons, the sidebar side, detection patterns and your own agents. Settings
+  (`<leader> ,`) save to your config with its comments kept.
 - **Scriptable.** `hydra split -- claude`, `hydra send`, `hydra read` and `hydra ls --json`
   work from any shell, including from an agent running inside hydra.
 
@@ -299,10 +284,6 @@ saved to the data directory a couple of seconds after it changes. On the next st
 Closing every pane yourself also starts fresh. A burst of panes dying at once, as at logoff or a
 crash, is not recorded, so the last good layout survives. Configure all of this under `[restore]`,
 and per agent with `resume` / `resume_last`.
-
-## Earlier layouts
-
-`ui.layout` also accepts `workspaces` (panes and groups with tabs), `tree`, `dock` and `sidebar`.
 
 ## Worktrees
 

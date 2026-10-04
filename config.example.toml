@@ -36,24 +36,14 @@ replay_bytes = 2097152      # output kept per pane by the daemon, replayed on re
 # sidebar_bg = "#16161e"
 
 [ui]
-layout = "hydra"            # hydra (projects → worktrees → sessions) | workspaces | tree | dock | sidebar
 attention_sort = true       # sidebar: needs you → done → working → idle
 sidebar = true              # <leader> b
-dock = true                 # agent cards along the bottom; <leader> B
-card_width = 28
-sidebar_width = 30
 sidebar_position = "left"   # left | right
-border_style = "rounded"    # plain | rounded | double | thick
-tab_bar = true
-status_bar = true
 which_key = false         # a keys popup if you pause after the leader (? always shows them)
 which_key_delay_ms = 350
 mouse = true
-pane_status = true
 # spinner = []              # empty = static icons.working
-workspace_tint = 0.10       # background wash in the workspace's colour (0 = off)
 workspace_colors = ["#89b4fa", "#a6e3a1", "#cba6f7", "#fab387", "#94e2d5", "#f5c2e7", "#f9e2af", "#f38ba8"]
-agents_scope = "workspace"  # sidebar agents: "workspace" (current one) or "all"
 
 [restore]
 enabled = true              # rebuild workspaces / tabs / panes when the server starts

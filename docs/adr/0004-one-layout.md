@@ -13,7 +13,7 @@ didn't want.
 
 The `hydra` layout (sidebar of projects and sessions, panes with tabs and
 splits, popups for everything else) is the only layout. Config loading forces it;
-the setting is gone. Code for the other layouts is legacy, to be removed.
+the setting is gone, and the other layouts' code has been removed (#15).
 
 ## Alternatives considered
 

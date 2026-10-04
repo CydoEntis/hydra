@@ -78,7 +78,7 @@ it reads:
 | `HYDRA_TERM_ID`, `HYDRA_PANE_TOKEN` | the pane's id and secret, set inside every pane | daemon |
 | `LINEAR_API_KEY` (and Plane's) | ticket sources, when not in `config.local.toml` | user |
 | `HYDRA_SHOW` | tests print rendered frames | developer |
-| `HYDRA_PR`, `HYDRA_PR_DIR`, `HYDRA_PR_SAMPLE` | PR view testing hooks | developer |
+| `HYDRA_PR`, `HYDRA_PR_DIR` | the live pull-request test (`cargo test pr_live -- --ignored`) | developer |
 | `EDITOR`, `VISUAL`, `SHELL`, `COMSPEC` | editor and shell defaults | OS / user |
 
 ## Project-specific: environments

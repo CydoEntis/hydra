@@ -66,36 +66,16 @@ pub struct Config {
 #[serde(default)]
 pub struct Ui {
     pub sidebar: bool,
-    pub sidebar_width: u16,
     /// "left" or "right".
     pub sidebar_position: String,
-    /// "plain", "rounded", "double", "thick".
-    pub border_style: String,
-    pub tab_bar: bool,
-    pub status_bar: bool,
     /// Milliseconds after the prefix before the which-key popup shows (0 = immediately).
     pub which_key_delay_ms: u64,
     pub which_key: bool,
     pub mouse: bool,
     /// Animate the working icon with these frames (empty = use `icons.working`).
     pub spinner: Vec<String>,
-    /// Show the agent status in pane borders.
-    pub pane_status: bool,
     /// One colour per workspace, assigned in order and kept across restarts.
     pub workspace_colors: Vec<String>,
-    /// How strongly a workspace's colour tints its panes' background (0 = off, 0.1 = subtle).
-    pub workspace_tint: f32,
-    /// Agents listed in the sidebar: "workspace" (the one you're in) or "all".
-    pub agents_scope: String,
-    /// "workspaces": the design (sidebar of workspaces > worktrees > agents, borderless panes).
-    /// "tree": a sidebar of repos > workspaces/worktrees > agents, tabs on top.
-    /// "dock": workspaces across the top, no sidebar.
-    /// "sidebar": the classic flat list down the side.
-    pub layout: String,
-    /// Agent cards along the bottom (tree and dock layouts).
-    pub dock: bool,
-    /// Width of each agent card in the dock.
-    pub card_width: u16,
     /// The welcome screen when hydra starts.
     pub splash: bool,
     /// Sidebar sessions (and worktrees) sorted needs → done → working → idle.
@@ -377,24 +357,14 @@ impl Default for Ui {
     fn default() -> Self {
         Ui {
             sidebar: true,
-            sidebar_width: 30,
             sidebar_position: "left".into(),
-            border_style: "rounded".into(),
-            tab_bar: true,
-            status_bar: true,
             which_key_delay_ms: 350,
             which_key: false,
             mouse: true,
             spinner: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"].map(String::from).to_vec(),
-            pane_status: true,
             workspace_colors: ["#a593ff", "#5aa9ff", "#ff7ab6", "#3dd6c0", "#e8c565", "#ff9f6b", "#c792ea", "#7fd8a4"]
                 .map(String::from)
                 .to_vec(),
-            workspace_tint: 0.0,
-            agents_scope: "workspace".into(),
-            layout: "hydra".into(),
-            dock: true,
-            card_width: 28,
             splash: true,
             attention_sort: true,
         }
@@ -652,10 +622,7 @@ impl Config {
             let over: toml::Table = toml::from_str(&s).with_context(|| format!("parsing {}", local.display()))?;
             merge(&mut value, over);
         }
-        let mut cfg: Config = toml::Value::Table(value).try_into().with_context(|| format!("parsing {}", path.display()))?;
-        // One layout: an old `layout = "…"` in a config file is ignored.
-        cfg.ui.layout = "hydra".into();
-        Ok(cfg)
+        toml::Value::Table(value).try_into().with_context(|| format!("parsing {}", path.display()))
     }
 
     /// Load, falling back to defaults and returning the error message for display.
