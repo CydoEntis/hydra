@@ -17,6 +17,7 @@ bytes = "1"
 crossterm = { version = "0.29", features = ["event-stream"] }
 clap = { version = "4", features = ["derive"] }
 directories = "6"
+getrandom = "0.3"
 futures-util = { version = "0.3", features = ["sink"] }
 ignore = "0.4"
 interprocess = { version = "2", features = ["tokio"] }

@@ -849,23 +849,28 @@ impl Daemon {
                 }
             }
             ClientMsg::Hook { term, agent, status, session, cwd, prompt, said, subagent, event, pid, token, transcript, model, name } => {
-                // Only the pane's own processes may report its status (a desktop app that
-                // inherited the pane's environment can't).
-                if let Some(tp) = self.terms.get(&term).and_then(|t| t.pid)
+                // Only the pane's own processes may report its status. They carry its secret;
+                // when the chain can be traced it must also lead back to the pane, so a desktop
+                // app that inherited the pane's environment still can't.
+                let Some(pane) = self.terms.get(&term) else { return };
+                if !term::same_secret(&pane.token, &token) {
+                    tracing::info!("ignoring a status report for pane {term} without its secret");
+                    return;
+                }
+                if let Some(tp) = pane.pid
                     && pid != 0
                 {
-                    let known = self.terms.get(&term).map(|t| t.trusted.clone()).unwrap_or_default();
+                    let known = pane.trusted.clone();
                     match scan::descends_from(pid, tp, &known) {
                         (Some(true), chain) => {
                             if let Some(t) = self.terms.get_mut(&term) {
                                 t.trusted.extend(chain);
                             }
                         }
-                        // A chain that can't be traced (a process in it already gone, as with
-                        // Git Bash running Claude's hooks on Windows): the pane's secret decides.
-                        (None, _) if !token.is_empty() && self.terms.get(&term).is_some_and(|t| t.token == token) => {}
-                        // Outside the pane.
-                        (_, _) => {
+                        // A process in the chain already gone (Git Bash running Claude's hooks
+                        // on Windows): the secret decides.
+                        (None, _) => {}
+                        (Some(false), _) => {
                             tracing::info!("ignoring a status report for pane {term} from pid {pid} outside it");
                             return;
                         }

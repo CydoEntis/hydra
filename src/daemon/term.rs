@@ -282,10 +282,7 @@ fn argv(cfg: &Config, cmd: Option<&str>) -> Vec<String> {
 
 impl Term {
     pub fn spawn(cfg: &Config, spec: SpawnSpec, tx: mpsc::Sender<Ev>) -> Result<Term> {
-        let token = {
-            let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-            format!("{:x}{:x}", n ^ (std::process::id() as u128) << 64, (spec.id as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15))
-        };
+        let token = new_secret()?;
         let pty = native_pty_system();
         let size = PtySize { rows: spec.rows.max(2), cols: spec.cols.max(2), pixel_width: 0, pixel_height: 0 };
         let pair = pty.openpty(size).context("opening pty")?;
@@ -571,8 +568,31 @@ pub fn unix_now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
+/// A pane's secret: 128 bits from the OS's random source, as hex.
+pub fn new_secret() -> Result<String> {
+    let mut b = [0u8; 16];
+    getrandom::fill(&mut b).map_err(|e| anyhow::anyhow!("no randomness for the pane secret: {e}"))?;
+    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
+}
+
+/// Compare secrets without stopping at the first difference, so timing says nothing; an
+/// empty secret never matches.
+pub fn same_secret(a: &str, b: &str) -> bool {
+    !a.is_empty() && a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |d, (x, y)| d | (x ^ y)) == 0
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pane_secrets_are_random_and_compared_whole() {
+        let (a, b) = (super::new_secret().unwrap(), super::new_secret().unwrap());
+        assert_eq!(a.len(), 32);
+        assert_ne!(a, b);
+        assert!(super::same_secret(&a, &a.clone()));
+        assert!(!super::same_secret(&a, &b));
+        assert!(!super::same_secret("", ""), "no secret is never a match");
+    }
+
     use super::*;
 
     #[test]
