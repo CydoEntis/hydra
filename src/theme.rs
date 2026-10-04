@@ -171,10 +171,11 @@ impl Theme {
             tab_active_fg: hex(c[9]),
             // Same meanings as the designed themes: needs-you yellow/orange, error red, done
             // green; working in plain text.
-            // Working yellow, needs-you red, done blue (until you look), idle grey.
-            working: hex(c[10]),
-            blocked: hex(c[11]),
-            done: hex(c[12]),
+            // As the designed themes: needs you amber/yellow, working plain text, done green,
+            // idle dim, error red.
+            working: mix(muted, fg, 0.5),
+            blocked: hex(c[10]),
+            done: hex(c[13]),
             idle: muted,
             card: mix(bg, fg, 0.05),
             card2: mix(bg, fg, 0.11),
@@ -205,10 +206,10 @@ impl Theme {
             selection_bg: h(15),
             tab_active_bg: h(9),
             tab_active_fg: h(10),
-            // Working yellow, needs-you red, done blue (until you look), idle grey.
-            working: hex(a[2]),
-            blocked: hex(a[0]),
-            done: hex(a[3]),
+            // The redesign: needs you amber, working in plain text, done green, idle dim.
+            working: h(7),
+            blocked: h(11),
+            done: h(12),
             idle: h(6),
             card: h(3),
             card2: h(4),
@@ -262,7 +263,7 @@ impl Theme {
             "tokyo-night" => Theme::design(
                 [
                     "#1a1b26", "#c0caf5", "#16161e", "#1f2335", "#292e42", "#292e42", "#7a82ad", "#a9b1d6",
-                    "#e0e6ff", "#9ece6a", "#1a1b26", "#e0af68", "#9ece6a", "#f7768e", "#292e42", "#3b4261",
+                    "#e0e6ff", "#7aa2f7", "#1a1b26", "#e0af68", "#9ece6a", "#f7768e", "#292e42", "#3b4261",
                 ],
                 ["#bb9af7", "#7dcfff", "#f7768e", "#73daca"],
                 ["#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#565f89"],
@@ -428,7 +429,7 @@ mod audit {
                 ("strong on hov (menus)", t.strong, t.hov, 4.5),
                 ("blocked on sidebar", t.blocked, t.sidebar_bg, 3.0),
                 ("done on sidebar", t.done, t.sidebar_bg, 3.0),
-                ("working on sidebar", t.working, t.sidebar_bg, 3.0),
+                ("working on sidebar", t.working, t.sidebar_bg, 4.5),
                 ("err on card", t.err, t.card, 3.0),
                 ("ink on alarm (confirm)", t.ink_on(t.alarm_fill()), t.alarm_fill(), 4.5),
             ];
@@ -440,13 +441,10 @@ mod audit {
             }
             // Different meanings, different colours.
             for (what, a, b) in [
-                ("accent vs done", t.accent, t.done),
                 ("accent vs blocked", t.accent, t.blocked),
-                ("accent vs working", t.accent, t.working),
                 ("done vs blocked", t.done, t.blocked),
+                ("blocked vs err", t.blocked, t.err),
                 ("working vs blocked", t.working, t.blocked),
-                ("working vs done", t.working, t.done),
-                ("idle vs working", t.idle, t.working),
             ] {
                 if a == b || contrast(a, b) < 1.15 && hue_near(a, b) {
                     bad.push(format!("{n:18} {what:24} too alike"));

@@ -395,7 +395,6 @@ impl App {
             p.wts.len() - 1
         };
 
-        let mut defaults: HashMap<String, Option<String>> = HashMap::new();
         for w in &self.snap.workspaces {
             let leaves: Vec<TermId> = w.tabs.iter().flat_map(|t| t.layout.leaves()).collect();
             for id in &leaves {
@@ -410,7 +409,7 @@ impl App {
                         (cwd.clone(), cwd, String::new(), true, false)
                     }
                 };
-                let name = row_name(t, &root, &top, &branch, main, git, &mut defaults);
+                let name = row_name(t, &root, &top, main, git);
                 let pi = add_proj(&mut projs, &root, git);
                 let wi = add_wt(&mut projs[pi], &top, branch, main);
                 let title = session_title(t, if leaves.len() == 1 { &w.name } else { "" }, &top);
@@ -468,6 +467,25 @@ impl App {
             p.prs = self.hy.prs.get(&p.key).cloned().unwrap_or_default();
         }
         projs.sort_by_key(|p| order.iter().position(|k| *k == p.key).unwrap_or(usize::MAX));
+        // Attention first: a project with something that needs you goes to the top.
+        projs.sort_by_key(|p| !p.sessions().any(|s| s.status == Status::Blocked));
+        // The same name twice in a project: number them (shell 1, shell 2), oldest first.
+        for p in &mut projs {
+            let mut seen: HashMap<String, Vec<TermId>> = HashMap::new();
+            for s in p.wts.iter().flat_map(|w| w.sessions.iter()) {
+                seen.entry(s.name.clone()).or_default().push(s.term);
+            }
+            for w in &mut p.wts {
+                for s in &mut w.sessions {
+                    if let Some(ids) = seen.get(&s.name).filter(|ids| ids.len() > 1) {
+                        let mut ids = ids.clone();
+                        ids.sort();
+                        let n = ids.iter().position(|i| *i == s.term).unwrap_or(0) + 1;
+                        s.name = format!("{} {n}", s.name);
+                    }
+                }
+            }
+        }
         projs
     }
 
@@ -540,30 +558,21 @@ impl App {
 
 /// What to call a session: its name if renamed, else the agent's last prompt, else where a
 /// shell is (inside its worktree), else the program.
-/// A session's row name: what you renamed it to; else the worktree it's in; else
-/// repo/branch when the repo folder is on a feature branch; else the folder it's in.
-fn row_name(t: &TermInfo, root: &Path, top: &Path, branch: &str, main: bool, git: bool, defaults: &mut HashMap<String, Option<String>>) -> String {
+/// A session's row name: what you renamed it to; else the worktree it's in; else the
+/// folder under the project it's in; else (the project's own folder) its agent or "shell".
+fn row_name(t: &TermInfo, root: &Path, top: &Path, main: bool, git: bool) -> String {
     if !t.label.trim().is_empty() {
         return t.label.trim().to_string();
     }
-    let repo = folder_name(root);
     if git && !main {
         return folder_name(top);
     }
-    if git && !branch.is_empty() {
-        let default = defaults.entry(path_key(root)).or_insert_with(|| crate::gitfs::default_branch(root)).clone();
-        let feature = match default.as_deref() {
-            Some(d) => d != branch,
-            None => !["main", "master"].contains(&branch),
-        };
-        if feature {
-            return format!("{repo}/{branch}");
-        }
-    }
     let cwd = if t.cwd.as_os_str().is_empty() { top } else { t.cwd.as_path() };
+    let kind = t.agent.clone().unwrap_or_else(|| "shell".into());
     match cwd.strip_prefix(root) {
-        Ok(rel) if !rel.as_os_str().is_empty() => format!("{repo}/{}", rel.display().to_string().replace('\\', "/")),
-        Ok(_) => repo,
+        Ok(rel) if !rel.as_os_str().is_empty() => rel.display().to_string().replace('\\', "/"),
+        // The project's own folder: the agent's (or shell's) name.
+        Ok(_) => kind,
         Err(_) => folder_name(cwd),
     }
 }
@@ -878,7 +887,6 @@ enum Line {
     Race(u64),
     /// Nothing running in a folder project.
     Empty(usize),
-    OpenProject,
     Gap,
 }
 
@@ -888,8 +896,6 @@ fn session_lines(s: &Session, t: &Theme, out: &mut Vec<Line>) {
     let notes_c = t.muted;
     if let Some(q) = &s.question {
         out.push(Line::Note(q.clone(), blend(t.blocked, t.sidebar_bg, 0.25), s.term));
-    } else if s.is_agent && s.title != WAITING && s.title.trim() != s.name.trim() && !s.title.trim().is_empty() {
-        out.push(Line::Note(s.title.clone(), notes_c, s.term));
     }
     for sub in &s.subagents {
         out.push(Line::Note(format!("↳ {sub}"), notes_c, s.term));
@@ -907,24 +913,21 @@ fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec<Line> {
         for r in app.hy.saved.races.iter().filter(|r| path_key(&r.project) == p.key) {
             out.push(Line::Race(r.id));
         }
-        // Just the sessions: the repo folder's first, then the worktrees' (their rows carry
-        // the worktree's name).
-        let mut order: Vec<usize> = (0..p.wts.len()).collect();
-        order.sort_by_key(|&i| !p.wts[i].main);
+        // Just the sessions, most urgent first: needs you, done, working, idle (the repo
+        // folder's before the worktrees' when equal).
+        let mut rows: Vec<(usize, usize)> = (0..p.wts.len()).flat_map(|wi| (0..p.wts[wi].sessions.len()).map(move |si| (wi, si))).collect();
+        rows.sort_by_key(|&(wi, si)| (rank(p.wts[wi].sessions[si].status), !p.wts[wi].main, p.wts[wi].sessions[si].term));
         let mut any = false;
-        for wi in order {
-            for (si, s) in p.wts[wi].sessions.iter().enumerate() {
-                any = true;
-                out.push(Line::Sess(pi, wi, si));
-                session_lines(s, t, &mut out);
-            }
+        for (wi, si) in rows {
+            any = true;
+            out.push(Line::Sess(pi, wi, si));
+            session_lines(&p.wts[wi].sessions[si], t, &mut out);
         }
         if !any {
             out.push(Line::Empty(pi));
         }
         out.push(Line::Gap);
     }
-    out.push(Line::OpenProject);
     out
 }
 
@@ -944,21 +947,16 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     let focus = app.focused();
     let shown: Vec<TermId> = app.hy.tabs.get(app.hy.tab).map(|t| t.layout.leaves()).unwrap_or_default();
     let split = shown.iter().copied().find(|t| Some(*t) != focus && shown.len() > 1);
-    // + New and Jump, where you'll see them.
-    let nk = k(app, &Action::NewPane);
-    let jk = k(app, &Action::Jump);
-    let needs = model.iter().flat_map(|p| p.sessions()).filter(|s| s.status == Status::Blocked).count();
-    let bx = btn(app, buf, r.x + 2, r.y + 1, "+ New", &nk, BtnKind::Primary, HyHit::NewPane, r.right());
-    let jlabel = if needs > 0 { format!("Jump ●{needs}") } else { "Jump".to_string() };
-    let jb = button(t, &jlabel, &jk, BtnKind::Normal, false);
-    let jr = Rect { x: bx + 1, y: r.y + 1, width: segs_width(&jb), height: 1 };
-    let jb: Vec<Seg> = if needs > 0 {
-        jb.into_iter().map(|(x, st)| (x, st.bg(t.alarm_fill()).fg(t.ink_on(t.alarm_fill())))).collect()
-    } else {
-        button(t, &jlabel, &jk, BtnKind::Normal, hovered(app, jr))
-    };
-    put(buf, jr.x, jr.y, &jb, r.right());
-    hit(app, jr, HyHit::Jump);
+    // PROJECTS, and "+ open o" on the right.
+    let sb = Style::default().bg(surf);
+    put(buf, r.x + 2, r.y + 1, &[seg("PROJECTS", sb.fg(t.muted).add_modifier(Modifier::BOLD))], r.right());
+    let ok = k(app, &Action::OpenProject);
+    let open = vec![seg("+ open ", sb.fg(t.text)), seg(ok, sb.fg(t.accent).add_modifier(Modifier::BOLD))];
+    let ow = segs_width(&open);
+    let orr = Rect { x: r.right().saturating_sub(ow + 2), y: r.y + 1, width: ow, height: 1 };
+    let open: Vec<Seg> = if hovered(app, orr) { open.into_iter().map(|(x, st)| (x, st.bg(t.hov))).collect() } else { open };
+    put(buf, orr.x, orr.y, &open, r.right());
+    hit(app, orr, HyHit::OpenFolder);
     let r = Rect { y: r.y + 3, height: r.height.saturating_sub(3), ..r };
     let list_h = r.height.saturating_sub(3) as usize;
     // Keep the focused (or cursor) row in view when it changes; otherwise the wheel rules.
@@ -994,7 +992,7 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
 
     // Two shades: the one that's open (a touch of accent) and the one under the mouse or
     // cursor (a touch lighter), so you can tell them apart and the status colours still read.
-    let active = super::render::blend(surf, t.accent, 0.16);
+    let active = t.hov;
     let hover = super::render::blend(surf, t.text, 0.10);
     // A session's highlight: focused (filled), in the split, under the cursor or mouse.
     let look = |app: &App, term: TermId, row: Rect| -> (Color, Option<Color>, bool) {
@@ -1035,26 +1033,40 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                     seg("▌", s.fg(p.color)),
                     seg(p.name.clone(), s.fg(t.strong).add_modifier(Modifier::BOLD)),
                 ];
-                if !p.git {
-                    left.push(seg("  no git", s.fg(t.muted)));
-                }
                 if p.fresh {
                     left.push(seg(" ", s));
                     left.push(seg(" NEW ", Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)));
                 }
-                let mut c: Vec<Seg> = counts(app, t, p.sessions(), None).into_iter().map(|(x, st)| (x, st.bg(bg))).collect();
-                if hov {
-                    c.push(seg(" + ", Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)));
+                // Right: ● n needing you, "no git", and when folded what's inside.
+                let needs = p.sessions().filter(|x| x.status == Status::Blocked).count();
+                let mut c: Vec<Seg> = Vec::new();
+                if needs > 0 {
+                    c.push(seg(format!("● {needs}"), s.fg(t.blocked).add_modifier(Modifier::BOLD)));
+                }
+                if !p.git {
+                    c.push(seg(format!("{}no git", if c.is_empty() { "" } else { "  " }), s.fg(t.muted)));
+                }
+                if !open {
+                    let n = p.sessions().count();
+                    let what = if n == 0 {
+                        "empty".to_string()
+                    } else {
+                        let busy = p.sessions().filter(|x| x.status == Status::Working).count();
+                        if busy > 0 { format!("{busy} working") } else { format!("{n} idle") }
+                    };
+                    c.push(seg(format!("{}{what}", if c.is_empty() { "" } else { "  " }), s.fg(t.muted)));
                 }
                 let cw = segs_width(&c);
-                put(buf, x0 + 1, y, &left, right.saturating_sub(cw + 1));
-                put(buf, right.saturating_sub(cw) + 1, y, &c, r.right());
+                put(buf, x0 + 2, y, &left, right.saturating_sub(cw + 1));
+                if !hov {
+                    put(buf, right.saturating_sub(cw) + 1, y, &c, r.right());
+                }
                 hit(app, row, HyHit::ToggleProj(*pi));
                 if hov {
                     row_menu_button(app, buf, Rect { x: r.right().saturating_sub(2), y, width: 2, height: 1 }, bg, t, HyHit::RowMenuProj(*pi));
-                }
-                if hov {
-                    hit(app, Rect { x: right.saturating_sub(2), y, width: 3, height: 1 }, HyHit::NewIn(*pi));
+                    let plus = Rect { x: r.right().saturating_sub(5), y, width: 3, height: 1 };
+                    put(buf, plus.x, y, &[seg(" + ", Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD))], r.right());
+                    hit(app, plus, HyHit::NewIn(*pi));
                 }
             }
             Line::Sess(pi, wi, si) => {
@@ -1066,9 +1078,9 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 let (gl, gc) = if s.asleep {
                     ("☾".to_string(), t.muted)
                 } else if s.is_agent || s.status != Status::None {
-                    (kind_icon(app, &s.agent, s.is_agent), t.status(s.status))
+                    (glyph(app, s.status), t.status(s.status))
                 } else {
-                    (kind_icon(app, &s.agent, false), t.muted)
+                    (app.cfg.icons.shell.clone(), t.muted)
                 };
                 let (gl, gc) = match &s.dev {
                     Some(d) => ("▶".to_string(), if d.ready { t.done } else { t.muted }),
@@ -1083,10 +1095,17 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 let wt = &model[*pi].wts[*wi];
                 let racing = !wt.main && app.hy.saved.races.iter().any(|r| r.entries.iter().any(|(_, b)| *b == wt.branch));
                 let mut left = vec![seg(format!("{gl} "), gs)];
+                // The agent's icon (shells have none), then its name.
+                left.push(seg(if s.is_agent { format!("{} ", kind_icon(app, &s.agent, true)) } else { "  ".to_string() }, st.fg(ink.unwrap_or(t.muted))));
                 if racing {
                     left.push(seg("⚑ ", st.fg(ink.unwrap_or(t.accent))));
                 }
-                left.push(seg(s.name.clone(), st.fg(ink.unwrap_or(t.strong)).add_modifier(Modifier::BOLD)));
+                let focused_row = Some(s.term) == focus;
+                let mut ns = st.fg(ink.unwrap_or(if focused_row { t.strong } else { t.text }));
+                if focused_row {
+                    ns = ns.add_modifier(Modifier::BOLD);
+                }
+                left.push(seg(s.name.clone(), ns));
                 if let Some(d) = &s.dev {
                     let port = d.port.map(|p| format!(" :{p}")).unwrap_or_default();
                     let state = if d.ready { "ready" } else { "starting…" };
@@ -1108,13 +1127,23 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 } else if s.asleep {
                     vec![seg("asleep", st.fg(ink.unwrap_or(t.muted)))]
                 } else if s.is_agent {
-                    let spin = if s.status == Status::Working { format!("{} ", glyph(app, s.status)) } else { String::new() };
-                    vec![seg(format!("{spin}{} ", state_label(s.status)), st.fg(ink.unwrap_or(gc))), seg(age(s.since), st.fg(ink.unwrap_or(t.muted)))]
+                    // branch · age (in a repo), state · age (outside one); amber when it needs you.
+                    let first = if model[*pi].git && !wt.branch.is_empty() && wt.branch != s.name { wt.branch.clone() } else { state_label(s.status).to_string() };
+                    let col = if s.status == Status::Blocked { t.blocked } else { t.muted };
+                    vec![seg(format!("{} · {}", truncate(&first, 18), age(s.since)), st.fg(ink.unwrap_or(col)))]
                 } else {
                     vec![]
                 };
+                // The name comes first: when it doesn't fit, the branch gives way (the age stays).
+                let room = right.saturating_sub(x0 + 6) as usize;
+                let tail = if s.is_agent && !sel && pr.is_none() && !s.asleep && segs_width(&left) as usize + segs_width(&tail) as usize + 2 > room {
+                    let col = if s.status == Status::Blocked { t.blocked } else { t.muted };
+                    vec![seg(age(s.since), st.fg(ink.unwrap_or(col)))]
+                } else {
+                    tail
+                };
                 let tw = segs_width(&tail);
-                put(buf, x0 + 5, y, &left, right.saturating_sub(tw + 1));
+                put(buf, x0 + 6, y, &left, right.saturating_sub(tw + 1));
                 put(buf, right.saturating_sub(tw) + 1, y, &tail, r.right());
                 hit(app, row, HyHit::Session(s.term));
                 bar(buf, s.term, y, bg);
@@ -1130,7 +1159,7 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 // Notes follow their session's highlight, not the mouse.
                 let bg = if bg == t.hov && app.hy.cursor != Some(*term) { surf } else { bg };
                 fill(buf, row, bg);
-                put(buf, x0 + 7, y, &[seg(truncate(text, w.saturating_sub(9) as usize), Style::default().bg(bg).fg(ink.unwrap_or(*c)))], r.right() - 1);
+                put(buf, x0 + 10, y, &[seg(truncate(text, w.saturating_sub(12) as usize), Style::default().bg(bg).fg(ink.unwrap_or(*c)).add_modifier(Modifier::ITALIC))], r.right() - 1);
                 hit(app, row, HyHit::Session(*term));
             }
             Line::Race(id) => {
@@ -1157,21 +1186,15 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
                 let bg = if hov { super::render::blend(surf, t.text, 0.10) } else { surf };
                 fill(buf, row, bg);
                 let st = Style::default().bg(bg);
-                put(buf, x0 + 5, y, &[seg("nothing running", st.fg(t.muted)), seg("  + shell", st.fg(if hov { t.accent } else { t.muted }))], r.right());
-                hit(app, row, HyHit::ShellIn(*pi));
-            }
-            Line::OpenProject => {
-                let bg = if hovered(app, row) { t.hov } else { surf };
-                fill(buf, row, bg);
-                let ok = k(app, &Action::OpenProject);
+                let nk = k(app, &Action::ShellHere);
                 put(
                     buf,
-                    x0 + 2,
+                    x0 + 6,
                     y,
-                    &[seg("+ open a project", Style::default().fg(t.muted).bg(bg)), seg(format!("  {ok}"), Style::default().fg(t.accent).bg(bg).add_modifier(Modifier::BOLD))],
+                    &[seg("empty  ", st.fg(t.muted).add_modifier(Modifier::ITALIC)), seg(nk, st.fg(t.accent).add_modifier(Modifier::BOLD)), seg(" new pane", st.fg(t.muted))],
                     r.right(),
                 );
-                hit(app, row, HyHit::OpenFolder);
+                hit(app, row, HyHit::ShellIn(*pi));
             }
             Line::Gap => {}
         }
@@ -1183,10 +1206,19 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     if scroll + list_h < lines.len() {
         put(buf, r.right() - 1, r.y + list_h as u16 - 1, &[seg("▼", plain.fg(t.muted))], r.right());
     }
+    // Quiet hints: new, jump, settings.
     let by = r.bottom().saturating_sub(3);
-    hline(buf, x0 + 1, by, w.saturating_sub(2), t, surf);
-    let sk = k(app, &Action::Settings);
-    btn(app, buf, x0 + 2, by + 1, "Settings", &sk, BtnKind::Ghost, HyHit::Settings, r.right());
+    hline(buf, x0 + 2, by, w.saturating_sub(4), t, surf);
+    let mut hx = x0 + 2;
+    for (key, label, h) in [(k(app, &Action::NewPane), "new", HyHit::NewPane), (k(app, &Action::Jump), "jump", HyHit::Jump), (k(app, &Action::Settings), "settings", HyHit::Settings)] {
+        let segs = vec![seg(key, plain.fg(t.accent).add_modifier(Modifier::BOLD)), seg(format!(" {label}"), plain.fg(t.text))];
+        let sw = segs_width(&segs);
+        let hr = Rect { x: hx, y: by + 1, width: sw, height: 1 };
+        let segs: Vec<Seg> = if hovered(app, hr) { segs.into_iter().map(|(x, st)| (x, st.bg(t.hov))).collect() } else { segs };
+        put(buf, hx, by + 1, &segs, r.right());
+        hit(app, hr, h);
+        hx += sw + 4;
+    }
 }
 
 fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme) {

@@ -4668,17 +4668,19 @@ mod hydra_tests {
         assert!(lines[0].starts_with(" >_ hydra"), "logo: {}", lines[0]);
         let bottom = lines.iter().rev().find(|l| !l.trim().is_empty()).unwrap();
         assert!(bottom.contains("shop-api  ›  ⎇ main  ›  claude  ● needs you  ·  Fix flaky checkout test"), "crumb at the bottom: {bottom}");
-        assert!(lines[2].contains("+ New t") && lines[2].contains("Jump ●1"), "+ New and Jump at the top of the sidebar: {}", lines[2]);
+        assert!(lines[2].contains("PROJECTS") && lines[2].contains("+ open"), "the sidebar's header: {}", lines[2]);
+        assert!(text.contains("t new") && text.contains("j jump") && text.contains(", settings"), "quiet hints at the bottom of the sidebar");
         // Projects and their sessions, nothing in between.
         assert!(text.contains("▾ ▌shop-api") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
         assert!(!text.contains("main folder"), "no 'main folder' wording");
-        assert!(text.contains("+ open a project"));
+        assert!(!text.contains("+ open a project"), "opening a project is in the header now");
         // Rows: agent and state, then what it's on (or its question) underneath.
-        assert!(text.contains("✻ shop-api") && text.contains("needs you 3m"), "the agent's icon, then where it runs");
+        assert!(text.contains("● ✻ claude") && text.contains("main · 3m"), "status, then the agent's icon and name; branch · age on the right");
         assert!(text.contains("Run npm test -- checkout?"), "the question under the agent");
         assert!(text.contains("↳ Explore"), "subagents under their agent");
-        assert!(text.contains("◇ rate") && text.contains("⠋ working") && text.contains("Rate limit /login"), "a worktree's session is named after it");
-        assert!(text.contains("› shop-api") && !text.contains("shell 2"), "shells: where they are, no age");
+        assert!(text.contains("⠋ ◇ rate") && text.contains("rate-limit · 2m"), "a worktree's session is named after it");
+        assert!(!text.contains("Rate limit /login"), "under a session only its question, as in the redesign");
+        assert!(text.contains("›   shell") && !text.contains("shell 2"), "a shell in the project's folder is just 'shell', no age");
         assert!(!text.contains("session"), "no 'session' wording on screen");
         assert!(text.contains("● claude is waiting") && text.contains(" Yes 1 ") && text.contains(" Always 2 ") && text.contains(" No 3 "));
         assert!(!text.contains("click or press T"), "no footer under the pane");
@@ -5076,7 +5078,7 @@ mod hydra_tests {
         app.hy_fresh();
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("✻ shop-api") && o.contains("claude opus 4.5"), "the row says where; the bottom bar says the agent and model");
+        assert!(o.contains("✻ claude") && o.contains("claude opus 4.5"), "status, icon and name on the row; the bottom bar has the model");
         assert!(o.contains("Fix the login flow"), "its name stays");
         assert!(!o.contains("› now add a test for it"), "one line under a row, no more");
     }
@@ -5177,6 +5179,7 @@ mod hydra_tests {
         app.snap.terms.get_mut(&id).unwrap().label = "Doing something".into();
         app.hy_fresh();
         let o = draw(&mut app, 160, 45);
+        show(&o);
         assert!(o.contains("◇ Doing something"), "the name is on the row itself");
         assert_eq!(o.matches("Doing something").count(), 1, "once: on the row, not in a second line");
     }

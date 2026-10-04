@@ -46,21 +46,6 @@ pub fn main_branch(main_root: &Path) -> Option<String> {
     read_head(&main_root.join(".git"))
 }
 
-/// The repo's default branch (not the one it's on): origin's HEAD, else main or master.
-pub fn default_branch(main_root: &Path) -> Option<String> {
-    let git = main_root.join(".git");
-    if let Ok(s) = std::fs::read_to_string(git.join("refs").join("remotes").join("origin").join("HEAD"))
-        && let Some(b) = s.trim().strip_prefix("ref: refs/remotes/origin/")
-    {
-        return Some(b.to_string());
-    }
-    let packed = std::fs::read_to_string(git.join("packed-refs")).unwrap_or_default();
-    ["main", "master"]
-        .into_iter()
-        .find(|b| git.join("refs").join("heads").join(b).exists() || packed.contains(&format!("refs/heads/{b}")))
-        .map(String::from)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
