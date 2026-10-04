@@ -6,6 +6,7 @@
 # Settings (environment variables):
 #   HYDRA_VERSION      a tag such as v0.1.0 (default: the latest release)
 #   HYDRA_INSTALL_DIR  where hydra.exe goes (default: %LOCALAPPDATA%\Programs\hydra)
+#   HYDRA_NO_PATH      set to 1 to leave your PATH alone
 $ErrorActionPreference = 'Stop'
 
 $repo = 'CydoEntis/hydra'
@@ -46,8 +47,10 @@ try {
 
     Expand-Archive (Join-Path $tmp $asset) -DestinationPath $tmp -Force
     New-Item -ItemType Directory -Force $dir | Out-Null
-    # Windows locks a running exe: stop hydra (its sessions come back on the next start).
-    $running = Get-Process -Name hydra -ErrorAction SilentlyContinue
+    # Windows locks a running exe: stop the hydra being replaced (its sessions come back on
+    # the next start). A hydra installed elsewhere keeps running.
+    $installed = Join-Path $dir 'hydra.exe'
+    $running = Get-Process -Name hydra -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $installed }
     if ($running) {
         Write-Host "Stopping the running hydra to replace it..."
         $running | Stop-Process -Force
@@ -56,7 +59,7 @@ try {
     Copy-Item (Join-Path $tmp "hydra-$target\hydra.exe") (Join-Path $dir 'hydra.exe') -Force
 
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if (-not (($userPath -split ';') -contains $dir)) {
+    if ($env:HYDRA_NO_PATH -ne '1' -and -not (($userPath -split ';') -contains $dir)) {
         [Environment]::SetEnvironmentVariable('Path', ($userPath.TrimEnd(';') + ";$dir"), 'User')
         Write-Host "Added $dir to your PATH (new terminals pick it up)."
     }

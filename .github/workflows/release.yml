@@ -96,3 +96,32 @@ jobs:
           else
             gh release create "$TAG" dist/* --title "hydra $TAG" --generate-notes -R "$GITHUB_REPOSITORY"
           fi
+
+  # Install the release just published, the way users do, and run it.
+  verify:
+    needs: release
+    name: install on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HYDRA_VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: install.sh
+        if: runner.os != 'Windows'
+        run: |
+          sh install.sh
+          ~/.local/bin/hydra --version
+          ~/.local/bin/hydra doctor || true
+      - name: install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./install.ps1
+          & "$env:LOCALAPPDATA\Programs\hydra\hydra.exe" --version
