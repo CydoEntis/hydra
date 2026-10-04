@@ -337,16 +337,17 @@ impl App {
                 self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd: None });
             }
             Act::GitInit(dir) => {
-                let run = |args: &[&str]| std::process::Command::new("git").arg("-C").arg(&dir).args(args).output();
-                let ok = run(&["init", "-q"]).is_ok_and(|o| o.status.success())
-                    && run(&["add", "-A"]).is_ok_and(|o| o.status.success())
-                    && run(&["commit", "-q", "-m", "Initial commit"]).is_ok_and(|o| o.status.success());
-                if ok {
-                    self.notify("it's a git repo now; new agents get their own worktree".into(), false);
-                } else {
-                    self.notify("git init or the first commit failed (is git set up with your name and email?)".into(), true);
-                }
-                self.hy_fresh();
+                self.notify("making it a git repo…".into(), false);
+                self.spawn_bg(move || {
+                    let result = git_init(&dir);
+                    super::Bg::Then(Box::new(move |app: &mut App| {
+                        match result {
+                            Ok(()) => app.notify("it's a git repo now; new agents get their own worktree".into(), false),
+                            Err(e) => app.notify(e, true),
+                        }
+                        app.hy_fresh();
+                    }))
+                });
             }
             Act::Zoom(t) => self.hy.zoom = if self.hy.zoom == Some(t) { None } else { Some(t) },
             Act::RightClicks(t) => {
@@ -408,6 +409,35 @@ impl App {
             Act::Changes(p) => self.open_changes(p),
         }
     }
+}
+
+/// What a new repo ignores when it has no .gitignore of its own, so its first commit
+/// doesn't take in dependencies, build output or secrets.
+const DEFAULT_GITIGNORE: &str = "node_modules/\ntarget/\ndist/\nbuild/\n.venv/\n__pycache__/\n.env\n.env.*\n*.log\n.DS_Store\n";
+
+/// `git init`, a .gitignore when there isn't one, and a first commit (worktrees need one).
+fn git_init(dir: &std::path::Path) -> Result<(), String> {
+    let run = |args: &[&str]| {
+        let mut c = std::process::Command::new("git");
+        c.arg("-C").arg(dir).args(args);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            c.creation_flags(super::CREATE_NO_WINDOW);
+        }
+        match c.output() {
+            Ok(o) if o.status.success() => Ok(()),
+            Ok(o) => Err(String::from_utf8_lossy(&o.stderr).lines().next().unwrap_or("git failed").to_string()),
+            Err(e) => Err(format!("couldn't run git: {e}")),
+        }
+    };
+    run(&["init", "-q"])?;
+    let ignore = dir.join(".gitignore");
+    if !ignore.exists() {
+        std::fs::write(&ignore, DEFAULT_GITIGNORE).map_err(|e| format!("couldn't write .gitignore: {e}"))?;
+    }
+    run(&["add", "-A"])?;
+    run(&["commit", "-q", "-m", "Initial commit"]).map_err(|e| format!("the first commit failed ({e}); is git set up with your name and email?"))
 }
 
 /// A key for each item: the first letter of its label not taken yet (j and k move).

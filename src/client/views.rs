@@ -591,6 +591,7 @@ mod tests {
             files: paths.iter().map(|p| Changed { path: p.to_string(), added: 1, removed: 0, untracked: false }).collect(),
             sel: 0,
             diff: Vec::new(),
+            diff_sel: None,
             scroll: 0,
             confirm: None,
         }

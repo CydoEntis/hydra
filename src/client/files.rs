@@ -190,6 +190,16 @@ fn spawn_detached(mut cmd: std::process::Command) -> std::io::Result<()> {
     cmd.spawn().map(|_| ())
 }
 
+/// Whether a file looks like text: no NUL in its first 8 KB (only those are read).
+pub fn looks_like_text(path: &Path) -> bool {
+    use std::io::Read;
+    let mut head = Vec::with_capacity(8192);
+    match std::fs::File::open(path).and_then(|f| f.take(8192).read_to_end(&mut head)) {
+        Ok(_) => !head.contains(&0),
+        Err(_) => false,
+    }
+}
+
 /// Open a file (or folder) in its default app.
 pub fn open_default(path: &Path) -> std::io::Result<()> {
     // A leading '-' would be read as an option by open / xdg-open.
@@ -287,5 +297,24 @@ mod open_tests {
         let w = super::wide(url.as_ref());
         assert_eq!(String::from_utf16(&w[..w.len() - 1]).unwrap(), url);
         assert!(super::open_default(std::path::Path::new("-x")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod sniff_tests {
+    #[test]
+    fn only_the_start_of_a_file_is_read() {
+        let dir = std::env::temp_dir().join(format!("hydra-sniff-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (text, bin) = (dir.join("a.txt"), dir.join("b.bin"));
+        // A NUL past the first 8 KB isn't looked at.
+        let mut late = vec![b'a'; 10_000];
+        late.push(0);
+        std::fs::write(&text, &late).unwrap();
+        std::fs::write(&bin, [b'x', 0, b'y']).unwrap();
+        assert!(super::looks_like_text(&text));
+        assert!(!super::looks_like_text(&bin));
+        assert!(!super::looks_like_text(&dir.join("missing")));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

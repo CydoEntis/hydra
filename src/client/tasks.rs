@@ -94,9 +94,36 @@ pub struct Review {
     pub files: Vec<Changed>,
     pub sel: usize,
     pub diff: Vec<String>,
+    /// Which file `diff` is for (or being loaded for); None: load it.
+    pub diff_sel: Option<usize>,
     pub scroll: u16,
     /// An action waiting for y/n: (label, key).
     pub confirm: Option<(String, char)>,
+}
+
+/// The most of an untracked file read to show or count it.
+const UNTRACKED_READ_CAP: u64 = 512 * 1024;
+
+/// The start of a file, at most `cap` bytes, as text.
+fn read_head(path: &std::path::Path, cap: u64) -> std::io::Result<String> {
+    use std::io::Read;
+    let mut s = Vec::new();
+    std::fs::File::open(path)?.take(cap).read_to_end(&mut s)?;
+    Ok(String::from_utf8_lossy(&s).into_owned())
+}
+
+/// What a diff needs, so it can be worked out off the UI thread.
+#[derive(Debug, Clone)]
+pub struct DiffJob {
+    pub dir: std::path::PathBuf,
+    pub merge_base: String,
+    pub file: Option<Changed>,
+}
+
+impl Review {
+    pub fn diff_job(&self) -> DiffJob {
+        DiffJob { dir: self.task.dir.clone(), merge_base: self.merge_base.clone(), file: self.files.get(self.sel).cloned() }
+    }
 }
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
@@ -130,24 +157,28 @@ pub fn load_review(task: TaskRow) -> Result<Review, String> {
         })
         .collect();
     for path in git(dir, &["ls-files", "--others", "--exclude-standard"])?.lines().filter(|l| !l.is_empty()) {
-        let added = std::fs::read_to_string(dir.join(path)).map(|s| s.lines().count() as i64).unwrap_or(0);
+        let added = read_head(&dir.join(path), UNTRACKED_READ_CAP).map(|s| s.lines().count() as i64).unwrap_or(0);
         files.push(Changed { path: path.to_string(), added, removed: 0, untracked: true });
     }
-    let mut r = Review { task, merge_base, files, sel: 0, diff: Vec::new(), scroll: 0, confirm: None };
+    let mut r = Review { task, merge_base, files, sel: 0, diff: Vec::new(), diff_sel: Some(0), scroll: 0, confirm: None };
     r.diff = file_diff(&r);
     Ok(r)
 }
 
 /// The selected file's diff against where the task started.
 pub fn file_diff(r: &Review) -> Vec<String> {
-    let Some(f) = r.files.get(r.sel) else { return vec!["No changes yet.".into()] };
+    diff_of(&r.diff_job())
+}
+
+pub fn diff_of(job: &DiffJob) -> Vec<String> {
+    let Some(f) = &job.file else { return vec!["No changes yet.".into()] };
     if f.untracked {
-        let body = std::fs::read_to_string(r.task.dir.join(&f.path)).unwrap_or_else(|_| "(binary or unreadable)".into());
+        let body = read_head(&job.dir.join(&f.path), UNTRACKED_READ_CAP).unwrap_or_else(|_| "(binary or unreadable)".into());
         let mut out = vec![format!("new file {}", f.path)];
         out.extend(body.lines().take(2000).map(|l| format!("+{l}")));
         return out;
     }
-    match git(&r.task.dir, &["diff", &r.merge_base, "--", &f.path]) {
+    match git(&job.dir, &["diff", &job.merge_base, "--", &f.path]) {
         Ok(d) => d.lines().skip_while(|l| !l.starts_with("@@")).take(4000).map(|l| l.replace('\t', "    ")).collect(),
         Err(e) => vec![e],
     }

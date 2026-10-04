@@ -3632,15 +3632,25 @@ impl App {
                 let taken: HashSet<String> = p.wts.iter().map(|w| w.branch.clone()).collect();
                 let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as usize).unwrap_or(0);
                 let name = (0..WT_NAMES.len()).map(|i| WT_NAMES[(n + i) % WT_NAMES.len()].to_string()).find(|b| !taken.contains(b)).unwrap_or_else(|| format!("branch-{}", n % 10_000));
-                let out = std::process::Command::new("git").arg("-C").arg(&main).args(["switch", "-c", &name]).output();
-                match out {
-                    Ok(o) if o.status.success() => {
-                        self.notify(format!("{} is on a new branch, {name}", p.name), false);
-                        self.hy_new_session(main, cmd, np.beside);
+                let (pname, beside) = (p.name.clone(), np.beside);
+                self.spawn_bg(move || {
+                    let mut git = std::process::Command::new("git");
+                    git.arg("-C").arg(&main).args(["switch", "-c", &name]);
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::process::CommandExt;
+                        git.creation_flags(super::CREATE_NO_WINDOW);
                     }
-                    Ok(o) => self.notify(format!("couldn't make a branch: {}", String::from_utf8_lossy(&o.stderr).lines().next().unwrap_or("git failed")), true),
-                    Err(e) => self.notify(format!("couldn't run git: {e}"), true),
-                }
+                    let out = git.output();
+                    super::Bg::Then(Box::new(move |app: &mut App| match out {
+                        Ok(o) if o.status.success() => {
+                            app.notify(format!("{pname} is on a new branch, {name}"), false);
+                            app.hy_new_session(main, cmd, beside);
+                        }
+                        Ok(o) => app.notify(format!("couldn't make a branch: {}", String::from_utf8_lossy(&o.stderr).lines().next().unwrap_or("git failed")), true),
+                        Err(e) => app.notify(format!("couldn't run git: {e}"), true),
+                    }))
+                });
             }
             n @ 3.. => match p.wts.iter().filter(|w| !w.main).nth(n as usize - 3) {
                 Some(w) => self.hy_new_session(w.path.clone(), cmd, np.beside),

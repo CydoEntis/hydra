@@ -148,6 +148,10 @@ pub(super) enum Btn {
 }
 
 /// Results of background work (disk scans, git, gh, APIs), delivered to the event loop.
+/// Windows: start a console program without flashing a console window.
+#[cfg(windows)]
+pub(super) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 pub(super) enum Bg {
     Recent(PathBuf, Vec<files::FileEntry>),
     Project(PathBuf, Vec<files::FileEntry>),
@@ -182,6 +186,10 @@ pub(super) enum Bg {
     Switched(Result<String, String>),
     /// A code search's results: (folder, which search, hits).
     Grep(PathBuf, u64, Result<Vec<find::GrepHit>, String>),
+    /// A file's diff for the Changes view: (folder, which file, lines).
+    Diff(PathBuf, usize, Vec<String>),
+    /// Slow work done; finish it on the UI thread.
+    Then(Box<dyn FnOnce(&mut App) + Send>),
 }
 
 /// The pull request checks for a branch, if it has a pull request: "✓ checks 14/14" or
@@ -616,6 +624,7 @@ impl App {
             }
             self.report_focus();
             self.sync_cursor_style();
+            self.request_diff();
             if self.dirty && last_draw.elapsed() >= frame && self.sync_hold_until().is_none_or(|h| Instant::now() >= h) {
                 self.dirty = false;
                 last_draw = Instant::now();
@@ -1406,16 +1415,20 @@ impl App {
     /// (Claude Code, Codex and friends attach an image given by path).
     pub(super) fn paste_image(&mut self) {
         let Some(term) = self.focused() else { return };
-        match clipboard_image_to_file() {
-            Ok((path, w, h)) => {
-                let text = files::quote_path(&path);
-                let bracketed = self.parsers.get(&term).is_some_and(|p| p.screen().bracketed_paste());
-                let data = if bracketed { format!("\x1b[200~{text} \x1b[201~") } else { format!("{text} ") };
-                self.send(ClientMsg::Input { term, data: data.into_bytes() });
-                self.notify(format!("pasted the clipboard image ({w}×{h}) as a file"), false);
-            }
-            Err(e) => self.notify(e, true),
-        }
+        // Reading the clipboard and encoding the PNG can take a while for a big image.
+        self.spawn_bg(move || {
+            let made = clipboard_image_to_file();
+            Bg::Then(Box::new(move |app: &mut App| match made {
+                Ok((path, w, h)) => {
+                    let text = files::quote_path(&path);
+                    let bracketed = app.parsers.get(&term).is_some_and(|p| p.screen().bracketed_paste());
+                    let data = if bracketed { format!("\x1b[200~{text} \x1b[201~") } else { format!("{text} ") };
+                    app.send(ClientMsg::Input { term, data: data.into_bytes() });
+                    app.notify(format!("pasted the clipboard image ({w}×{h}) as a file"), false);
+                }
+                Err(e) => app.notify(e, true),
+            }))
+        });
     }
 
     /// When to draw a pane that's mid synchronized update: its start + 100 ms, if that's
@@ -2586,16 +2599,19 @@ impl App {
             dir: head.top.clone(),
             root: head.main_root.clone(),
         };
-        let changed = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&head.top)
-            .args(["status", "--porcelain"])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).lines().count())
-            .unwrap_or(0);
         let key = design::path_key(&head.main_root);
         let pr = self.hy.prs.get(&key).and_then(|l| l.iter().find(|p| p.branch == head.branch)).map(|p| p.number.to_string());
-        self.mode = Mode::Ship(Box::new(ShipAsk { task, changed, pr }));
+        let top = head.top.clone();
+        self.spawn_bg(move || {
+            let changed = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&top)
+                .args(["status", "--porcelain"])
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).lines().count())
+                .unwrap_or(0);
+            Bg::Then(Box::new(move |app: &mut App| app.mode = Mode::Ship(Box::new(ShipAsk { task, changed, pr }))))
+        });
     }
 
     fn open_changes(&mut self, dir: PathBuf) {
@@ -2685,7 +2701,7 @@ impl App {
             self.open_files(path);
             return;
         }
-        let text = std::fs::read(&path).map(|b| !b.iter().take(8000).any(|c| *c == 0)).unwrap_or(false);
+        let text = files::looks_like_text(&path);
         if text {
             let dir = path.parent().map(|d| d.to_path_buf()).unwrap_or_default();
             self.open_files(dir);
@@ -2887,7 +2903,7 @@ impl App {
         let go = |r: &mut tasks::Review, to: usize| {
             if let Some(i) = order.get(to) {
                 r.sel = *i;
-                r.diff = tasks::file_diff(r);
+                r.diff_sel = None;
                 r.scroll = 0;
             }
         };
@@ -2913,7 +2929,7 @@ impl App {
                     let next = if now { order.iter().copied().find(|i| !v.reviewed.contains(&r.files[*i].path)) } else { None };
                     if let Some(i) = next.or_else(|| order.iter().copied().find(|i| r.files[*i].path == file)) {
                         r.sel = i;
-                        r.diff = tasks::file_diff(r);
+                        r.diff_sel = None;
                         r.scroll = 0;
                     }
                     if now && v.reviewed.len() == r.files.len() {
@@ -3515,7 +3531,7 @@ impl App {
                         let rows = v.rows();
                         if let (Some(views::ChangesRow::File(fi, _)), Some(r)) = (rows.get(i), v.review.as_mut()) {
                             r.sel = *fi;
-                            r.diff = tasks::file_diff(r);
+                            r.diff_sel = None;
                             r.scroll = 0;
                         }
                     }
@@ -3584,6 +3600,20 @@ impl App {
             .or_else(|| self.active_ws().map(|w| w.cwd.clone()))
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_default()
+    }
+
+    /// The Changes view's selected file has no diff yet: work it out in the background.
+    fn request_diff(&mut self) {
+        let Some(View::Changes(v)) = &mut self.view else { return };
+        let Some(r) = v.review.as_mut() else { return };
+        if r.diff_sel == Some(r.sel) {
+            return;
+        }
+        r.diff_sel = Some(r.sel);
+        r.diff = vec!["loading…".into()];
+        let (dir, sel, job) = (v.dir.clone(), r.sel, r.diff_job());
+        self.dirty = true;
+        self.spawn_bg(move || Bg::Diff(dir, sel, tasks::diff_of(&job)));
     }
 
     fn spawn_bg(&self, f: impl FnOnce() -> Bg + Send + 'static) {
@@ -3741,20 +3771,30 @@ impl App {
                             v.reviewed = views::still_reviewed(&v.dir, &r.files, self.hy.saved.reviewed.get(&design::path_key(&v.dir)));
                             if let Some(sel) = keep {
                                 r.sel = sel.min(r.files.len().saturating_sub(1));
-                                r.diff = tasks::file_diff(&r);
+                                r.diff_sel = None;
                             }
                             let first = keep.is_none();
                             v.review = Some(r);
                             // Start on the first file not reviewed yet.
                             if first && let Some(i) = v.order().first().copied() && let Some(r) = v.review.as_mut() {
                                 r.sel = i;
-                                r.diff = tasks::file_diff(r);
+                                r.diff_sel = None;
                             }
                         }
                         Err(e) => v.error = Some(e),
                     }
                 }
             }
+            (Bg::Diff(dir, sel, lines), _) => {
+                if let Some(View::Changes(v)) = &mut self.view
+                    && v.dir == dir
+                    && let Some(r) = v.review.as_mut()
+                    && r.sel == sel
+                {
+                    r.diff = lines;
+                }
+            }
+            (Bg::Then(finish), _) => finish(self),
             (Bg::Checks(dir, c), _) => {
                 if let Some(View::Changes(v)) = &mut self.view
                     && v.dir == dir
