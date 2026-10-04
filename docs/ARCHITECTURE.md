@@ -52,19 +52,38 @@ layers*. Never reverse the direction.
 
 ```text
 src/
-  app/                 composition root, bootstrap, routing/shell
-  features/<feature>/  one vertical slice per feature
-    ui/ | handlers/      presentation for this feature
-    services/            use cases
-    domain/              feature-local entities and rules (when not shared)
-    data/                repository implementations / adapters
-    schemas.*            boundary validation
-    types.*              feature types
-  domain/              domain types and rules shared by several features
-  infrastructure/      shared adapters: db client, http client, logger, config
-  lib/                 small, dependency-free utilities with 2+ consumers
-tests/                 cross-feature integration and e2e tests
-docs/                  these docs and ADRs
+  main.rs        argument parsing, picks client / daemon / CLI role
+  cli.rs         one-shot subcommands (send, read, wait, hook, allow, doctor, …)
+  protocol.rs    wire messages and PROTOCOL_VERSION
+  ipc.rs         local sockets and the SSH proxy
+  config.rs      config.toml (+ config.local.toml) loading, atomic state files
+  keys.rs        actions, default bindings, key parsing
+  layout.rs      split trees and neighbour finding
+  theme.rs       built-in themes and contrast audit
+  clock.rs       time helpers
+  daemon/        the server
+    mod.rs       the event loop, clients, snapshot, spawning panes
+    commands.rs  commands from clients and the CLI
+    status.rs    hook reports (checked on their own thread) and screen detection
+    worktrees.rs making and trusting worktrees, spares, hooks, cleanup
+    restore.rs   saving and restoring sessions, sleeping and waking agents
+    term.rs      one pane: PTY, input thread, vt100 emulator
+    scan.rs, git.rs, persist.rs
+  client/        the UI
+    mod.rs       App state, the event loop, shared types
+    input.rs     keys, pastes, the mouse
+    actions.rs   what each action does
+    background.rs server messages and background results
+    view_keys.rs keys inside full-pane views and the remaining popups
+    hydra/       the layout: mod.rs (state, model, click targets), screen.rs (sidebar,
+                 panes, bars), popups.rs, dialogs.rs, splash.rs, behaviour.rs (its keys
+                 and clicks), pr_map.rs (pull request, ship, map views)
+    render.rs, design.rs  drawing entry point and shared helpers
+    menu.rs, views.rs, files.rs, find.rs, branch.rs, work.rs, pr.rs, toolbox.rs, …
+    tests.rs     rendering and behaviour tests
+  mcp.rs, ext.rs, project.rs, gitfs.rs, alert.rs, sync.rs
+docs/            these docs, the roadmap, design briefs
+config.example.toml
 ```
 
 Features never import from inside another feature. If feature A needs
@@ -159,7 +178,7 @@ Rules for the language live in `docs/stack/rust.md`.
   `daemon/persist.rs`, `gitfs.rs`, `alert.rs`, `sync.rs`, `ext.rs`, `mcp.rs`.
 - **Application:** `daemon/mod.rs` (the server loop: commands in, state and
   output out) and `client/mod.rs` (the client loop: events in, commands out).
-- **Presentation:** `client/hydra.rs` (the layout and its popups),
+- **Presentation:** `client/hydra/` (the layout and its popups),
   `client/design.rs` (shared drawing helpers), `client/render.rs`, and the
   feature views in `client/` (files, changes, branches, inbox, PRs, toolbox, …).
 

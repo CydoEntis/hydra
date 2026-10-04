@@ -1,0 +1,683 @@
+//! Keys, pastes and the mouse.
+
+use super::*;
+
+impl App {
+    pub(super) fn on_event(&mut self, ev: Event) {
+        self.dirty = true;
+        match ev {
+            Event::Key(k) if k.kind != KeyEventKind::Release => self.on_key(k),
+            Event::Paste(s) => self.on_paste(s),
+            Event::FocusGained => self.window_focused = true,
+            Event::FocusLost => self.window_focused = false,
+            Event::Mouse(m) => self.on_mouse(m),
+            _ => {}
+        }
+    }
+
+    pub(super) fn on_paste(&mut self, s: String) {
+        match &mut self.mode {
+            Mode::Copy(c) => {
+                if let Some(input) = &mut c.input {
+                    input.push_str(s.lines().next().unwrap_or(""));
+                }
+            }
+            Mode::Quick(q) => q.text.push_str(&s.replace("\r\n", "\n")),
+            Mode::Toolbox(v) => v.query.push_str(s.lines().next().unwrap_or("")),
+            Mode::Prompt { input, .. } | Mode::Picker { query: input, .. } | Mode::Worktrees { query: input, .. } => {
+                input.push_str(s.lines().next().unwrap_or(""));
+            }
+            // Hydra's own text boxes take the paste, not the pane behind them.
+            Mode::Talk { input, .. } => input.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
+            Mode::Ideas(v) => v.input.push_str(s.lines().next().unwrap_or("")),
+            Mode::Find(v) => v.query.push_str(s.lines().next().unwrap_or("")),
+            Mode::GoTo { query, .. } => query.push_str(s.lines().next().unwrap_or("").trim()),
+            Mode::Branch(v) => v.query.push_str(s.lines().next().unwrap_or("").trim()),
+            Mode::Tickets(v) => v.query.push_str(s.lines().next().unwrap_or("")),
+            Mode::RaceNew(v) => v.text.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
+            Mode::Finder(fd) => {
+                fd.q.push_str(s.lines().next().unwrap_or("").trim());
+                fd.sel = 0;
+                fd.refresh();
+            }
+            Mode::HySettings(v) if v.editing.is_some() => {
+                if let Some(e) = &mut v.editing {
+                    e.push_str(s.lines().next().unwrap_or(""));
+                }
+            }
+            _ if s.is_empty() => self.paste_image(),
+            _ => {
+                let Some(term) = self.focused() else { return };
+                let bracketed = self.parsers.get(&term).is_some_and(|p| p.screen().bracketed_paste());
+                let body = s.replace("\r\n", "\r").replace('\n', "\r");
+                let data = if bracketed { format!("\x1b[200~{body}\x1b[201~") } else { body };
+                self.scroll.remove(&term);
+                self.send(ClientMsg::Input { term, data: data.into_bytes() });
+            }
+        }
+    }
+
+    pub(super) fn on_key(&mut self, k: KeyEvent) {
+        self.hy_fresh();
+        let spec = KeySpec::from_event(&k);
+        if self.splash {
+            self.on_hy_splash_key(&k);
+            return;
+        }
+        if let Mode::Copy(c) = &mut self.mode {
+            match c.key(&k) {
+                copy::Outcome::Stay => {}
+                copy::Outcome::Exit => self.mode = Mode::Normal,
+                copy::Outcome::Yank(text) => self.yank(text),
+            }
+            return;
+        }
+        match self.mode.clone() {
+            Mode::Normal => {
+                if spec == self.keymap.prefix {
+                    self.mode = Mode::Prefix { since: Instant::now() };
+                } else if let Some(a) = self.keymap.global.get(&spec).cloned() {
+                    self.act(a);
+                } else if self.view.is_some() {
+                    self.on_view_key(&k);
+                } else if self.scroll_key(&k) {
+                } else {
+                    self.forward_key(&k);
+                }
+            }
+            Mode::Talk { term, input } => self.on_talk_key(term, input, &k),
+            Mode::Jump { sel } => self.on_jump_key(sel, &k),
+            Mode::Finder(fd) => self.on_finder_key(*fd, &k),
+            Mode::HyPane(np) => self.on_hy_pane_key(np, &k),
+            Mode::HySettings(_) => self.hy_settings_key(&k),
+            Mode::Side => self.on_side_key(&k),
+            Mode::Ideas(v) => self.on_ideas_key(*v, &k),
+            Mode::Tickets(v) => self.on_tickets_key(*v, &k),
+            Mode::RaceNew(v) => self.on_race_new_key(*v, &k),
+            Mode::Race(v) => self.on_race_key(*v, &k),
+            Mode::HyMenu(m) => self.on_hy_menu_key(*m, &k),
+            Mode::Find(v) => self.on_find_key(*v, &k),
+            Mode::Branch(v) => self.on_branch_key(*v, &k),
+            Mode::Memory { sel } => self.on_memory_key(sel, &k),
+            Mode::History { sel } => self.on_history_key(sel, &k),
+            Mode::GoTo { query, sel } => self.on_goto_key(query, sel, &k),
+            Mode::Confirm(c) => match k.code {
+                KeyCode::Enter | KeyCode::Char('y') => {
+                    self.mode = Mode::Normal;
+                    self.confirm_done(Some(c.act));
+                }
+                KeyCode::Char(ch) if ch == c.key => {
+                    self.mode = Mode::Normal;
+                    self.confirm_done(Some(c.act));
+                }
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('q') => {
+                    self.mode = Mode::Normal;
+                    self.confirm_done(None);
+                }
+                _ => self.mode = Mode::Confirm(c),
+            },
+            Mode::Ship(ask) => {
+                self.mode = Mode::Normal;
+                if k.code == KeyCode::Enter {
+                    let task = ask.task.clone();
+                    self.notify(format!("shipping {}…", task.branch), false);
+                    self.spawn_bg(move || Bg::Done(tasks::ship(&task), false));
+                }
+            }
+            Mode::Prefix { .. } => {
+                self.mode = Mode::Normal;
+                if k.code == KeyCode::Esc {
+                    return;
+                }
+                if let Some(a) = self.keymap.prefixed.get(&spec).cloned() {
+                    let repeat = a.repeats();
+                    self.act(a);
+                    if repeat && self.mode == Mode::Normal {
+                        self.mode = Mode::Prefix { since: crate::clock::ago(Duration::from_secs(60)) };
+                    }
+                }
+            }
+            Mode::Help { scroll } => match k.code {
+                KeyCode::Down | KeyCode::Char('j') => self.mode = Mode::Help { scroll: scroll + 1 },
+                KeyCode::Up | KeyCode::Char('k') => self.mode = Mode::Help { scroll: scroll.saturating_sub(1) },
+                KeyCode::PageDown => self.mode = Mode::Help { scroll: scroll + 10 },
+                KeyCode::PageUp => self.mode = Mode::Help { scroll: scroll.saturating_sub(10) },
+                _ => self.mode = Mode::Normal,
+            },
+            Mode::Picker { mut query, mut sel, commands } => {
+                let n = self.pick_items(&query, commands).len();
+                let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+                match k.code {
+                    KeyCode::Esc => {
+                        self.mode = Mode::Normal;
+                        return;
+                    }
+                    KeyCode::Enter => {
+                        self.mode = Mode::Normal;
+                        if let Some(item) = self.pick_items(&query, commands).get(sel) {
+                            match item.target.clone() {
+                                PickTarget::Workspace(ws) => self.cmd(Command::SelectWorkspace { ws }),
+                                PickTarget::Pane(term) => self.cmd(Command::FocusPane { term }),
+                                PickTarget::Command(a) => self.act(a),
+                                PickTarget::Ext(e, c) => self.run_ext(e, c),
+                            }
+                        }
+                        return;
+                    }
+                    KeyCode::Down | KeyCode::Tab => sel = (sel + 1).min(n.saturating_sub(1)),
+                    KeyCode::Char('n') if ctrl => sel = (sel + 1).min(n.saturating_sub(1)),
+                    KeyCode::Up | KeyCode::BackTab => sel = sel.saturating_sub(1),
+                    KeyCode::Char('p') if ctrl => sel = sel.saturating_sub(1),
+                    KeyCode::Backspace => {
+                        query.pop();
+                        sel = 0;
+                    }
+                    KeyCode::Char(c) if !ctrl => {
+                        query.push(c);
+                        sel = 0;
+                    }
+                    _ => {}
+                }
+                self.mode = Mode::Picker { query, sel, commands };
+            }
+            Mode::Quick(q) => self.on_quick_key(q, &k),
+            Mode::Toolbox(v) => self.on_toolbox_key(*v, &k),
+            Mode::Worktrees { ws, cmd, items, mut query, mut sel } => {
+                let rows = self.worktree_rows(items.as_deref(), &query);
+                let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+                match k.code {
+                    KeyCode::Esc => {
+                        self.mode = Mode::Normal;
+                        return;
+                    }
+                    KeyCode::Enter => {
+                        self.mode = Mode::Normal;
+                        match rows.get(sel) {
+                            Some(WtRow::Existing(w)) => self.open_worktree(w, cmd),
+                            Some(WtRow::Create(text)) => {
+                                let mut words = text.split_whitespace();
+                                if let Some(branch) = words.next().map(str::to_string) {
+                                    let base = words.next().map(str::to_string);
+                                    self.notify(format!("creating worktree {branch}…"), false);
+                                    self.cmd(Command::NewWorktree { ws, branch, base, cmd, split: None, from: None });
+                                }
+                            }
+                            None => {}
+                        }
+                        return;
+                    }
+                    KeyCode::Down | KeyCode::Tab => sel = (sel + 1).min(rows.len().saturating_sub(1)),
+                    KeyCode::Char('n') if ctrl => sel = (sel + 1).min(rows.len().saturating_sub(1)),
+                    KeyCode::Up | KeyCode::BackTab => sel = sel.saturating_sub(1),
+                    KeyCode::Char('p') if ctrl => sel = sel.saturating_sub(1),
+                    KeyCode::Backspace => {
+                        query.pop();
+                        sel = 0;
+                    }
+                    KeyCode::Char(c) if !ctrl => {
+                        query.push(c);
+                        sel = 0;
+                    }
+                    _ => {}
+                }
+                self.mode = Mode::Worktrees { ws, cmd, items, query, sel };
+            }
+            Mode::Prompt { kind, mut input } => {
+                if kind.is_confirm() {
+                    self.mode = Mode::Normal;
+                    let yes = matches!(k.code, KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter);
+                    let force = matches!(k.code, KeyCode::Char('f') | KeyCode::Char('F'));
+                    match kind {
+                        PromptKind::ConfirmCloseWorkspace(ws) if yes => self.cmd(Command::CloseWorkspace { ws }),
+                        PromptKind::ConfirmKillServer if yes => self.cmd(Command::KillServer { forget: false }),
+                        PromptKind::ConfirmRemoveWorktree(ws) if yes || force => {
+                            self.notify("removing worktree…".into(), false);
+                            self.cmd(Command::RemoveWorktree { ws, force, delete_branch: false });
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+                match k.code {
+                    KeyCode::Esc => self.mode = Mode::Normal,
+                    KeyCode::Enter => {
+                        self.mode = Mode::Normal;
+                        self.submit_prompt(kind, input);
+                    }
+                    KeyCode::Backspace => {
+                        input.pop();
+                        self.mode = Mode::Prompt { kind, input };
+                    }
+                    KeyCode::Char('u') if k.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.mode = Mode::Prompt { kind, input: String::new() };
+                    }
+                    KeyCode::Char(c) => {
+                        input.push(c);
+                        self.mode = Mode::Prompt { kind, input };
+                    }
+                    _ => self.mode = Mode::Prompt { kind, input },
+                }
+            }
+            Mode::Copy(_) => unreachable!("handled above"),
+        }
+    }
+
+    pub(super) fn forward_key(&mut self, k: &KeyEvent) {
+        let Some(term) = self.focused() else { return };
+        let app_cursor = self.parsers.get(&term).is_some_and(|p| p.screen().application_cursor());
+        let win32 = cfg!(windows) && self.snap.terms.get(&term).is_some_and(|t| t.win32_input) && keys::wants_win32(k);
+        let data = match win32.then(|| keys::encode_win32(k)).flatten() {
+            Some(d) => d,
+            None => keys::encode(k, app_cursor),
+        };
+        if data.is_empty() {
+            return;
+        }
+        self.scroll.remove(&term);
+        if let Some(p) = self.parsers.get_mut(&term) {
+            p.screen_mut().set_scrollback(0);
+        }
+        self.send(ClientMsg::Input { term, data });
+    }
+
+    /// Shift+PageUp / PageDown (and Shift+Up / Down a line) scroll the history, like any
+    /// terminal; full-screen programs get the keys themselves.
+    pub(super) fn scroll_key(&mut self, k: &KeyEvent) -> bool {
+        let Some(term) = self.focused() else { return false };
+        let Some(p) = self.parsers.get(&term) else { return false };
+        if p.screen().alternate_screen() {
+            return false;
+        }
+        let s = p.screen();
+        let at_prompt = s.mouse_protocol_mode() == vt100::MouseProtocolMode::None && (!s.application_cursor() || s.bracketed_paste());
+        if k.modifiers.is_empty() && at_prompt && matches!(k.code, KeyCode::PageUp | KeyCode::PageDown) {
+            let page = s.size().0.saturating_sub(1).max(1) as i32;
+            self.scroll_by(term, if k.code == KeyCode::PageUp { page } else { -page });
+            return true;
+        }
+        if !k.modifiers.contains(KeyModifiers::SHIFT) {
+            return false;
+        }
+        let page = (p.screen().size().0 / 2).max(1) as i32;
+        let d = match k.code {
+            KeyCode::PageUp => page,
+            KeyCode::PageDown => -page,
+            KeyCode::Up if k.modifiers.contains(KeyModifiers::CONTROL) => 1,
+            KeyCode::Down if k.modifiers.contains(KeyModifiers::CONTROL) => -1,
+            _ => return false,
+        };
+        self.scroll_by(term, d);
+        true
+    }
+
+    /// The pane under `pos` and the cell inside it.
+    pub(super) fn pane_cell(&self, pos: Position) -> Option<(TermId, u16, u16)> {
+        let (term, r) = self.panes.iter().find(|(_, r)| r.contains(pos))?;
+        Some((*term, pos.y - r.y, pos.x - r.x))
+    }
+
+    pub(super) fn on_mouse(&mut self, m: MouseEvent) {
+        let pos = Position::new(m.column, m.row);
+        self.hy_fresh();
+        // Ctrl+click opens a link; double-click copies a word (or a path, or a link).
+        if m.kind == MouseEventKind::Down(MouseButton::Left)
+            && !self.splash
+            && matches!(self.mode, Mode::Normal)
+            && self.view.is_none()
+            && let Some((term, row, col)) = self.pane_cell(pos)
+        {
+            let screen_has_mouse = self.parsers.get(&term).is_some_and(|p| p.screen().mouse_protocol_mode() != vt100::MouseProtocolMode::None);
+            if m.modifiers.contains(KeyModifiers::CONTROL)
+                && let Some(url) = self.parsers.get(&term).and_then(|p| pick::url_at(p.screen(), row, col))
+            {
+                files::open_url(&url);
+                self.notify(format!("opening {url}"), false);
+                return;
+            }
+            if m.modifiers.contains(KeyModifiers::CONTROL)
+                && let Some((p, line)) = self.parsers.get(&term).and_then(|p| pick::path_at(p.screen(), row, col))
+            {
+                self.open_path_from(term, &p, line);
+                return;
+            }
+            let double = self.pane_click.is_some_and(|(p, at)| at.elapsed() < Duration::from_millis(350) && p.y == pos.y && p.x.abs_diff(pos.x) <= 1);
+            self.pane_click = Some((pos, Instant::now()));
+            if double
+                && !screen_has_mouse
+                && let Some(word) = self.parsers.get(&term).and_then(|p| pick::word_at(p.screen(), row, col))
+            {
+                self.pane_click = None;
+                self.drag = None;
+                copy::to_clipboard(&word);
+                self.notify(format!("copied {}", render::truncate(&word, 60)), false);
+                return;
+            }
+        }
+        // Programs that ask for the mouse (Claude Code's full-screen view, vim, lazygit,
+        // htop, …) get it, like in any terminal: clicks, wheel, drags. Shift keeps it for
+        // hydra (select text); right-click stays hydra's menu.
+        if self.hy.drag.is_none()
+            && !self.splash
+            && matches!(self.mode, Mode::Normal)
+            && self.view.is_none()
+            && !m.modifiers.contains(KeyModifiers::SHIFT)
+            && let Some((term, inner)) = self.panes.iter().find(|(_, r)| r.contains(pos)).copied()
+            && (self.hy.right_clicks.contains(&term)
+                || !matches!(m.kind, MouseEventKind::Down(MouseButton::Right) | MouseEventKind::Up(MouseButton::Right) | MouseEventKind::Drag(MouseButton::Right)))
+            && let Some(bytes) = self.parsers.get(&term).and_then(|p| keys::mouse_bytes(p.screen(), &m, pos.x - inner.x, pos.y - inner.y))
+        {
+            if m.kind == MouseEventKind::Moved && self.hover != Some(pos) {
+                self.hover = Some(pos);
+                self.dirty = true;
+            }
+            if matches!(m.kind, MouseEventKind::Down(_)) {
+                if Some(term) != self.focused() {
+                    self.cmd(Command::FocusPane { term });
+                }
+                // Clicking for the program brings its view back to the bottom.
+                self.scroll.remove(&term);
+                if let Some(p) = self.parsers.get_mut(&term) {
+                    p.screen_mut().set_scrollback(0);
+                }
+            }
+            if !bytes.is_empty() {
+                self.send(ClientMsg::Input { term, data: bytes });
+            }
+            return;
+        }
+        // Dragging the sidebar edge or the split divider.
+        if let Some(d) = self.hy.drag {
+            match m.kind {
+                MouseEventKind::Drag(MouseButton::Left) => {
+                    match d {
+                        hydra::Drag::Side => {
+                            let side = self.hy.side_rect;
+                            let w = if self.cfg.ui.sidebar_position == "right" { side.right().saturating_sub(m.column) } else { m.column.saturating_sub(side.x) };
+                            self.hy.saved.side_w = Some(w.clamp(hydra::SIDE_MIN, hydra::SIDE_MAX));
+                        }
+                        hydra::Drag::Scroll(term) => {
+                            if let Some((t, r, total)) = self.hy.bar
+                                && t == term
+                            {
+                                let from_bottom = r.bottom().saturating_sub(m.row + 1) as usize;
+                                let v = (from_bottom * total) / r.height.max(1) as usize;
+                                self.scroll_to(term, v.min(total));
+                            }
+                        }
+                        hydra::Drag::Divider(i) => {
+                            if let Some((r, horizontal, path)) = self.hy.dividers.get(i).cloned() {
+                                let f = if horizontal {
+                                    (m.column + 1).saturating_sub(r.x) as f32 / r.width.max(1) as f32
+                                } else {
+                                    (m.row + 1).saturating_sub(r.y) as f32 / r.height.max(1) as f32
+                                };
+                                let tab = self.hy.tab;
+                                if let Some(tab) = self.hy.tabs.get_mut(tab) {
+                                    tab.layout.set_ratio(&path, f);
+                                }
+                            }
+                        }
+                    }
+                    self.dirty = true;
+                    return;
+                }
+                MouseEventKind::Up(_) => {
+                    self.hy.drag = None;
+                    self.hy.save();
+                    self.dirty = true;
+                    return;
+                }
+                _ => {}
+            }
+        }
+        // Some terminals only report the release of a right click: open on whichever comes
+        // first.
+        let right_click = match m.kind {
+            MouseEventKind::Down(MouseButton::Right) => {
+                self.right_down = Some(Instant::now());
+                true
+            }
+            MouseEventKind::Up(MouseButton::Right) => !self.right_down.take().is_some_and(|at| at.elapsed() < Duration::from_millis(600)),
+            _ => false,
+        };
+        if right_click && !self.splash && !matches!(self.mode, Mode::HyMenu(_) | Mode::Confirm(_)) {
+            let hit = self.hits.iter().rev().find(|(r, _)| r.contains(pos)).map(|(_, h)| *h);
+            let at = (m.column, m.row);
+            match hit {
+                Some(Hit::Hy(hydra::HyHit::Session(t))) => self.menu_for_session(t, at),
+                Some(Hit::Hy(hydra::HyHit::ToggleProj(pi))) => self.menu_for_project(pi, at),
+                _ => {
+                    if let Some((term, _)) = self.pane_frames.iter().find(|(_, r)| r.contains(pos)).copied() {
+                        self.menu_for_pane(term, at);
+                    }
+                }
+            }
+            self.dirty = true;
+            return;
+        }
+        if m.kind == MouseEventKind::Moved {
+            if self.hover != Some(pos) {
+                self.hover = Some(pos);
+                self.dirty = true;
+            }
+            return;
+        }
+        if m.kind == MouseEventKind::Down(MouseButton::Left) {
+            let hit = self.hits.iter().rev().find(|(r, _)| r.contains(pos)).map(|(_, h)| *h);
+            if let Some(h @ Hit::Hy(hh)) = hit {
+                let double = self.last_click.is_some_and(|(prev, at)| prev == h && at.elapsed() < Duration::from_millis(400));
+                self.last_click = Some((h, Instant::now()));
+                if matches!(self.mode, Mode::Prefix { .. } | Mode::Side) {
+                    self.mode = Mode::Normal;
+                }
+                self.on_hy_hit(hh, double);
+                self.dirty = true;
+                return;
+            }
+            // The splash waits for one of its buttons.
+            if self.splash {
+                return;
+            }
+            if let Some(h @ Hit::Button(_)) = hit {
+                let double = self.last_click.is_some_and(|(prev, at)| prev == h && at.elapsed() < Duration::from_millis(400));
+                self.last_click = Some((h, Instant::now()));
+                if matches!(self.mode, Mode::Prefix { .. } | Mode::Help { .. }) {
+                    self.mode = Mode::Normal;
+                }
+                if self.on_button(h, double) {
+                    self.dirty = true;
+                    return;
+                }
+            }
+            if matches!(self.mode, Mode::Talk { .. }) {
+                self.mode = Mode::Normal;
+                return;
+            }
+        }
+        if self.on_mouse_select(&m, pos) {
+            return;
+        }
+        match m.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if !matches!(self.mode, Mode::Normal) {
+                    self.mode = Mode::Normal;
+                    return;
+                }
+                if let Some((term, _, _)) = self.pane_cell(pos) {
+                    self.drag = Some((term, pos));
+                }
+                let hit = self.hits.iter().find(|(r, _)| r.contains(pos)).map(|(_, h)| *h);
+                match hit {
+                    Some(Hit::Pane(term)) => self.cmd(Command::FocusPane { term }),
+                    Some(Hit::Button(_) | Hit::Hy(_)) => {}
+                    None => {
+                        if let Some((term, _)) = self.pane_frames.iter().find(|(_, r)| r.contains(pos))
+                            && Some(*term) != self.focused() {
+                                self.cmd(Command::FocusPane { term: *term });
+                            }
+                    }
+                }
+            }
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                let up = m.kind == MouseEventKind::ScrollUp;
+                if self.hy.preview_rect.contains(pos)
+                    && let Some(View::Files(v)) = &mut self.view
+                {
+                    let n = v.edit.as_ref().map(|e| e.lines.len()).or_else(|| v.preview.as_ref().map(|(_, l)| l.len())).unwrap_or(0);
+                    v.scroll = if up { v.scroll.saturating_sub(3) } else { (v.scroll + 3).min(n.saturating_sub(1)) };
+                    self.dirty = true;
+                    return;
+                }
+                if self.hy.side_rect.contains(pos) {
+                    self.hy.side_scroll = if up { self.hy.side_scroll.saturating_sub(3) } else { self.hy.side_scroll + 3 };
+                    self.dirty = true;
+                    return;
+                }
+                let Some((term, _)) = self.pane_frames.iter().find(|(_, r)| r.contains(pos)).copied() else {
+                    return;
+                };
+                let alt = self.parsers.get(&term).is_some_and(|p| p.screen().alternate_screen());
+                if alt {
+                    // Full-screen programs scroll themselves: one arrow key per notch.
+                    let app_cursor = self.parsers.get(&term).is_some_and(|p| p.screen().application_cursor());
+                    let key: &[u8] = match (up, app_cursor) {
+                        (true, true) => b"\x1bOA",
+                        (true, false) => b"\x1b[A",
+                        (false, true) => b"\x1bOB",
+                        (false, false) => b"\x1b[B",
+                    };
+                    self.send(ClientMsg::Input { term, data: key.to_vec() });
+                } else {
+                    self.scroll_by(term, if up { 3 } else { -3 });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Drag to select (enters copy mode), release to copy; clicks and wheel inside copy mode.
+    /// Returns true when the event was consumed.
+    pub(super) fn on_mouse_select(&mut self, m: &MouseEvent, pos: Position) -> bool {
+        match m.kind {
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let Mode::Copy(c) = &mut self.mode {
+                    if let Some((r_term, r)) = self.panes.iter().find(|(t, _)| *t == c.term) {
+                        let _ = r_term;
+                        // Dragging past the edge scrolls.
+                        if pos.y < r.y {
+                            c.scroll(-1);
+                        } else if pos.y >= r.bottom() {
+                            c.scroll(1);
+                        }
+                        let row = pos.y.min(r.bottom().saturating_sub(1)).max(r.y) - r.y;
+                        let col = pos.x.min(r.right().saturating_sub(1)).max(r.x) - r.x;
+                        let at = c.at_cell(row, col);
+                        if c.anchor.is_none() {
+                            c.anchor = Some(c.cur);
+                        }
+                        c.move_to(at);
+                    }
+                    return true;
+                }
+                let Some((term, start)) = self.drag else { return false };
+                if start == pos || !matches!(self.mode, Mode::Normal) || !self.enter_copy(term) {
+                    return false;
+                }
+                let Some((_, r)) = self.panes.iter().find(|(t, _)| *t == term).copied() else { return true };
+                if let Mode::Copy(c) = &mut self.mode {
+                    c.mouse = true;
+                    let s = c.at_cell(start.y.saturating_sub(r.y), start.x.saturating_sub(r.x));
+                    c.cur = s;
+                    c.anchor = Some(s);
+                    let row = pos.y.min(r.bottom().saturating_sub(1)).max(r.y) - r.y;
+                    let col = pos.x.min(r.right().saturating_sub(1)).max(r.x) - r.x;
+                    let at = c.at_cell(row, col);
+                    c.move_to(at);
+                }
+                true
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                self.drag = None;
+                if let Mode::Copy(c) = &self.mode
+                    && c.mouse
+                {
+                    let text = c.selected_text();
+                    self.yank(text);
+                    return true;
+                }
+                false
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                let Mode::Copy(c) = &mut self.mode else { return false };
+                let Some((_, r)) = self.panes.iter().find(|(t, _)| *t == c.term).copied() else { return false };
+                if !r.contains(pos) {
+                    self.mode = Mode::Normal;
+                    return true;
+                }
+                let at = c.at_cell(pos.y - r.y, pos.x - r.x);
+                c.anchor = None;
+                c.move_to(at);
+                true
+            }
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                let Mode::Copy(c) = &mut self.mode else { return false };
+                c.scroll(if m.kind == MouseEventKind::ScrollUp { -3 } else { 3 });
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub(super) fn scroll_by(&mut self, term: TermId, delta: i32) {
+        let Some(p) = self.parsers.get_mut(&term) else { return };
+        let cur = self.scroll.get(&term).copied().unwrap_or(0) as i32;
+        let want = (cur + delta).max(0) as usize;
+        p.screen_mut().set_scrollback(want);
+        // vt100 clamps to the history it has.
+        let actual = p.screen().scrollback();
+        if actual == 0 {
+            self.scroll.remove(&term);
+        } else {
+            self.scroll.insert(term, actual);
+        }
+    }
+
+    /// Clicks on chips and buttons. Returns true if handled.
+    pub(super) fn on_button(&mut self, hit: Hit, double: bool) -> bool {
+        match hit {
+            Hit::Button(b) => match b {
+                Btn::Answer(term, c) => self.send(ClientMsg::Input { term, data: c.to_string().into_bytes() }),
+                Btn::CloseView => self.view = None,
+                Btn::ViewKey(c) => {
+                    let code = match c {
+                        '\n' => KeyCode::Enter,
+                        c => KeyCode::Char(c),
+                    };
+                    self.on_view_key(&KeyEvent::new(code, KeyModifiers::NONE));
+                }
+                Btn::Row(i) => match &mut self.view {
+                    Some(View::Changes(v)) => {
+                        let rows = v.rows();
+                        if let (Some(views::ChangesRow::File(fi, _)), Some(r)) = (rows.get(i), v.review.as_mut()) {
+                            r.sel = *fi;
+                            r.diff_sel = None;
+                            r.scroll = 0;
+                        }
+                    }
+                    Some(View::Files(v)) => {
+                        v.sel = i;
+                        v.refresh_preview();
+                        if double {
+                            self.on_view_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                        }
+                    }
+                    Some(View::Map(_)) => {}
+                    Some(View::Pr(_)) => {}
+                    None => {}
+                },
+            },
+            _ => return false,
+        }
+        true
+    }
+}
