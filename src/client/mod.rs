@@ -1496,6 +1496,12 @@ impl App {
                 self.notify(format!("opening {url}"), false);
                 return;
             }
+            if m.modifiers.contains(KeyModifiers::CONTROL)
+                && let Some((p, line)) = self.parsers.get(&term).and_then(|p| pick::path_at(p.screen(), row, col))
+            {
+                self.open_path_from(term, &p, line);
+                return;
+            }
             let double = self.pane_click.is_some_and(|(p, at)| at.elapsed() < Duration::from_millis(350) && p.y == pos.y && p.x.abs_diff(pos.x) <= 1);
             self.pane_click = Some((pos, Instant::now()));
             if double
@@ -2587,6 +2593,35 @@ impl App {
         self.spawn_bg(move || Bg::Checks(d.clone(), pr_checks(&d, &b)));
     }
 
+    /// A path an agent printed (Ctrl+click): relative to where it runs. Text opens in the file
+    /// viewer at that file (and line); anything else in its own app.
+    fn open_path_from(&mut self, term: TermId, raw: &str, line: Option<u32>) {
+        let info = self.snap.terms.get(&term);
+        let bases: Vec<PathBuf> = [info.map(|t| t.cwd.clone()), info.and_then(|t| t.top.clone()), info.and_then(|t| t.root.clone())].into_iter().flatten().collect();
+        let raw = raw.trim_start_matches("./").replace('/', std::path::MAIN_SEPARATOR_STR);
+        let p = PathBuf::from(&raw);
+        let found = if p.is_absolute() { Some(p).filter(|p| p.exists()) } else { bases.iter().map(|b| b.join(&raw)).find(|p| p.exists()) };
+        let Some(path) = found else {
+            self.notify(format!("no file {raw} where this pane runs"), true);
+            return;
+        };
+        if path.is_dir() {
+            self.open_files(path);
+            return;
+        }
+        let text = std::fs::read(&path).map(|b| !b.iter().take(8000).any(|c| *c == 0)).unwrap_or(false);
+        if text {
+            let dir = path.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+            self.open_files(dir);
+            if let Some(View::Files(v)) = &mut self.view {
+                v.reveal = Some((path, line));
+            }
+        } else {
+            let _ = files::open_default(&path);
+            self.notify(format!("opening {}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), false);
+        }
+    }
+
     fn open_files(&mut self, dir: PathBuf) {
         let head = crate::gitfs::head(&dir);
         let root = head.as_ref().map(|h| h.top.clone()).unwrap_or(dir);
@@ -3673,6 +3708,22 @@ impl App {
                     v.all = nodes;
                     v.git = git;
                     v.loading = false;
+                    if let Some((target, line)) = v.reveal.take() {
+                        let mut p = target.clone();
+                        while let Some(parent) = p.parent().map(|x| x.to_path_buf()) {
+                            if !parent.starts_with(&v.root) || parent == v.root {
+                                break;
+                            }
+                            v.expanded.insert(parent.clone());
+                            p = parent;
+                        }
+                        if let Some(i) = v.visible().iter().position(|(_, n)| n.path == target) {
+                            v.sel = i;
+                        }
+                        v.refresh_preview();
+                        v.scroll = line.map(|l| (l as usize).saturating_sub(4)).unwrap_or(0);
+                        v.in_preview = true;
+                    }
                     v.refresh_preview();
                 }
             }

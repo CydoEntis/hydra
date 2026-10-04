@@ -49,6 +49,41 @@ pub fn url_at(screen: &vt100::Screen, row: u16, col: u16) -> Option<String> {
 
 /// The word under `col`: a link, else a run of characters between separators (spaces and
 /// `|()[]{},;!` and quotes), so paths and identifiers come out whole.
+/// A file path under (row, col), as agents print them: `src/main.rs`, `./a/b.png`,
+/// `C:\\dev\\x.md`, `apps/x.ts:42` (the line comes back too). Only things that look like
+/// paths: a separator or a file extension.
+pub fn path_at(screen: &vt100::Screen, row: u16, col: u16) -> Option<(String, Option<u32>)> {
+    let cells = cells(screen, row);
+    let col = (col as usize).min(cells.len().saturating_sub(1));
+    let sep = |c: &str| c.is_empty() || c.chars().all(|ch| ch.is_whitespace() || "()[]{},;\"'`<>|*".contains(ch));
+    if sep(&cells[col]) {
+        return None;
+    }
+    let mut a = col;
+    while a > 0 && !sep(&cells[a - 1]) {
+        a -= 1;
+    }
+    let mut b = col + 1;
+    while b < cells.len() && !sep(&cells[b]) {
+        b += 1;
+    }
+    let mut w = text(&cells, a, b).trim_end_matches(['.', ',', ':', ';', '!', '?']).to_string();
+    // path:line(:col)
+    let mut line = None;
+    let parts: Vec<&str> = w.rsplitn(3, ':').collect();
+    if parts.len() >= 2 && parts[0].chars().all(|c| c.is_ascii_digit()) && !parts[0].is_empty() {
+        let (num, rest) = if parts.len() == 3 && parts[1].chars().all(|c| c.is_ascii_digit()) && !parts[1].is_empty() {
+            (parts[1], parts[2].to_string())
+        } else {
+            (parts[0], w[..w.len() - parts[0].len() - 1].to_string())
+        };
+        line = num.parse().ok();
+        w = rest;
+    }
+    let looks = w.contains('/') || w.contains('\\') || std::path::Path::new(&w).extension().is_some_and(|e| e.len() <= 8 && e.to_string_lossy().chars().all(|c| c.is_ascii_alphanumeric()));
+    (looks && !w.starts_with("http") && w.len() > 1).then_some((w, line))
+}
+
 pub fn word_at(screen: &vt100::Screen, row: u16, col: u16) -> Option<String> {
     if let Some(u) = url_at(screen, row, col) {
         return Some(u);
@@ -79,6 +114,18 @@ pub fn word_at(screen: &vt100::Screen, row: u16, col: u16) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn paths_agents_print() {
+        let mut p = vt100::Parser::new(4, 100, 0);
+        p.process("• View the tileset (artifacts/undead/terrain/v2/revenant-environment.png)\r\n".as_bytes());
+        p.process(b"see src/client/hydra.rs:42 and README.md. Plain words here.\r\n");
+        let s = p.screen();
+        assert_eq!(path_at(s, 0, 30), Some(("artifacts/undead/terrain/v2/revenant-environment.png".into(), None)), "inside the brackets, without them");
+        assert_eq!(path_at(s, 1, 8), Some(("src/client/hydra.rs".into(), Some(42))), "path:line");
+        assert_eq!(path_at(s, 1, 33), Some(("README.md".into(), None)), "a file name, the full stop dropped");
+        assert_eq!(path_at(s, 1, 46), None, "plain words aren't paths");
+    }
 
     #[test]
     fn links_and_words() {
