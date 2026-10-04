@@ -792,41 +792,6 @@ pub fn integrate(agent: &str, uninstall: bool) -> Result<()> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn model_and_name_from_a_transcript() {
-        assert_eq!(super::short_model("claude-opus-4-5-20251101"), "opus 4.5");
-        assert_eq!(super::short_model("claude-fable-5-1"), "fable 5.1");
-        assert_eq!(super::short_model("gpt-5.5"), "gpt-5.5");
-        let t = [
-            r#"{"type":"assistant","message":{"model":"claude-sonnet-5-5","content":[]}}"#,
-            r#"{"type":"ai-title","aiTitle":"Fix the login flow","sessionId":"s"}"#,
-            r#"{"type":"user","message":{"content":"say \"model\" and \"customTitle\""}}"#,
-        ]
-        .join("\n");
-        assert_eq!(super::transcript_facts_in(&t), (Some("sonnet 5.5".into()), Some("Fix the login flow".into())));
-        let t = format!("{t}\n{}", r#"{"type":"custom-title","customTitle":"auth rewrite","sessionId":"s"}"#);
-        assert_eq!(super::transcript_facts_in(&t).1.as_deref(), Some("auth rewrite"), "your /rename wins");
-    }
-
-    use super::*;
-
-    #[test]
-    fn claude_hook_mapping() {
-        let s = |v: Value| status_from_hook(&v);
-        assert_eq!(s(json!({"hook_event_name": "UserPromptSubmit"})), Some(HookStatus::Working));
-        assert_eq!(s(json!({"hook_event_name": "Stop"})), Some(HookStatus::Done));
-        assert_eq!(
-            s(json!({"hook_event_name": "Notification", "notification_type": "permission_prompt"})),
-            Some(HookStatus::Blocked)
-        );
-        assert_eq!(s(json!({"hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion"})), Some(HookStatus::Blocked));
-        assert_eq!(s(json!({"type": "agent-turn-complete"})), Some(HookStatus::Done));
-        assert_eq!(s(json!({"hook_event_name": "Notification", "notification_type": "auth_success"})), None);
-    }
-}
-
 /// Debugging: the colours a pane's program is drawing (rows with a background colour).
 pub fn debug_colors(pane: TermId) -> Result<()> {
     block_on(async move {
@@ -866,4 +831,39 @@ pub fn debug_colors(pane: TermId) -> Result<()> {
         }
         anyhow::bail!("no pane {pane}")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn model_and_name_from_a_transcript() {
+        assert_eq!(super::short_model("claude-opus-4-5-20251101"), "opus 4.5");
+        assert_eq!(super::short_model("claude-fable-5-1"), "fable 5.1");
+        assert_eq!(super::short_model("gpt-5.5"), "gpt-5.5");
+        let t = [
+            r#"{"type":"assistant","message":{"model":"claude-sonnet-5-5","content":[]}}"#,
+            r#"{"type":"ai-title","aiTitle":"Fix the login flow","sessionId":"s"}"#,
+            r#"{"type":"user","message":{"content":"say \"model\" and \"customTitle\""}}"#,
+        ]
+        .join("\n");
+        assert_eq!(super::transcript_facts_in(&t), (Some("sonnet 5.5".into()), Some("Fix the login flow".into())));
+        let t = format!("{t}\n{}", r#"{"type":"custom-title","customTitle":"auth rewrite","sessionId":"s"}"#);
+        assert_eq!(super::transcript_facts_in(&t).1.as_deref(), Some("auth rewrite"), "your /rename wins");
+    }
+
+    use super::*;
+
+    #[test]
+    fn claude_hook_mapping() {
+        let s = |v: Value| status_from_hook(&v);
+        assert_eq!(s(json!({"hook_event_name": "UserPromptSubmit"})), Some(HookStatus::Working));
+        assert_eq!(s(json!({"hook_event_name": "Stop"})), Some(HookStatus::Done));
+        assert_eq!(
+            s(json!({"hook_event_name": "Notification", "notification_type": "permission_prompt"})),
+            Some(HookStatus::Blocked)
+        );
+        assert_eq!(s(json!({"hook_event_name": "PreToolUse", "tool_name": "AskUserQuestion"})), Some(HookStatus::Blocked));
+        assert_eq!(s(json!({"type": "agent-turn-complete"})), Some(HookStatus::Done));
+        assert_eq!(s(json!({"hook_event_name": "Notification", "notification_type": "auth_success"})), None);
+    }
 }

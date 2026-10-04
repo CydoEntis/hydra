@@ -242,39 +242,6 @@ fn from_file_url(url: &str) -> Option<String> {
     Some(s)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn clipboard_and_colour_queries() {
-        assert_eq!(base64_decode(b"aGVsbG8gd29ybGQ=").unwrap(), b"hello world");
-        let (at, len, q) = find_query(b"abc\x1b]11;?\x1b\\rest").unwrap();
-        assert_eq!((at, len, q), (3, 8, &Query::Background(true)));
-        let (_, _, q) = find_query(b"\x1b]10;?\x07").unwrap();
-        assert_eq!(q, &Query::Foreground(false));
-        // OSC 52 from a program lands in the callbacks.
-        let mut p = vt100::Parser::new_with_callbacks(5, 20, 0, Callbacks::default());
-        p.process(b"\x1b]52;c;aGVsbG8=\x07");
-        assert_eq!(p.callbacks_mut().copied.take().as_deref(), Some("hello"));
-    }
-
-    #[test]
-    fn cwd_reports() {
-        assert_eq!(find_cwd_report(b"x\x1b]7;file://host/home/me/a%20b\x07y"), Some(PathBuf::from("/home/me/a b")));
-        assert_eq!(find_cwd_report(b"\x1b]7;file://pc/C:/dev/x\x1b\\"), Some(PathBuf::from("C:/dev/x")));
-        assert_eq!(find_cwd_report(b"\x1b]9;9;\"C:\\dev\\y\"\x07"), Some(PathBuf::from(r"C:\dev\y")));
-        assert_eq!(find_cwd_report(b"plain output"), None);
-    }
-
-    #[test]
-    fn queries() {
-        assert_eq!(find_query(b"ab\x1b[6ncd").map(|q| (q.0, q.1)), Some((2, 4)));
-        assert_eq!(find_query(b"\x1b[31m\x1b[c").map(|q| q.0), Some(5));
-        assert!(find_query(b"\x1b[1;5A").is_none());
-    }
-}
-
 /// Build the argv for a pane: a plain shell, or a command run inside one so PATH lookups,
 /// `.cmd` shims and aliases work, and the pane falls back to the shell when it exits.
 /// PowerShell doesn't tell the terminal where it is. This wraps whatever prompt the user's
@@ -602,4 +569,37 @@ impl Term {
 /// Seconds since the unix epoch.
 pub fn unix_now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clipboard_and_colour_queries() {
+        assert_eq!(base64_decode(b"aGVsbG8gd29ybGQ=").unwrap(), b"hello world");
+        let (at, len, q) = find_query(b"abc\x1b]11;?\x1b\\rest").unwrap();
+        assert_eq!((at, len, q), (3, 8, &Query::Background(true)));
+        let (_, _, q) = find_query(b"\x1b]10;?\x07").unwrap();
+        assert_eq!(q, &Query::Foreground(false));
+        // OSC 52 from a program lands in the callbacks.
+        let mut p = vt100::Parser::new_with_callbacks(5, 20, 0, Callbacks::default());
+        p.process(b"\x1b]52;c;aGVsbG8=\x07");
+        assert_eq!(p.callbacks_mut().copied.take().as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn cwd_reports() {
+        assert_eq!(find_cwd_report(b"x\x1b]7;file://host/home/me/a%20b\x07y"), Some(PathBuf::from("/home/me/a b")));
+        assert_eq!(find_cwd_report(b"\x1b]7;file://pc/C:/dev/x\x1b\\"), Some(PathBuf::from("C:/dev/x")));
+        assert_eq!(find_cwd_report(b"\x1b]9;9;\"C:\\dev\\y\"\x07"), Some(PathBuf::from(r"C:\dev\y")));
+        assert_eq!(find_cwd_report(b"plain output"), None);
+    }
+
+    #[test]
+    fn queries() {
+        assert_eq!(find_query(b"ab\x1b[6ncd").map(|q| (q.0, q.1)), Some((2, 4)));
+        assert_eq!(find_query(b"\x1b[31m\x1b[c").map(|q| q.0), Some(5));
+        assert!(find_query(b"\x1b[1;5A").is_none());
+    }
 }

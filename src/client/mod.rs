@@ -5177,7 +5177,7 @@ mod hydra_tests {
         let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
         let ids: Vec<TermId> = app.snap.terms.keys().copied().collect();
         for (n, id) in ids.iter().enumerate() {
-            app.snap.terms.get_mut(id).unwrap().mem = (n as u64 + 1) * 300 << 20;
+            app.snap.terms.get_mut(id).unwrap().mem = ((n as u64 + 1) * 300) << 20;
         }
         app.hy_fresh();
         app.act(Action::Memory);
@@ -5257,7 +5257,7 @@ mod hydra_tests {
         draw(&mut app, 160, 45);
         app.on_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL));
         app.on_key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::SHIFT));
-        eprintln!("view after key: {:?}", app.view.as_ref().map(|v| std::mem::discriminant(v)));
+        eprintln!("view after key: {:?}", app.view.as_ref().map(std::mem::discriminant));
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(matches!(app.view, Some(View::Map(_))), "the map is open");
