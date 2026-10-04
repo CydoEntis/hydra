@@ -70,7 +70,8 @@ fn base64_decode(s: &[u8]) -> Option<Vec<u8>> {
 pub struct Term {
     pub id: TermId,
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    /// To the pane's input thread (see `input_thread`).
+    writer: std::sync::mpsc::SyncSender<Vec<u8>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
     pub pid: Option<u32>,
     /// The daemon's own view of the screen, for status patterns and `hydra read`.
@@ -319,7 +320,7 @@ impl Term {
         let pid = child.process_id();
         let killer = child.clone_killer();
         let mut reader = pair.master.try_clone_reader()?;
-        let writer = pair.master.take_writer()?;
+        let writer = input_thread(pair.master.take_writer()?);
         let id = spec.id;
 
         let out_tx = tx.clone();
@@ -474,8 +475,7 @@ impl Term {
                     format!("\x1b]{n};rgb:{r:02x}{r:02x}/{g:02x}{g:02x}/{b:02x}{b:02x}{end}").into_bytes()
                 }
             };
-            let _ = self.writer.write_all(&reply);
-            let _ = self.writer.flush();
+            queue_input(&self.writer, reply);
             rest = &rest[at + len..];
         }
         self.parser.process(rest);
@@ -495,8 +495,7 @@ impl Term {
 
     pub fn input(&mut self, data: &[u8]) {
         self.last_input = Instant::now();
-        let _ = self.writer.write_all(data);
-        let _ = self.writer.flush();
+        queue_input(&self.writer, data.to_vec());
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16) {
@@ -568,6 +567,40 @@ pub fn unix_now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
+/// Writes waiting for a pane's input. A pane that stops reading loses what doesn't fit,
+/// rather than stalling the daemon (and every other pane) on a blocked write.
+const INPUT_QUEUE: usize = 1024;
+
+/// A thread that owns the pane's input and writes what it's sent, so a program that isn't
+/// reading blocks only this thread. It ends when the pane goes (the sender drops, or the
+/// write fails because the terminal closed).
+fn input_thread(mut w: Box<dyn Write + Send>) -> std::sync::mpsc::SyncSender<Vec<u8>> {
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(INPUT_QUEUE);
+    let spawned = std::thread::Builder::new().name("pane-input".into()).spawn(move || {
+        for chunk in rx {
+            if w.write_all(&chunk).and_then(|_| w.flush()).is_err() {
+                break;
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::error!("couldn't start a pane's input thread: {e}");
+    }
+    tx
+}
+
+/// Hand bytes to the pane's input thread without waiting; false when they were dropped.
+fn queue_input(tx: &std::sync::mpsc::SyncSender<Vec<u8>>, data: Vec<u8>) -> bool {
+    match tx.try_send(data) {
+        Ok(()) => true,
+        Err(std::sync::mpsc::TrySendError::Full(_)) => {
+            tracing::warn!("a pane isn't reading its input; dropped some");
+            false
+        }
+        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => false,
+    }
+}
+
 /// A pane's secret: 128 bits from the OS's random source, as hex.
 pub fn new_secret() -> Result<String> {
     let mut b = [0u8; 16];
@@ -583,6 +616,31 @@ pub fn same_secret(a: &str, b: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_pane_that_never_reads_doesnt_block() {
+        // A writer that never returns, like a program that has stopped reading its input.
+        struct Stuck(std::sync::mpsc::Receiver<()>);
+        impl std::io::Write for Stuck {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                let _ = self.0.recv();
+                Ok(0)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let (_hold, rx) = std::sync::mpsc::channel();
+        let tx = super::input_thread(Box::new(Stuck(rx)));
+        let start = std::time::Instant::now();
+        let big = vec![b'x'; 1024];
+        let mut dropped = false;
+        for _ in 0..super::INPUT_QUEUE + 10 {
+            dropped |= !super::queue_input(&tx, big.clone());
+        }
+        assert!(start.elapsed() < std::time::Duration::from_secs(5), "never waits on the pane");
+        assert!(dropped, "past the queue, input is dropped instead of waited for");
+    }
+
     #[test]
     fn pane_secrets_are_random_and_compared_whole() {
         let (a, b) = (super::new_secret().unwrap(), super::new_secret().unwrap());
