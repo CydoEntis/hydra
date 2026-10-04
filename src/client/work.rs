@@ -60,11 +60,9 @@ pub fn save_ideas(ideas: &[Idea]) {
         return;
     }
     if let Ok(s) = serde_json::to_string_pretty(ideas) {
-        let p = ideas_path();
-        if let Some(d) = p.parent() {
-            let _ = std::fs::create_dir_all(d);
+        if let Err(e) = crate::config::write_atomic(&ideas_path(), s) {
+            tracing::warn!("couldn't save ideas: {e}");
         }
-        let _ = std::fs::write(p, s);
         crate::sync::push_soon();
     }
 }

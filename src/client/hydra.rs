@@ -166,7 +166,7 @@ impl Hy {
         if cfg!(test) {
             return Hy::default();
         }
-        let saved = std::fs::read_to_string(saved_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        let saved = crate::config::read_state(&saved_path());
         Hy { saved, ..Default::default() }
     }
 
@@ -175,12 +175,10 @@ impl Hy {
         if cfg!(test) {
             return;
         }
-        if let Ok(s) = serde_json::to_string_pretty(&self.saved) {
-            let p = saved_path();
-            if let Some(d) = p.parent() {
-                let _ = std::fs::create_dir_all(d);
-            }
-            let _ = std::fs::write(p, s);
+        if let Ok(s) = serde_json::to_string_pretty(&self.saved)
+            && let Err(e) = crate::config::write_atomic(&saved_path(), s)
+        {
+            tracing::warn!("couldn't save hydra's state: {e}");
         }
     }
 }

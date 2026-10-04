@@ -154,9 +154,27 @@ fn create_trusted_worktree(dir: &std::path::Path, branch: &str, base: Option<&st
 }
 
 fn trust_in(file: &std::path::Path, repo: &std::path::Path, worktree: &std::path::Path) {
+    // Claude rewrites this file too: if it changed while we worked, start again from its
+    // version rather than replace it.
+    for _ in 0..3 {
+        match trust_once(file, repo, worktree) {
+            Trust::Raced => continue,
+            Trust::Done => return,
+        }
+    }
+    tracing::warn!("{} kept changing; didn't mark {} trusted", file.display(), worktree.display());
+}
+
+enum Trust {
+    Done,
+    /// The file changed between reading it and swapping ours in.
+    Raced,
+}
+
+fn trust_once(file: &std::path::Path, repo: &std::path::Path, worktree: &std::path::Path) -> Trust {
     let file = file.to_path_buf();
-    let Ok(text) = std::fs::read_to_string(&file) else { return };
-    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&text) else { return };
+    let Ok(text) = std::fs::read_to_string(&file) else { return Trust::Done };
+    let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&text) else { return Trust::Done };
     let key = |p: &std::path::Path| p.to_string_lossy().replace('\\', "/").trim_end_matches('/').to_string();
     let projects = v.get("projects");
     let trusted = |k: &str| projects.and_then(|p| p.get(k)).and_then(|e| e.get("hasTrustDialogAccepted")).and_then(|b| b.as_bool()) == Some(true);
@@ -164,20 +182,29 @@ fn trust_in(file: &std::path::Path, repo: &std::path::Path, worktree: &std::path
     // Claude's keys may differ in the drive letter's case.
     let repo_ok = trusted(&rk) || projects.and_then(|p| p.as_object()).is_some_and(|m| m.iter().any(|(k, e)| k.eq_ignore_ascii_case(&rk) && e.get("hasTrustDialogAccepted").and_then(|b| b.as_bool()) == Some(true)));
     if !repo_ok || trusted(&wk) {
-        return;
+        return Trust::Done;
     }
-    let Some(map) = v.get_mut("projects").and_then(|p| p.as_object_mut()) else { return };
+    let Some(map) = v.get_mut("projects").and_then(|p| p.as_object_mut()) else { return Trust::Done };
     let entry = map.entry(wk).or_insert_with(|| serde_json::json!({}));
     if let Some(o) = entry.as_object_mut() {
         o.insert("hasTrustDialogAccepted".into(), serde_json::Value::Bool(true));
     }
-    // Write beside and swap, so a reader never sees half a file.
+    // Write beside and swap, so a reader never sees half a file; check it's still the
+    // version we read right before swapping.
     let tmp = file.with_extension("json.hydra-tmp");
-    if let Ok(s) = serde_json::to_string_pretty(&v)
-        && std::fs::write(&tmp, s).is_ok()
-    {
-        let _ = std::fs::rename(&tmp, &file);
+    let Ok(s) = serde_json::to_string_pretty(&v) else { return Trust::Done };
+    if std::fs::write(&tmp, s).is_err() {
+        return Trust::Done;
     }
+    if std::fs::read_to_string(&file).ok().as_deref() != Some(text.as_str()) {
+        let _ = std::fs::remove_file(&tmp);
+        return Trust::Raced;
+    }
+    if let Err(e) = std::fs::rename(&tmp, &file) {
+        tracing::warn!("couldn't update {}: {e}", file.display());
+        let _ = std::fs::remove_file(&tmp);
+    }
+    Trust::Done
 }
 
 /// Claude files conversations under `~/.claude/projects/<folder slug>/<session>.jsonl`, the

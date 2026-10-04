@@ -269,10 +269,7 @@ pub fn write_at(parts: &[&str], value: toml_edit::Value) -> Result<()> {
         table = table[*part].as_table_mut().with_context(|| format!("`{part}` in config.toml is not a table"))?;
     }
     table.insert(leaf, toml_edit::value(value));
-    if let Some(dir) = file.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(&file, doc.to_string()).context("writing config")?;
+    crate::config::write_atomic(&file, doc.to_string()).context("writing config")?;
     crate::sync::push_soon();
     Ok(())
 }

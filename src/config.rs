@@ -539,6 +539,36 @@ pub fn config_path() -> PathBuf {
     base.join("hydra").join("config.toml")
 }
 
+/// Write a file so a reader (or a crash) never sees half of it: write a temporary file
+/// beside it, then swap it in.
+pub fn write_atomic(path: &std::path::Path, data: impl AsRef<[u8]>) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let tmp = path.with_file_name(format!(".{name}.hydra-tmp"));
+    std::fs::write(&tmp, data)?;
+    std::fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
+}
+
+/// Read a JSON state file; one that's there but won't parse is kept as `<name>.bak` (so a
+/// bad write or a hand edit loses nothing) and the defaults are used.
+pub fn read_state<T: serde::de::DeserializeOwned + Default>(path: &std::path::Path) -> T {
+    let Ok(text) = std::fs::read_to_string(path) else { return T::default() };
+    match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(e) => {
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let bak = path.with_file_name(format!("{name}.bak"));
+            tracing::warn!("{} doesn't parse ({e}); kept it as {}", path.display(), bak.display());
+            let _ = std::fs::copy(path, &bak);
+            T::default()
+        }
+    }
+}
+
 pub fn data_dir() -> PathBuf {
     directories::ProjectDirs::from("", "", "hydra")
         .map(|d| d.data_local_dir().to_path_buf())
@@ -785,6 +815,23 @@ fn which(exe: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn state_files_swap_in_and_keep_a_bad_copy() {
+        let dir = std::env::temp_dir().join(format!("hydra-state-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("s.json");
+        super::write_atomic(&f, "[1,2]").unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "[1,2]");
+        assert!(!dir.join(".s.json.hydra-tmp").exists(), "no temporary file left behind");
+        let v: Vec<u32> = super::read_state(&f);
+        assert_eq!(v, vec![1, 2]);
+        std::fs::write(&f, "[1,2").unwrap();
+        let v: Vec<u32> = super::read_state(&f);
+        assert!(v.is_empty(), "a broken file gives the defaults");
+        assert_eq!(std::fs::read_to_string(dir.join("s.json.bak")).unwrap(), "[1,2", "and is kept as .bak");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
 
     #[test]

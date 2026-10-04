@@ -757,7 +757,7 @@ pub fn integrate(agent: &str, uninstall: bool) -> Result<()> {
             }
             hooks.retain(|_, v| v.as_array().is_none_or(|a| !a.is_empty()));
             std::fs::create_dir_all(&dir)?;
-            std::fs::write(&path, serde_json::to_string_pretty(&root)? + "\n")?;
+            crate::config::write_atomic(&path, serde_json::to_string_pretty(&root)? + "\n")?;
             if uninstall {
                 println!("removed hydra hooks from {}", path.display());
             } else {
