@@ -833,6 +833,28 @@ pub fn debug_colors(pane: TermId) -> Result<()> {
     })
 }
 
+/// `hydra allow`: show the repo's hook commands and let them run from now on.
+pub fn allow(dir: Option<std::path::PathBuf>) -> Result<()> {
+    let dir = match dir {
+        Some(d) => d,
+        None => std::env::current_dir()?,
+    };
+    let p = crate::project::load(&dir);
+    let cmds = [p.hooks.on_create.as_str(), p.hooks.on_remove.as_str()];
+    if cmds.iter().all(|c| c.trim().is_empty()) {
+        println!("no hooks in {} here; nothing to allow", crate::project::FILE);
+        return Ok(());
+    }
+    crate::project::allow(&dir, &cmds)?;
+    for (what, c) in [("on_create", cmds[0]), ("on_remove", cmds[1])] {
+        if !c.trim().is_empty() {
+            println!("allowed {what}: {c}");
+        }
+    }
+    println!("(if the commands change, they won't run until you allow them again)");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

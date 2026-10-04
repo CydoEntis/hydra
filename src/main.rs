@@ -156,6 +156,11 @@ enum Cmd {
     DebugColors { pane: u32 },
     /// Check that everything hydra relies on is in place, and how to fix what isn't.
     Doctor,
+    /// Let this repo's .hydra.toml hooks run (they don't until you allow them).
+    Allow {
+        /// The repo (default: here).
+        dir: Option<PathBuf>,
+    },
     /// (Run by `--remote` over ssh) connect stdin/stdout to this machine's server.
     #[command(hide = true)]
     Proxy,
@@ -256,6 +261,7 @@ fn main() {
         Some(Cmd::Mcp) => mcp::run(),
         Some(Cmd::Dev { action, dir }) => cli::dev(&action, dir),
         Some(Cmd::Doctor) => cli::doctor(),
+        Some(Cmd::Allow { dir }) => cli::allow(dir),
         Some(Cmd::Proxy) => cli::block_on(ipc::proxy()),
         Some(Cmd::Ext { action, name, index, term }) => cli::ext(&action, name, index, term),
         Some(Cmd::DebugColors { pane }) => cli::debug_colors(pane),

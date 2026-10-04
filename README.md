@@ -399,6 +399,10 @@ on_create = "npm install"        # in every new worktree
 on_remove = ""
 ```
 
+Hooks don't run until you allow them: run `hydra allow` in the repo (it shows the
+commands). If they change, they wait for `hydra allow` again, so a cloned repo can't run
+code on its own. A hook is stopped after 10 minutes.
+
 ## Extensions
 
 `hydra ext new deploy` makes `<config>/extensions/deploy/hydra-ext.toml`: `[[commands]]` show in

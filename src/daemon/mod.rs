@@ -1115,8 +1115,12 @@ impl Daemon {
         let shell = self.cfg.shell_command();
         let dir = dir.to_path_buf();
         let base = proj.dev.and_then(|d| d.port);
+        let allowed = crate::project::allowed(&dir, &cmd);
         Some(move || {
             let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            if !allowed {
+                return format!("{name}: this repo's {} wants to run `{cmd}`; run `hydra allow` in the repo to let it", crate::project::FILE);
+            }
             let mut vars = vec![("HYDRA_WORKTREE", dir.display().to_string())];
             if let Some(h) = crate::gitfs::head(&dir) {
                 vars.push(("HYDRA_BRANCH", h.branch.clone()));
