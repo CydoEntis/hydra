@@ -64,7 +64,12 @@ mod design_tests {
         let mut layout = Node::Leaf(1);
         layout.split(1, Dir::Right, 2);
         layout.split(2, Dir::Down, 3);
-        let root = r"C:\code\shop-api";
+        // A project folder in this platform's own style (tests run on Windows and Linux).
+        let base = std::path::Path::new(if cfg!(windows) { r"C:\code" } else { "/code" });
+        let root_buf = base.join("shop-api");
+        let rate_buf = root_buf.join(".wt").join("rate");
+        let orders_buf = root_buf.join(".wt").join("orders");
+        let root = root_buf.to_str().unwrap();
         app.snap.workspaces.push(WorkspaceInfo {
             id: 10,
             name: "shop-api".into(),
@@ -79,8 +84,8 @@ mod design_tests {
                 root: PathBuf::from(root),
                 worktrees: vec![
                     entry(root, "main", true),
-                    entry(r"C:\code\shop-api\.wt\rate", "rate-limit", false),
-                    entry(r"C:\code\shop-api\.wt\orders", "orders-migration", false),
+                    entry(rate_buf.to_str().unwrap(), "rate-limit", false),
+                    entry(orders_buf.to_str().unwrap(), "orders-migration", false),
                 ],
                 ahead: 0,
             }),
@@ -91,7 +96,7 @@ mod design_tests {
         });
         app.snap.active_ws = Some(10);
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let rate = r"C:\code\shop-api\.wt\rate";
+        let rate = rate_buf.to_str().unwrap();
         let mut claude = term(1, Some("claude"), Status::Blocked, root);
         claude.branch = Some("main".into());
         claude.subagents = vec!["Explore".into()];
