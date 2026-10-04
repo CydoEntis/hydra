@@ -50,6 +50,38 @@ pub enum Ev {
     SpareMade(PathBuf, Result<(PathBuf, String), String>),
     /// A worktree made for an agent to move into: (client, pane, branch, result).
     MoveReady { client: ClientId, term: TermId, branch: String, result: Result<(PathBuf, String), String> },
+    /// A status report, its sender checked (see `HookJob`).
+    HookChecked { msg: ClientMsg, verdict: Option<bool>, chain: Vec<u32> },
+}
+
+/// A status report waiting for its process chain to be checked.
+struct HookJob {
+    msg: ClientMsg,
+    pid: u32,
+    /// The pane's own process, when there's a chain to check.
+    root: Option<u32>,
+    known: std::collections::HashSet<u32>,
+}
+
+/// One thread checks status reports' process chains, in the order they came, and hands
+/// them back to the daemon loop.
+fn hook_thread(tx: mpsc::Sender<Ev>) -> std::sync::mpsc::Sender<HookJob> {
+    let (jobs, rx) = std::sync::mpsc::channel::<HookJob>();
+    let spawned = std::thread::Builder::new().name("hook-check".into()).spawn(move || {
+        for job in rx {
+            let (verdict, chain) = match job.root {
+                Some(root) => scan::descends_from(job.pid, root, &job.known),
+                None => (None, Vec::new()),
+            };
+            if tx.blocking_send(Ev::HookChecked { msg: job.msg, verdict, chain }).is_err() {
+                break;
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::error!("couldn't start the hook thread: {e}");
+    }
+    jobs
 }
 
 /// How to put back what an automatic workspace changed.
@@ -108,6 +140,17 @@ fn trust_like_repo(repo: &std::path::Path, worktree: &std::path::Path) {
     if let Some(home) = directories::BaseDirs::new() {
         trust_in(&home.home_dir().join(".claude.json"), repo, worktree);
     }
+}
+
+/// Make a worktree and trust it like its repo, both on the calling (background) thread:
+/// Claude's file can be megabytes, and the trust must be in place before an agent starts
+/// there.
+fn create_trusted_worktree(dir: &std::path::Path, branch: &str, base: Option<&str>, template: &str) -> Result<(PathBuf, String), String> {
+    let made = git::create_worktree(dir, branch, base, template).map_err(|e| format!("{e:#}"))?;
+    if let Some(h) = crate::gitfs::head(&made.0) {
+        trust_like_repo(&h.main_root, &made.0);
+    }
+    Ok(made)
 }
 
 fn trust_in(file: &std::path::Path, repo: &std::path::Path, worktree: &std::path::Path) {
@@ -169,6 +212,8 @@ struct Daemon {
     next_id: u32,
     clients: HashMap<ClientId, Client>,
     tx: mpsc::Sender<Ev>,
+    /// To the hook thread (see `hook_thread`).
+    hook_jobs: std::sync::mpsc::Sender<HookJob>,
     scan: Arc<Mutex<scan::Shared>>,
     dirty: bool,
     had_terms: bool,
@@ -247,6 +292,7 @@ pub fn run() -> Result<()> {
         }));
         scan::start(scan.clone(), tx.clone());
 
+        let hook_jobs = hook_thread(tx.clone());
         let mut d = Daemon {
             cfg,
             agents,
@@ -255,6 +301,7 @@ pub fn run() -> Result<()> {
             active_ws: None,
             next_id: 1,
             clients: HashMap::new(),
+            hook_jobs,
             tx,
             scan,
             dirty: false,
@@ -727,9 +774,6 @@ impl Daemon {
                 });
                 if let Ok(p) = &opened {
                     self.made_worktrees.push(p.clone());
-                    if let Some(h) = crate::gitfs::head(p) {
-                        trust_like_repo(&h.main_root, p);
-                    }
                     if !self.adopted.take().is_some_and(|a| same_path(&a, p)) {
                         self.worktree_hook(p, true);
                     }
@@ -750,12 +794,12 @@ impl Daemon {
                 self.dirty = true;
             }
             Ev::HookRan(msg) => self.broadcast(|_| true, ServerMsg::Notice(msg)),
+            Ev::HookChecked { msg, verdict, chain } => self.apply_hook(msg, verdict, chain),
             Ev::SpareMade(repo, result) => {
                 self.spare_making = false;
                 match result {
                     Ok((path, _)) => {
                         save_spare(Some(&path));
-                        trust_like_repo(&repo, &path);
                         self.worktree_hook(&path, true);
                         let cmd = self.cfg.worktree.prewarm.clone();
                         let (cols, rows) = self.guess_size();
@@ -768,7 +812,7 @@ impl Daemon {
                             }
                             Err(e) => {
                                 tracing::warn!("prewarm: {e:#}");
-                                drop_spare_dir(&path);
+                                tokio::task::spawn_blocking(move || drop_spare_dir(&path));
                             }
                         }
                     }
@@ -784,10 +828,6 @@ impl Daemon {
                 match result {
                     Ok((path, _)) => {
                         self.made_worktrees.push(path.clone());
-                        let repo = self.terms.get(&term).and_then(|t| t.head.as_ref().map(|h| h.main_root.clone()));
-                        if let Some(repo) = repo {
-                            trust_like_repo(&repo, &path);
-                        }
                         self.worktree_hook(&path, true);
                         if let Some(t) = self.terms.get_mut(&term) {
                             t.pending_move = Some(path.clone());
@@ -852,34 +892,70 @@ impl Daemon {
                     self.dirty = true;
                 }
             }
-            ClientMsg::Hook { term, agent, status, session, cwd, prompt, said, subagent, event, pid, token, transcript, model, name } => {
+            ClientMsg::Hook { term, ref token, pid, .. } => {
                 // Only the pane's own processes may report its status. They carry its secret;
                 // when the chain can be traced it must also lead back to the pane, so a desktop
-                // app that inherited the pane's environment still can't.
+                // app that inherited the pane's environment still can't. The chain is walked on
+                // the hook thread (it's slow on Windows), in arrival order.
                 let Some(pane) = self.terms.get(&term) else { return };
-                if !term::same_secret(&pane.token, &token) {
+                if !term::same_secret(&pane.token, token) {
                     tracing::info!("ignoring a status report for pane {term} without its secret");
                     return;
                 }
-                if let Some(tp) = pane.pid
-                    && pid != 0
-                {
-                    let known = pane.trusted.clone();
-                    match scan::descends_from(pid, tp, &known) {
-                        (Some(true), chain) => {
-                            if let Some(t) = self.terms.get_mut(&term) {
-                                t.trusted.extend(chain);
-                            }
-                        }
-                        // A process in the chain already gone (Git Bash running Claude's hooks
-                        // on Windows): the secret decides.
-                        (None, _) => {}
-                        (Some(false), _) => {
-                            tracing::info!("ignoring a status report for pane {term} from pid {pid} outside it");
-                            return;
-                        }
-                    }
+                let job = HookJob { root: pane.pid.filter(|_| pid != 0), pid, known: pane.trusted.clone(), msg };
+                if self.hook_jobs.send(job).is_err() {
+                    tracing::error!("the hook thread is gone; status reports are lost");
                 }
+            }
+            ClientMsg::Command(cmd) => {
+                match self.command(client, cmd) {
+                    Ok(true) => self.send(client, ServerMsg::Reply(Reply::Ok)),
+                    Ok(false) => {} // answered when the background work finishes
+                    Err(e) => self.send(client, ServerMsg::Error(format!("{e:#}"))),
+                }
+                self.dirty = true;
+            }
+            ClientMsg::Query(q) => {
+                let reply = match q {
+                    Query::List => ServerMsg::Reply(Reply::List(self.snapshot())),
+                    Query::Read { term } => match self.terms.get(&term) {
+                        Some(t) => ServerMsg::Reply(Reply::Text(t.parser.screen().contents())),
+                        None => ServerMsg::Error(format!("no pane {term}")),
+                    },
+                    Query::Worktrees { ws } => {
+                        let Some(dir) = self.workspaces.iter().find(|w| w.id == ws).map(|w| w.cwd.clone()) else {
+                            self.send(client, ServerMsg::Error(format!("no workspace {ws}")));
+                            return;
+                        };
+                        let tx = self.tx.clone();
+                        tokio::task::spawn_blocking(move || {
+                            let result = git::list_worktrees(&dir).map_err(|e| format!("{e:#}"));
+                            let _ = tx.blocking_send(Ev::WorktreeList { client, result });
+                        });
+                        return;
+                    }
+                };
+                self.send(client, reply);
+            }
+        }
+    }
+
+    /// A status report whose sender checked out (`verdict`: did its process chain lead to
+    /// the pane; None when it couldn't be traced and the secret decides).
+    fn apply_hook(&mut self, msg: ClientMsg, verdict: Option<bool>, chain: Vec<u32>) {
+        let ClientMsg::Hook { term, agent, status, session, cwd, prompt, said, subagent, event, pid, transcript, model, name, .. } = msg else { return };
+        match verdict {
+            Some(false) => {
+                tracing::info!("ignoring a status report for pane {term} from pid {pid} outside it");
+                return;
+            }
+            Some(true) => {
+                if let Some(t) = self.terms.get_mut(&term) {
+                    t.trusted.extend(chain);
+                }
+            }
+            None => {}
+        }
                 if let Some(t) = self.terms.get_mut(&term) {
                     if let Some(sa) = subagent {
                         if sa.start {
@@ -927,38 +1003,6 @@ impl Daemon {
                     }
                 }
                 self.hook(term, agent, status, &event);
-            }
-            ClientMsg::Command(cmd) => {
-                match self.command(client, cmd) {
-                    Ok(true) => self.send(client, ServerMsg::Reply(Reply::Ok)),
-                    Ok(false) => {} // answered when the background work finishes
-                    Err(e) => self.send(client, ServerMsg::Error(format!("{e:#}"))),
-                }
-                self.dirty = true;
-            }
-            ClientMsg::Query(q) => {
-                let reply = match q {
-                    Query::List => ServerMsg::Reply(Reply::List(self.snapshot())),
-                    Query::Read { term } => match self.terms.get(&term) {
-                        Some(t) => ServerMsg::Reply(Reply::Text(t.parser.screen().contents())),
-                        None => ServerMsg::Error(format!("no pane {term}")),
-                    },
-                    Query::Worktrees { ws } => {
-                        let Some(dir) = self.workspaces.iter().find(|w| w.id == ws).map(|w| w.cwd.clone()) else {
-                            self.send(client, ServerMsg::Error(format!("no workspace {ws}")));
-                            return;
-                        };
-                        let tx = self.tx.clone();
-                        tokio::task::spawn_blocking(move || {
-                            let result = git::list_worktrees(&dir).map_err(|e| format!("{e:#}"));
-                            let _ = tx.blocking_send(Ev::WorktreeList { client, result });
-                        });
-                        return;
-                    }
-                };
-                self.send(client, reply);
-            }
-        }
     }
 
     fn hook(&mut self, term: TermId, agent: String, status: HookStatus, event: &str) {
@@ -1106,9 +1150,18 @@ impl Daemon {
         let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
         let name = format!("spare-{:04x}", n & 0xffff);
         tokio::task::spawn_blocking(move || {
-            let result = git::create_worktree(&repo, &name, None, &template).map_err(|e| format!("{e:#}"));
+            let result = create_trusted_worktree(&repo, &name, None, &template);
             let _ = tx.blocking_send(Ev::SpareMade(repo, result));
         });
+    }
+
+    /// A checkout's dev-server port from the worktree lists already in the snapshot (the
+    /// same order `git worktree list` gives), without running git.
+    fn known_port(&self, dir: &std::path::Path, base: u16) -> Option<u16> {
+        self.workspaces.iter().filter_map(|w| w.git.as_ref()).find_map(|g| {
+            let i = g.worktrees.iter().position(|wt| same_path(&wt.path, dir))?;
+            Some(base.saturating_add(i as u16))
+        })
     }
 
     /// A worktree hook (`on_create` / `on_remove` in the repo's .hydra.toml) as a job to run.
@@ -1561,7 +1614,7 @@ impl Daemon {
                 let dev = proj.dev.filter(|d| !d.run.trim().is_empty()).ok_or_else(|| {
                     anyhow::anyhow!("no dev server set up: add [dev] run = \"...\" to {} in the repo", crate::project::FILE)
                 })?;
-                let port = dev.port.map(|base| crate::project::port_for(&dir, base));
+                let port = dev.port.map(|base| self.known_port(&dir, base).unwrap_or_else(|| crate::project::port_for(&dir, base)));
                 self.next_env = port.map(|p| vec![("PORT".to_string(), p.to_string())]).unwrap_or_default();
                 // Its own tab in the checkout's workspace, so it never takes screen space.
                 let ws = self
@@ -1617,7 +1670,7 @@ impl Daemon {
                 self.pending_ops += 1;
                 let b = branch.clone();
                 tokio::task::spawn_blocking(move || {
-                    let result = git::create_worktree(&dir, &b, None, &template).map_err(|e| format!("{e:#}"));
+                    let result = create_trusted_worktree(&dir, &b, None, &template);
                     let _ = tx.blocking_send(Ev::MoveReady { client, term, branch: b, result });
                 });
                 return Ok(false);
@@ -1671,8 +1724,8 @@ impl Daemon {
                     && let Some(task) = self.spare_fits(repo, c)
                     && let Some((_, path, term)) = self.spare.take()
                 {
-                    // The spare takes the branch name asked for, and the task if there is one.
-                    let _ = std::process::Command::new("git").arg("-C").arg(&path).args(["branch", "-m", &branch]).output();
+                    // The spare takes the branch name asked for (off the loop; the reply waits
+                    // for it), and the task if there is one.
                     save_spare(None);
                     if let Some(t) = self.terms.get_mut(&term)
                         && !task.is_empty()
@@ -1682,7 +1735,14 @@ impl Daemon {
                     self.adopt = Some((path.clone(), term));
                     self.adopted = Some(path.clone());
                     self.pending_ops += 1;
-                    let _ = self.tx.try_send(Ev::WorktreeCreated { client, branch, cmd, split, result: Ok((path, String::new())) });
+                    let tx = self.tx.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let renamed = std::process::Command::new("git").arg("-C").arg(&path).args(["branch", "-m", &branch]).output().is_ok_and(|o| o.status.success());
+                        if !renamed {
+                            tracing::warn!("couldn't rename the spare worktree's branch to {branch}");
+                        }
+                        let _ = tx.blocking_send(Ev::WorktreeCreated { client, branch, cmd, split, result: Ok((path, String::new())) });
+                    });
                     self.prewarm(repo.clone());
                     return Ok(false);
                 }
@@ -1693,7 +1753,7 @@ impl Daemon {
                 self.pending_ops += 1;
                 tokio::task::spawn_blocking(move || {
                     let result =
-                        git::create_worktree(&dir, &branch, base.as_deref(), &template).map_err(|e| format!("{e:#}"));
+                        create_trusted_worktree(&dir, &branch, base.as_deref(), &template);
                     let _ = tx.blocking_send(Ev::WorktreeCreated { client, branch, cmd, split, result });
                 });
                 return Ok(false);
@@ -1797,6 +1857,8 @@ impl Daemon {
                     t.kill_tree();
                 }
                 if let Some((_, path, _)) = self.spare.take() {
+                    // Shutting down, so there's nothing else to serve: let the spare's agent
+                    // release its folder, then remove it before the process ends.
                     std::thread::sleep(Duration::from_millis(300));
                     drop_spare_dir(&path);
                     save_spare(None);
