@@ -764,6 +764,9 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
 
     if sw > 0 {
         draw_side(app, f.buffer_mut(), side, &model, t);
+        if app.mode == Mode::Side {
+            outline_side(f.buffer_mut(), side, right_side, t);
+        }
         // The edge between sidebar and panes: drag it.
         let ex = if right_side { side.x.saturating_sub(1) } else { side.right() };
         let edge = Rect { x: ex, y: side.y, width: 1, height: side.height };
@@ -904,6 +907,29 @@ fn line_term(model: &[Proj], l: &Line) -> Option<TermId> {
     match l {
         Line::Sess(pi, wi, si) => Some(model[*pi].wts[*wi].sessions[*si].term),
         _ => None,
+    }
+}
+
+/// The sidebar has the keys: an accent line all the way round it (the edge to the panes is
+/// drawn by the caller). Rows' own markers win over the line.
+fn outline_side(buf: &mut Buffer, r: Rect, right_side: bool, t: &Theme) {
+    if r.height < 2 {
+        return;
+    }
+    let bottom = r.bottom() - 1;
+    let outer = if right_side { r.right() - 1 } else { r.x };
+    let blank = |buf: &Buffer, x: u16, y: u16| buf[(x, y)].symbol() == " ";
+    for x in r.left()..r.right() {
+        if blank(buf, x, bottom) {
+            let bg = buf[(x, bottom)].bg;
+            buf[(x, bottom)].set_symbol("▁").set_style(Style::default().fg(t.accent).bg(bg));
+        }
+    }
+    for y in r.top()..r.bottom() {
+        if blank(buf, outer, y) {
+            let bg = buf[(outer, y)].bg;
+            buf[(outer, y)].set_symbol(if right_side { "▕" } else { "▏" }).set_style(Style::default().fg(t.accent).bg(bg));
+        }
     }
 }
 
@@ -1366,6 +1392,8 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
         .unwrap_or_default();
     let st = info.status;
     let _ = (split, &title, &wt);
+    // While the sidebar has the keys, no pane shows as focused.
+    let focused = focused && app.mode != Mode::Side;
     // Title bar: name and where on the left (project · branch, cut with … before the right
     // side); state and ✕ on the right. The focused pane's bar is the accent.
     let bg = if focused { t.accent } else { t.sidebar_bg };

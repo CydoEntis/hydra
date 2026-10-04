@@ -5454,6 +5454,26 @@ mod hydra_tests {
     }
 
     #[test]
+    fn only_the_part_with_the_keys_looks_focused() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 120, 30);
+        let bar_bg = |app: &mut App| {
+            let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
+            term.draw(|f| render::draw(app, f)).unwrap();
+            let buf = term.backend().buffer().clone();
+            let y = (0..30).find(|&y| (0..120).any(|x| buf[(x, y)].symbol() == "✕")).unwrap();
+            let x = (0..120).rev().find(|&x| buf[(x, y)].symbol() == "✕").unwrap();
+            (buf[(x, y)].bg, buf[(0u16, 29u16)].symbol().to_string(), buf.clone())
+        };
+        let (bg, _, _) = bar_bg(&mut app);
+        assert_eq!(bg, app.theme.accent, "the focused pane's bar is the accent");
+        app.act(Action::BrowseTree);
+        let (bg, _, buf) = bar_bg(&mut app);
+        assert_ne!(bg, app.theme.accent, "not while the sidebar has the keys");
+        let side_left = (0..29).filter(|&y| buf[(0u16, y)].fg == app.theme.accent).count();
+        assert!(side_left > 10, "the sidebar is outlined: {side_left} rows");
+    }
+
+    #[test]
     fn quick_follow_up_from_the_sidebar() {
         let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
