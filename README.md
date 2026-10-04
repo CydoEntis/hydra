@@ -91,13 +91,13 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 |---|---|
 | `g` (or `w`) | **go to** a project or session: type to find it |
 | `e` / `a` | focus the sidebar / jump to what needs you |
-| `Space` or `:` | **command palette**: type what you want |
-| `t` / `s` / `o` | new agent (task box) / new shell here / open a project |
+| `p` (or Space) | **command palette**: type what you want |
+| `n` / `t` / `o` | new session (a shell here) / new agent (task box) / open a project |
 | `v` / `-` | split right / split down |
 | `h j k l` or arrows | focus the pane that way (left past the edge: the sidebar) |
-| `x` / `z` / `b` | close pane / zoom pane / show or hide the sidebar |
+| `x` / `z` / `b` / `y` | close pane / zoom pane / show or hide the sidebar / select text with keys |
 | `H J K L` | resize |
-| `c` / `n` `p` / `1–9` / `X` | new tab / next, previous tab / go to tab / close tab |
+| `c` / `]` `[` / `1–9` / `X` | new tab / next, previous tab / go to tab / close tab |
 | `m` / `r` / `R` | message an agent / reply to the focused one / rename a session |
 | `f` / `F` / `/` | files / find a file / search the code |
 | `d` / `B` / `P` / `S` | changes / switch branch / pull request / ship |
