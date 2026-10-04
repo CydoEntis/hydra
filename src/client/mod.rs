@@ -296,7 +296,7 @@ pub(super) enum TreeRow {
 /// A comparable form of a path (case- and separator-insensitive), cheap enough to run
 /// every frame.
 fn path_key(p: &std::path::Path) -> String {
-    p.to_string_lossy().replace('/', "\\").trim_end_matches('\\').to_lowercase()
+    design::path_key(p)
 }
 
 /// A row in the worktree picker.
@@ -585,7 +585,7 @@ impl App {
     ) -> Result<()> {
         let mut events = EventStream::new();
         let mut tick = tokio::time::interval(Duration::from_millis(50));
-        let mut last_draw = Instant::now() - Duration::from_secs(1);
+        let mut last_draw = crate::clock::ago(Duration::from_secs(1));
         let mut last_frame = 0u64;
         let mut last_fresh = Instant::now();
         // At most one frame per 12 ms, but never wait longer than that to show new output.
@@ -606,6 +606,8 @@ impl App {
                 }
                 msg = ipc::recv_server(reader) => match msg {
                     Ok(Some(m)) => self.on_server(m),
+                    // One message that didn't decode: skip it rather than quit.
+                    Err(e) if ipc::is_decode_error(&e) => tracing::warn!("skipped a message from the server: {e:#}"),
                     _ => {
                         self.quit.get_or_insert_with(|| "server exited".into());
                     }
@@ -1050,7 +1052,7 @@ impl App {
                     let repeat = a.repeats();
                     self.act(a);
                     if repeat && self.mode == Mode::Normal {
-                        self.mode = Mode::Prefix { since: Instant::now() - Duration::from_secs(60) };
+                        self.mode = Mode::Prefix { since: crate::clock::ago(Duration::from_secs(60)) };
                     }
                 }
             }
@@ -2302,8 +2304,13 @@ impl App {
             Ok(cfg) => {
                 self.keymap = cfg.keymap();
                 self.theme = cfg.theme();
-                self.sidebar = cfg.ui.sidebar;
-                self.dock = cfg.ui.dock;
+                // Only what the file changed: a sidebar hidden with a key stays hidden.
+                if cfg.ui.sidebar != self.cfg.ui.sidebar {
+                    self.sidebar = cfg.ui.sidebar;
+                }
+                if cfg.ui.dock != self.cfg.ui.dock {
+                    self.dock = cfg.ui.dock;
+                }
                 let mouse_changed = cfg.ui.mouse != self.cfg.ui.mouse;
                 self.cfg = cfg;
                 if mouse_changed {
@@ -3520,7 +3527,7 @@ impl App {
             Hit::Button(b) => match b {
                 Btn::Settings => self.act(Action::Settings),
                 Btn::Keys => self.act(Action::Help),
-                Btn::Leader => self.mode = Mode::Prefix { since: Instant::now() - Duration::from_secs(5) },
+                Btn::Leader => self.mode = Mode::Prefix { since: crate::clock::ago(Duration::from_secs(5)) },
                 Btn::Answer(term, c) => self.send(ClientMsg::Input { term, data: c.to_string().into_bytes() }),
                 Btn::Reply(term) => {
                     self.cmd(Command::FocusPane { term });

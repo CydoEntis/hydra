@@ -52,8 +52,11 @@ pub(super) enum SideRow {
 }
 
 /// Case- and separator-insensitive form of a path, for comparisons.
+/// A path for comparing: one separator, no trailing one, and case folded only where the
+/// file system ignores case (Windows).
 pub(super) fn path_key(p: &Path) -> String {
-    p.to_string_lossy().replace('/', "\\").trim_end_matches('\\').to_lowercase()
+    let s = p.to_string_lossy().replace('/', "\\").trim_end_matches('\\').to_string();
+    if cfg!(windows) { s.to_lowercase() } else { s }
 }
 
 pub(super) fn inside(child: &Path, parent: &Path) -> bool {

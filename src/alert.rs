@@ -65,7 +65,7 @@ $a = $x.CreateElement('audio'); $a.SetAttribute('silent', 'true'); $x.DocumentEl
         let script = format!("display notification \"{}\" with title \"{}\"", q(body), q(title));
         let _ = quiet(Command::new("osascript").args(["-e", &script])).status();
     } else {
-        let _ = quiet(Command::new("notify-send").args(["--app-name=hydra", title, body])).status();
+        let _ = quiet(Command::new("notify-send").args(["--app-name=hydra", "--", title, body])).status();
     }
 }
 

@@ -26,7 +26,7 @@ type ClientId = u64;
 
 #[allow(clippy::large_enum_variant)]
 pub enum Ev {
-    Connected(ClientId, mpsc::UnboundedSender<ServerMsg>, bool),
+    Connected(ClientId, mpsc::Sender<ServerMsg>, bool),
     Msg(ClientId, ClientMsg),
     Disconnected(ClientId),
     Output(TermId, Vec<u8>),
@@ -226,8 +226,22 @@ fn same_path(a: &std::path::Path, b: &std::path::Path) -> bool {
 }
 
 struct Client {
-    tx: mpsc::UnboundedSender<ServerMsg>,
+    tx: mpsc::Sender<ServerMsg>,
     attach: bool,
+    /// Its queue filled up (a stalled terminal, a slow SSH link): it's dropped, and can
+    /// attach again for a fresh copy of everything.
+    behind: std::cell::Cell<bool>,
+}
+
+/// Messages waiting for one client before it counts as too far behind.
+const CLIENT_QUEUE: usize = 8192;
+
+impl Client {
+    fn push(&self, msg: ServerMsg) {
+        if let Err(mpsc::error::TrySendError::Full(_)) = self.tx.try_send(msg) {
+            self.behind.set(true);
+        }
+    }
 }
 
 struct Daemon {
@@ -336,7 +350,7 @@ pub fn run() -> Result<()> {
             empty_since: Instant::now(),
             pending_ops: 0,
             git_busy: false,
-            last_git: Instant::now() - Duration::from_secs(60),
+            last_git: crate::clock::ago(Duration::from_secs(60)),
             last_save: Instant::now(),
             last_saved: String::new(),
             made_worktrees: Vec::new(),
@@ -388,7 +402,7 @@ async fn serve(id: ClientId, stream: interprocess::local_socket::tokio::Stream, 
     if ipc::send(&mut w, &ServerMsg::Welcome { version: PROTOCOL_VERSION }).await.is_err() {
         return;
     }
-    let (tx, mut rx) = mpsc::unbounded_channel::<ServerMsg>();
+    let (tx, mut rx) = mpsc::channel::<ServerMsg>(CLIENT_QUEUE);
     if ev.send(Ev::Connected(id, tx, attach)).await.is_err() {
         return;
     }
@@ -464,13 +478,24 @@ impl Daemon {
 
     fn broadcast(&self, filter: impl Fn(&Client) -> bool, msg: ServerMsg) {
         for c in self.clients.values().filter(|c| filter(c)) {
-            let _ = c.tx.send(msg.clone());
+            c.push(msg.clone());
         }
+    }
+
+    /// Let go of clients whose queue filled up; their connection closes and they can attach
+    /// again.
+    fn drop_lagging_clients(&mut self) {
+        self.clients.retain(|id, c| {
+            if c.behind.get() {
+                tracing::warn!("client {id} fell too far behind; dropping it");
+            }
+            !c.behind.get()
+        });
     }
 
     fn send(&self, client: ClientId, msg: ServerMsg) {
         if let Some(c) = self.clients.get(&client) {
-            let _ = c.tx.send(msg);
+            c.push(msg);
         }
     }
 
@@ -661,15 +686,17 @@ impl Daemon {
     // ---- events --------------------------------------------------------------------
 
     fn handle(&mut self, ev: Ev) {
+        self.drop_lagging_clients();
         match ev {
             Ev::Connected(id, tx, attach) => {
+                let c = Client { tx, attach, behind: std::cell::Cell::new(false) };
                 if attach {
-                    let _ = tx.send(ServerMsg::State(self.snapshot()));
+                    c.push(ServerMsg::State(self.snapshot()));
                     for t in self.terms.values() {
-                        let _ = tx.send(ServerMsg::Replay { term: t.id, cols: t.cols, rows: t.rows, data: t.replay() });
+                        c.push(ServerMsg::Replay { term: t.id, cols: t.cols, rows: t.rows, data: t.replay() });
                     }
                 }
-                self.clients.insert(id, Client { tx, attach });
+                self.clients.insert(id, c);
             }
             Ev::Disconnected(id) => {
                 self.clients.remove(&id);
@@ -812,7 +839,7 @@ impl Daemon {
                         {
                             w.worktree = true;
                         }
-                        self.last_git = Instant::now() - Duration::from_secs(60);
+                        self.last_git = crate::clock::ago(Duration::from_secs(60));
                         self.send(client, ServerMsg::Notice(format!("worktree {branch} at {}", path.display())));
                         self.send(client, ServerMsg::Reply(Reply::Ok));
                     }
@@ -859,7 +886,7 @@ impl Daemon {
                         if let Some(t) = self.terms.get_mut(&term) {
                             t.pending_move = Some(path.clone());
                         }
-                        self.last_git = Instant::now() - Duration::from_secs(60);
+                        self.last_git = crate::clock::ago(Duration::from_secs(60));
                         self.send(
                             client,
                             ServerMsg::Notice(format!(
@@ -1508,7 +1535,7 @@ impl Daemon {
                     group: None,
                 });
                 self.active_ws = Some(id);
-                self.last_git = Instant::now() - Duration::from_secs(60);
+                self.last_git = crate::clock::ago(Duration::from_secs(60));
             }
             Command::CloseWorkspace { ws } => {
                 let terms: Vec<TermId> = self
@@ -1618,7 +1645,7 @@ impl Daemon {
                     });
                     self.active_ws = Some(id);
                 }
-                self.last_git = Instant::now() - Duration::from_secs(60);
+                self.last_git = crate::clock::ago(Duration::from_secs(60));
             }
             Command::Dev { dir, action } => {
                 let key = |p: &std::path::Path| p.to_string_lossy().replace('\\', "/").trim_end_matches('/').to_lowercase();
@@ -1859,7 +1886,7 @@ impl Daemon {
                         self.active_ws = Some(id);
                     }
                 }
-                self.last_git = Instant::now() - Duration::from_secs(60);
+                self.last_git = crate::clock::ago(Duration::from_secs(60));
             }
             Command::UndoAutoWorkspace => {
                 let undo = self.auto_undo.take().ok_or_else(|| anyhow::anyhow!("nothing to undo"))?;
@@ -1969,7 +1996,7 @@ impl Daemon {
                 format!("You started {agent} in {}, so it became a workspace.", cwd.display())
             }
         };
-        self.last_git = Instant::now() - Duration::from_secs(60);
+        self.last_git = crate::clock::ago(Duration::from_secs(60));
         self.dirty = true;
         self.broadcast(|c| c.attach, ServerMsg::AutoWorkspace(msg));
     }
@@ -2014,7 +2041,7 @@ impl Daemon {
                 }
             }
         }
-        self.last_git = Instant::now() - Duration::from_secs(60);
+        self.last_git = crate::clock::ago(Duration::from_secs(60));
         Ok(())
     }
 
@@ -2141,7 +2168,7 @@ impl Daemon {
             }
         }
         self.remove_term(old);
-        self.last_git = Instant::now() - Duration::from_secs(60);
+        self.last_git = crate::clock::ago(Duration::from_secs(60));
         self.dirty = true;
     }
 

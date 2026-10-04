@@ -97,6 +97,15 @@ fn read_json(p: &Path) -> Option<Value> {
 
 /// Hide anything that looks like a credential in an argument or URL.
 fn scrub(s: &str) -> String {
+    // https://user:token@host/…: the credentials go.
+    if let Some(rest) = s.strip_prefix("https://").or_else(|| s.strip_prefix("http://"))
+        && let Some(at) = rest.find('@').filter(|at| !rest[..*at].contains('/'))
+    {
+        let scheme = &s[..s.len() - rest.len()];
+        let after = &rest[at + 1..];
+        let after = after.find('?').map(|q| format!("{}?•••", &after[..q])).unwrap_or_else(|| after.to_string());
+        return format!("{scheme}•••@{after}");
+    }
     if let Some(q) = s.find('?').filter(|_| s.starts_with("http")) {
         return format!("{}?•••", &s[..q]);
     }
@@ -109,6 +118,15 @@ fn scrub(s: &str) -> String {
         return "•••".into();
     }
     s.to_string()
+}
+
+#[cfg(test)]
+mod scrub_tests {
+    #[test]
+    fn credentials_in_urls_are_hidden() {
+        assert_eq!(super::scrub("https://me:ghp_secret@github.com/x"), "https://•••@github.com/x");
+        assert_eq!(super::scrub("https://example.com/a@b"), "https://example.com/a@b", "an @ in the path isn't a login");
+    }
 }
 
 fn mcp_item(name: &str, v: &Value, scope: &str, source: &Path, enabled: bool) -> Item {

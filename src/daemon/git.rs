@@ -8,7 +8,8 @@ use std::process::Command;
 
 fn git(dir: &Path, args: &[&str]) -> Result<String> {
     let mut cmd = Command::new("git");
-    cmd.arg("-C").arg(dir).args(args);
+    // Its messages are matched below: keep them in English whatever the user's locale.
+    cmd.arg("-C").arg(dir).args(args).env("LC_ALL", "C");
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -133,6 +134,10 @@ pub fn create_worktree(dir: &Path, branch: &str, base: Option<&str>, template: &
     } else {
         let mut args = vec!["worktree", "add", "-b", branch, &p];
         if let Some(b) = base {
+            // A base that looks like an option would be read as one.
+            if b.starts_with('-') {
+                bail!("not a branch to start from: {b}");
+            }
             args.push(b);
         }
         git(&root, &args)?;

@@ -206,6 +206,11 @@ pub async fn send<T: serde::Serialize>(w: &mut Writer, msg: &T) -> Result<()> {
     Ok(())
 }
 
+/// Whether a receive failed on one message's contents (the connection is still fine).
+pub fn is_decode_error(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<rmp_serde::decode::Error>().is_some()
+}
+
 pub async fn recv_server(r: &mut Reader) -> Result<Option<ServerMsg>> {
     match r.next().await {
         Some(frame) => Ok(Some(protocol::decode(&frame?)?)),
@@ -309,4 +314,14 @@ fn spawn_daemon() -> Result<()> {
     }
     cmd.spawn().context("starting the daemon")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_bad_message_is_a_decode_error() {
+        let e = crate::protocol::decode::<crate::protocol::ServerMsg>(&[0xc1, 0xff]).unwrap_err();
+        assert!(super::is_decode_error(&e));
+        assert!(!super::is_decode_error(&anyhow::anyhow!("connection reset")));
+    }
 }

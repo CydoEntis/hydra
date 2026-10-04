@@ -197,7 +197,7 @@ pub fn load_linear(dir: &Path) -> Result<Vec<Item>, String> {
         use std::io::Write;
         let mut cmd = Command::new("curl");
         cmd.current_dir(dir)
-            .args(["-s", "-X", "POST", "https://api.linear.app/graphql", "-H", "Content-Type: application/json", "-H", "@-", "-d", query])
+            .args(["-s", "--max-time", "20", "-X", "POST", "https://api.linear.app/graphql", "-H", "Content-Type: application/json", "-H", "@-", "-d", query])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());

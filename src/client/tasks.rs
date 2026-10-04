@@ -201,8 +201,15 @@ pub fn commit(t: &TaskRow) -> Result<String, String> {
 /// Commit what's left, then merge the task branch into the main checkout's branch.
 pub fn merge(t: &TaskRow) -> Result<String, String> {
     commit_all(t)?;
+    if !git(&t.root, &["status", "--porcelain"])?.trim().is_empty() {
+        return Err(format!("{} has uncommitted changes; commit or stash them first", t.root.display()));
+    }
     let msg = format!("Merge {}", t.branch);
-    git(&t.root, &["merge", "--no-ff", &t.branch, "-m", &msg])?;
+    if let Err(e) = git(&t.root, &["merge", "--no-ff", &t.branch, "-m", &msg]) {
+        // Leave the main checkout as it was, not mid-merge.
+        let _ = git(&t.root, &["merge", "--abort"]);
+        return Err(format!("couldn't merge {} (conflicts?): {e}", t.branch));
+    }
     Ok(format!("merged {} into {}", t.branch, t.base))
 }
 

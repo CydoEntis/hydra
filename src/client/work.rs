@@ -139,7 +139,7 @@ fn quiet(cmd: &mut std::process::Command) -> &mut std::process::Command {
 fn curl(method: &str, url: &str, secret_header: &str, body: Option<&str>) -> Result<Value, String> {
     use std::io::Write;
     let mut cmd = std::process::Command::new("curl");
-    cmd.args(["-s", "-X", method, url, "-H", "Content-Type: application/json", "-H", "@-"]);
+    cmd.args(["-s", "--max-time", "20", "-X", method, url, "-H", "Content-Type: application/json", "-H", "@-"]);
     if let Some(b) = body {
         cmd.args(["-d", b]);
     }
