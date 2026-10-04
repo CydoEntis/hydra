@@ -5182,6 +5182,42 @@ mod hydra_tests {
     }
 
     #[test]
+    fn sidebar_by_keyboard() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
+        draw(&mut app, 160, 45);
+        // Clicking a project puts the keys in the sidebar, on that project.
+        app.on_hy_hit(hydra::HyHit::ToggleProj(0), false);
+        app.on_hy_hit(hydra::HyHit::ToggleProj(0), false);
+        assert!(matches!(app.mode, Mode::Side) && app.hy.cursor_proj.is_some(), "on the project row");
+        draw(&mut app, 160, 45);
+        // ← folds it, → opens it again.
+        app.on_key(key(KeyCode::Left));
+        assert!(app.hy.saved.closed.iter().any(|k| k.starts_with("p:")), "folded");
+        app.on_key(key(KeyCode::Right));
+        assert!(!app.hy.saved.closed.iter().any(|k| k.starts_with("p:")), "open");
+        draw(&mut app, 160, 45);
+        // ↓ onto its first session; ← back up to the project.
+        app.on_key(key(KeyCode::Down));
+        let first = app.hy.cursor.expect("on a session");
+        app.on_key(key(KeyCode::Left));
+        assert!(app.hy.cursor_proj.is_some() && app.hy.cursor.is_none(), "← goes to its project");
+        app.on_key(key(KeyCode::Down));
+        assert_eq!(app.hy.cursor, Some(first));
+        // The bottom bar says what the keys do.
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("back to the pane"), "sidebar keys in the bottom bar");
+        // Enter opens it and gives the keys back to the pane.
+        app.on_key(key(KeyCode::Enter));
+        assert!(matches!(app.mode, Mode::Normal) && app.hy.cursor.is_none());
+        // Typing in the sidebar goes to the pane instead.
+        app.act(Action::BrowseTree);
+        assert!(matches!(app.mode, Mode::Side));
+        app.on_key(key(KeyCode::Char('x')));
+        assert!(matches!(app.mode, Mode::Normal), "a letter leaves the sidebar (and is typed into the pane)");
+    }
+
+    #[test]
     fn quick_follow_up_from_the_sidebar() {
         let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);

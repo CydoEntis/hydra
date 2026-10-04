@@ -114,6 +114,28 @@ pub fn mix(a: Color, b: Color, t: f32) -> Color {
 }
 
 impl Theme {
+    /// The fill for "needs you" buttons (confirm, Jump): its red, a little deeper so the
+    /// text on it reads.
+    pub fn alarm_fill(&self) -> Color {
+        let deep = mix(self.blocked, Color::Rgb(0, 0, 0), 0.36);
+        if Self::contrast_of(self.ink_on(self.blocked), self.blocked) >= 4.5 { self.blocked } else { deep }
+    }
+
+    fn contrast_of(a: Color, b: Color) -> f64 {
+        let l = |c: Color| match c {
+            Color::Rgb(r, g, b) => {
+                let ch = |v: u8| {
+                    let s = v as f64 / 255.0;
+                    if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+                };
+                0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+            }
+            _ => 0.5,
+        };
+        let (x, y) = (l(a), l(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
     /// Text to put on a filled `c`: the theme's background or its strongest text, whichever
     /// reads better (light themes need dark ink on orange, dark themes light).
     pub fn ink_on(&self, c: Color) -> Color {
@@ -149,9 +171,10 @@ impl Theme {
             tab_active_fg: hex(c[9]),
             // Same meanings as the designed themes: needs-you yellow/orange, error red, done
             // green; working in plain text.
-            working: mix(muted, fg, 0.5),
-            blocked: hex(c[10]),
-            done: hex(c[13]),
+            // Working yellow, needs-you red, done blue (until you look), idle grey.
+            working: hex(c[10]),
+            blocked: hex(c[11]),
+            done: hex(c[12]),
             idle: muted,
             card: mix(bg, fg, 0.05),
             card2: mix(bg, fg, 0.11),
@@ -182,9 +205,10 @@ impl Theme {
             selection_bg: h(15),
             tab_active_bg: h(9),
             tab_active_fg: h(10),
-            working: h(7),
-            blocked: h(11),
-            done: h(12),
+            // Working yellow, needs-you red, done blue (until you look), idle grey.
+            working: hex(a[2]),
+            blocked: hex(a[0]),
+            done: hex(a[3]),
             idle: h(6),
             card: h(3),
             card2: h(4),
@@ -217,12 +241,12 @@ impl Theme {
                     "#eeeeee", "#00afaf", "#1c1c1c", "#ffaf00", "#5faf00", "#ff5f87", "#3a3a3a", "#5f5faf",
                 ],
                 ["#af87d7", "#5fafd7", "#ff5faf", "#5f8787"],
-                ["#af005f", "#5faf00", "#d7af5f", "#5fafd7", "#af87d7", "#00afaf", "#808080"],
+                ["#ff5f87", "#5faf00", "#d7af5f", "#5fafd7", "#af87d7", "#00afaf", "#808080"],
             ),
             "tango-dark" => Theme::design(
                 [
                     "#2e3436", "#eeeeec", "#252a2b", "#363c3e", "#41474a", "#555753", "#9a9c97", "#d3d7cf",
-                    "#eeeeec", "#8ab8ec", "#2e3436", "#fcaf3e", "#73d216", "#ff5c5c", "#4a5052", "#204a87",
+                    "#eeeeec", "#8ae234", "#2e3436", "#fcaf3e", "#73d216", "#ff5c5c", "#4a5052", "#204a87",
                 ],
                 ["#ad7fa8", "#729fcf", "#e9b96e", "#34e2e2"],
                 ["#ef2929", "#8ae234", "#fce94f", "#729fcf", "#ad7fa8", "#34e2e2", "#888a85"],
@@ -230,7 +254,7 @@ impl Theme {
             "monokai" => Theme::design(
                 [
                     "#272822", "#f8f8f2", "#1e1f1c", "#2f302a", "#3e3d32", "#49483e", "#8f8a72", "#cfcfc2",
-                    "#f8f8f2", "#66d9ef", "#272822", "#fd971f", "#a6e22e", "#f92672", "#3e3d32", "#55544a",
+                    "#f8f8f2", "#a6e22e", "#272822", "#fd971f", "#a6e22e", "#f92672", "#3e3d32", "#55544a",
                 ],
                 ["#ae81ff", "#66d9ef", "#f92672", "#a1efe4"],
                 ["#f92672", "#a6e22e", "#e6db74", "#66d9ef", "#ae81ff", "#a1efe4", "#75715e"],
@@ -238,7 +262,7 @@ impl Theme {
             "tokyo-night" => Theme::design(
                 [
                     "#1a1b26", "#c0caf5", "#16161e", "#1f2335", "#292e42", "#292e42", "#7a82ad", "#a9b1d6",
-                    "#e0e6ff", "#7aa2f7", "#1a1b26", "#e0af68", "#9ece6a", "#f7768e", "#292e42", "#3b4261",
+                    "#e0e6ff", "#9ece6a", "#1a1b26", "#e0af68", "#9ece6a", "#f7768e", "#292e42", "#3b4261",
                 ],
                 ["#bb9af7", "#7dcfff", "#f7768e", "#73daca"],
                 ["#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#565f89"],
@@ -248,16 +272,16 @@ impl Theme {
                 "#313244", "#89b4fa", "#1e1e2e", "#f9e2af", "#f38ba8", "#89dceb", "#a6e3a1",
             ]),
             "catppuccin-latte" => Theme::classic([
-                "#eff1f5", "#303446", "#6c6f85", "#1e5ad8", "#bcc0cc", "#1e5ad8", "#e6e9ef",
-                "#ccd0da", "#1e5ad8", "#eff1f5", "#a05600", "#d20f39", "#1e66f5", "#2f8a1f",
+                "#eff1f5", "#303446", "#6c6f85", "#7a2fd8", "#bcc0cc", "#7a2fd8", "#e6e9ef",
+                "#ccd0da", "#7a2fd8", "#eff1f5", "#8a5a00", "#d20f39", "#1e5ad8", "#2f8a1f",
             ]),
             "gruvbox" => Theme::classic([
                 "#282828", "#ebdbb2", "#928374", "#fabd2f", "#504945", "#fabd2f", "#1d2021",
                 "#3c3836", "#fabd2f", "#282828", "#fe8019", "#fb4934", "#83a598", "#b8bb26",
             ]),
             "nord" => Theme::classic([
-                "#2e3440", "#eceff4", "#8390a8", "#88c0d0", "#434c5e", "#88c0d0", "#272c36",
-                "#3b4252", "#88c0d0", "#2e3440", "#ebcb8b", "#e0707a", "#81a1c1", "#a3be8c",
+                "#2e3440", "#eceff4", "#8390a8", "#a3be8c", "#434c5e", "#a3be8c", "#272c36",
+                "#3b4252", "#a3be8c", "#2e3440", "#ebcb8b", "#e0707a", "#81a1c1", "#a3be8c",
             ]),
             "dracula" => Theme::classic([
                 "#282a36", "#f8f8f2", "#7a8ac0", "#bd93f9", "#44475a", "#bd93f9", "#21222c",
@@ -404,8 +428,9 @@ mod audit {
                 ("strong on hov (menus)", t.strong, t.hov, 4.5),
                 ("blocked on sidebar", t.blocked, t.sidebar_bg, 3.0),
                 ("done on sidebar", t.done, t.sidebar_bg, 3.0),
+                ("working on sidebar", t.working, t.sidebar_bg, 3.0),
                 ("err on card", t.err, t.card, 3.0),
-                ("ink on blocked (confirm)", t.ink_on(t.blocked), t.blocked, 4.5),
+                ("ink on alarm (confirm)", t.ink_on(t.alarm_fill()), t.alarm_fill(), 4.5),
             ];
             for (what, fg, bg, min) in checks {
                 let c = contrast(fg, bg);
@@ -414,7 +439,15 @@ mod audit {
                 }
             }
             // Different meanings, different colours.
-            for (what, a, b) in [("accent vs done", t.accent, t.done), ("accent vs blocked", t.accent, t.blocked), ("done vs blocked", t.done, t.blocked), ("blocked vs err", t.blocked, t.err)] {
+            for (what, a, b) in [
+                ("accent vs done", t.accent, t.done),
+                ("accent vs blocked", t.accent, t.blocked),
+                ("accent vs working", t.accent, t.working),
+                ("done vs blocked", t.done, t.blocked),
+                ("working vs blocked", t.working, t.blocked),
+                ("working vs done", t.working, t.done),
+                ("idle vs working", t.idle, t.working),
+            ] {
                 if a == b || contrast(a, b) < 1.15 && hue_near(a, b) {
                     bad.push(format!("{n:18} {what:24} too alike"));
                 }

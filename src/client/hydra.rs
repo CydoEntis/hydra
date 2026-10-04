@@ -80,6 +80,10 @@ pub(super) struct Hy {
     pub dividers: Vec<(Rect, bool, Vec<bool>)>,
     /// Sidebar cursor (keyboard browsing; bare keys work while it's set).
     pub cursor: Option<TermId>,
+    /// The sidebar cursor on a project row instead (its key).
+    pub cursor_proj: Option<String>,
+    /// What the sidebar cursor walks over, top to bottom.
+    pub side_items: Vec<SideItem>,
     /// Projects opened this run that haven't been looked at (NEW chip).
     pub fresh: HashSet<String>,
     /// A session about to open beside this one: pair them when it appears.
@@ -116,6 +120,13 @@ pub(super) struct Hy {
     /// cursor after sending.
     pub talk_anchor: Option<u16>,
     pub talk_back: bool,
+}
+
+/// A row the sidebar cursor can rest on.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum SideItem {
+    Proj(String),
+    Sess(TermId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -540,7 +551,7 @@ fn row_name(t: &TermInfo, root: &Path, top: &Path, branch: &str, main: bool, git
         return folder_name(top);
     }
     if git && !branch.is_empty() {
-        let default = defaults.entry(path_key(root)).or_insert_with(|| crate::gitfs::main_branch(root)).clone();
+        let default = defaults.entry(path_key(root)).or_insert_with(|| crate::gitfs::default_branch(root)).clone();
         let feature = match default.as_deref() {
             Some(d) => d != branch,
             None => !["main", "master"].contains(&branch),
@@ -942,7 +953,7 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     let jb = button(t, &jlabel, &jk, BtnKind::Normal, false);
     let jr = Rect { x: bx + 1, y: r.y + 1, width: segs_width(&jb), height: 1 };
     let jb: Vec<Seg> = if needs > 0 {
-        jb.into_iter().map(|(x, st)| (x, st.bg(t.blocked).fg(t.ink_on(t.blocked)))).collect()
+        jb.into_iter().map(|(x, st)| (x, st.bg(t.alarm_fill()).fg(t.ink_on(t.alarm_fill())))).collect()
     } else {
         button(t, &jlabel, &jk, BtnKind::Normal, hovered(app, jr))
     };
@@ -967,6 +978,14 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
     app.hy.side_scroll = scroll as u16;
 
     app.hy.visible = lines.iter().filter_map(|l| line_term(model, l)).collect();
+    app.hy.side_items = lines
+        .iter()
+        .filter_map(|l| match l {
+            Line::Proj(pi) => Some(SideItem::Proj(model[*pi].key.clone())),
+            Line::Sess(..) => line_term(model, l).map(SideItem::Sess),
+            _ => None,
+        })
+        .collect();
     app.hy.row_y.clear();
     app.hy.proj_keys = model.iter().map(|p| p.key.clone()).collect();
     let tk = k(app, &Action::Talk);
@@ -1006,7 +1025,8 @@ fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme
             Line::Proj(pi) => {
                 let p = &model[*pi];
                 let open = !app.hy.saved.closed.contains(&format!("p:{}", p.key));
-                let hov = hovered(app, row);
+                let on = app.mode == Mode::Side && app.hy.cursor_proj.as_ref() == Some(&p.key);
+                let hov = hovered(app, row) || on;
                 let bg = if hov { super::render::blend(surf, t.text, 0.10) } else { surf };
                 fill(buf, row, bg);
                 let s = Style::default().bg(bg);
@@ -1453,6 +1473,11 @@ fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &The
             seg(if *err { "✕ " } else { "✓ " }, s.fg(if *err { t.err } else { t.done }).add_modifier(Modifier::BOLD)),
             seg(msg.clone(), s.fg(t.strong)),
         ],
+        // In the sidebar: its keys.
+        _ if app.mode == Mode::Side => hints(t, &[("↑↓", "move"), ("→ ←", "open / fold"), ("Enter", "open"), ("Space", "message"), ("Esc", "back to the pane")])
+            .into_iter()
+            .map(|(x, st)| (x, if st.bg.is_none() || st.bg == Some(t.card) { st.bg(surf) } else { st }))
+            .collect(),
         _ => crumb(app, model, t, surf),
     };
     let lead = app.keymap.prefix.to_string().replace("C-", "Ctrl+");
@@ -2799,25 +2824,62 @@ impl App {
 
     /// Move the sidebar cursor; bare keys then work on the sidebar until Esc or Enter.
     fn hy_side_move(&mut self, d: i8) {
-        let vis = self.hy.visible.clone();
-        if vis.is_empty() {
+        let items = self.hy.side_items.clone();
+        if items.is_empty() {
             return;
         }
-        let cur = self.hy.cursor.or(self.focused());
-        let i = cur.and_then(|c| vis.iter().position(|t| *t == c));
-        let next = match (i, d) {
+        let cur = match (&self.hy.cursor_proj, self.hy.cursor.or(self.focused())) {
+            (Some(k), _) => items.iter().position(|i| *i == SideItem::Proj(k.clone())),
+            (None, Some(t)) => items.iter().position(|i| *i == SideItem::Sess(t)),
+            _ => None,
+        };
+        let next = match (cur, d) {
             (None, _) => 0,
             (Some(i), 0) => i,
             (Some(i), d) if d < 0 => i.saturating_sub(1),
-            (Some(i), _) => (i + 1).min(vis.len() - 1),
+            (Some(i), _) => (i + 1).min(items.len() - 1),
         };
-        self.hy.cursor = Some(vis[next]);
+        self.hy_side_set(items[next].clone());
+    }
+
+    /// Put the sidebar cursor on a row (and the keys in the sidebar).
+    pub(super) fn hy_side_set(&mut self, item: SideItem) {
         self.hy.follow = true;
         self.mode = Mode::Side;
-        // Resting on a finished agent counts as seeing it.
-        let t = vis[next];
-        if self.snap.terms.get(&t).is_some_and(|i| i.status == Status::Done) {
-            self.cmd(Command::MarkSeen { term: t });
+        match item {
+            SideItem::Proj(k) => {
+                self.hy.cursor_proj = Some(k);
+                self.hy.cursor = None;
+            }
+            SideItem::Sess(t) => {
+                self.hy.cursor_proj = None;
+                self.hy.cursor = Some(t);
+                // Resting on a finished agent counts as seeing it.
+                if self.snap.terms.get(&t).is_some_and(|i| i.status == Status::Done) {
+                    self.cmd(Command::MarkSeen { term: t });
+                }
+            }
+        }
+    }
+
+    fn hy_side_leave(&mut self) {
+        self.hy.cursor = None;
+        self.hy.cursor_proj = None;
+        self.mode = Mode::Normal;
+    }
+
+    /// Fold or unfold a project (true: open it).
+    fn hy_fold(&mut self, key: &str, open: Option<bool>) {
+        let k = format!("p:{key}");
+        let is_open = !self.hy.saved.closed.contains(&k);
+        let want = open.unwrap_or(!is_open);
+        if want != is_open {
+            if want {
+                self.hy.saved.closed.retain(|c| *c != k);
+            } else {
+                self.hy.saved.closed.push(k);
+            }
+            self.hy.save();
         }
     }
 
@@ -2857,13 +2919,12 @@ impl App {
                 }
                 _ => self.sidebar = !self.sidebar,
             },
-            Action::Focus(d) => {
-                if let Some(f) = focused
-                    && let Some(to) = crate::layout::neighbor(&self.hy.leaf_rects, f, *d)
-                {
-                    self.cmd(Command::FocusPane { term: to });
-                }
-            }
+            Action::Focus(d) => match focused.and_then(|f| crate::layout::neighbor(&self.hy.leaf_rects, f, *d)) {
+                Some(to) => self.cmd(Command::FocusPane { term: to }),
+                // Past the left edge: the sidebar.
+                None if *d == crate::layout::Dir::Left && self.sidebar => self.hy_side_move(0),
+                None => {}
+            },
             Action::FocusNext | Action::FocusPrev => {
                 let shown: Vec<TermId> = self.hy.leaf_rects.iter().map(|(id, _)| *id).collect();
                 if let Some(f) = focused
@@ -2949,33 +3010,74 @@ impl App {
 
     /// Keys while the sidebar cursor is up: arrows move, Enter opens, other keys act as
     /// if the leader had been pressed.
+    /// Keys while the sidebar has them: ↑↓ move, →← open or fold (← from a session goes to
+    /// its project), Enter opens, Space messages, Esc goes back to the pane. Anything you
+    /// type goes to the pane you're on.
     pub(super) fn on_side_key(&mut self, k: &KeyEvent) {
         let spec = KeySpec::from_event(k);
+        let proj = self.hy.cursor_proj.clone();
+        let model = self.hy_model();
         match k.code {
-            KeyCode::Up => self.hy_side_move(-1),
-            KeyCode::Down => self.hy_side_move(1),
-            KeyCode::Char(' ') => {
-                if let Some(c) = self.hy.cursor {
-                    self.hy_talk(c, true);
+            KeyCode::Up | KeyCode::Char('k') if !k.modifiers.contains(KeyModifiers::CONTROL) => self.hy_side_move(-1),
+            KeyCode::Down | KeyCode::Char('j') if !k.modifiers.contains(KeyModifiers::CONTROL) => self.hy_side_move(1),
+            KeyCode::Home => {
+                if let Some(first) = self.hy.side_items.first().cloned() {
+                    self.hy_side_set(first);
                 }
             }
-            KeyCode::Enter => {
-                if let Some(c) = self.hy.cursor {
-                    self.hy_focus(c);
+            KeyCode::End => {
+                if let Some(last) = self.hy.side_items.last().cloned() {
+                    self.hy_side_set(last);
                 }
-                self.mode = Mode::Normal;
             }
-            KeyCode::Esc => {
-                self.hy.cursor = None;
-                self.mode = Mode::Normal;
-            }
+            KeyCode::Right => match &proj {
+                Some(key) => self.hy_fold(key, Some(true)),
+                None => {
+                    // Into the pane.
+                    if let Some(c) = self.hy.cursor {
+                        self.hy_focus(c);
+                    }
+                    self.hy_side_leave();
+                }
+            },
+            KeyCode::Left => match (&proj, self.hy.cursor) {
+                (Some(key), _) => self.hy_fold(key, Some(false)),
+                (None, Some(t)) => {
+                    if let Some(p) = model.iter().find(|p| p.sessions().any(|s| s.term == t)) {
+                        self.hy_side_set(SideItem::Proj(p.key.clone()));
+                    }
+                }
+                _ => {}
+            },
+            KeyCode::Char(' ') => match (&proj, self.hy.cursor) {
+                (Some(key), _) => {
+                    if let Some(pi) = model.iter().position(|p| p.key == *key) {
+                        self.hy_side_leave();
+                        self.hy_new(pi, false);
+                    }
+                }
+                (None, Some(c)) => self.hy_talk(c, true),
+                _ => {}
+            },
+            KeyCode::Enter => match (&proj, self.hy.cursor) {
+                (Some(key), _) => self.hy_fold(key, None),
+                (None, c) => {
+                    if let Some(c) = c {
+                        self.hy_focus(c);
+                    }
+                    self.hy_side_leave();
+                }
+            },
+            KeyCode::Esc => self.hy_side_leave(),
             _ if spec == self.keymap.prefix => self.mode = Mode::Prefix { since: Instant::now() },
+            // Typing goes to the pane: leave the sidebar and hand the key over.
             _ => {
-                let Some(a) = self.keymap.prefixed.get(&spec).cloned() else { return };
-                self.mode = Mode::Normal;
-                self.act(a);
-                if self.mode == Mode::Normal && self.hy.cursor.is_some() {
-                    self.mode = Mode::Side;
+                self.hy_side_leave();
+                if let Some(term) = self.focused() {
+                    let data = crate::keys::encode(k, self.parsers.get(&term).is_some_and(|p| p.screen().application_cursor()));
+                    if !data.is_empty() {
+                        self.send(crate::protocol::ClientMsg::Input { term, data });
+                    }
                 }
             }
         }
@@ -3349,18 +3451,19 @@ impl App {
         match h {
             HyHit::Splash => self.splash = true,
             HyHit::ToggleProj(i) => {
-                if let Some(key) = self.hy.proj_keys.get(i).map(|k| format!("p:{k}")) {
-                    if let Some(pos) = self.hy.saved.closed.iter().position(|k| *k == key) {
-                        self.hy.saved.closed.remove(pos);
-                    } else {
-                        self.hy.saved.closed.push(key);
-                    }
-                    self.hy.save();
+                if let Some(key) = self.hy.proj_keys.get(i).cloned() {
+                    self.hy_fold(&key, None);
+                    // The keys follow you into the sidebar.
+                    self.hy_side_set(SideItem::Proj(key));
                 }
             }
             HyHit::NewIn(i) => self.hy_new(i, false),
             HyHit::OpenFolder => self.hy_open_finder(),
-            HyHit::Session(t) => self.hy_focus(t),
+            // Opens it, and the arrows keep walking the sidebar until you type or press Enter.
+            HyHit::Session(t) => {
+                self.hy_focus(t);
+                self.hy_side_set(SideItem::Sess(t));
+            }
             HyHit::Talk(t) => self.hy_talk(t, false),
             HyHit::Settings => self.hy_settings(),
             HyHit::Jump => self.mode = Mode::Jump { sel: 0 },
