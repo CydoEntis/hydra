@@ -2,7 +2,7 @@
 
 Source of truth for scope, order, decisions and rules. Tickets hold the detail.
 Read this before starting work. If work conflicts with it, stop and say so.
-Last reconciled: 2026-10-03 at `7a161e9` on `dev`.
+Last reconciled: 2026-10-04 at `f3b7ae7` on `dev`.
 Verify: `cargo test && cargo clippy --all-targets -- -D warnings && cargo check --target x86_64-unknown-linux-gnu && cargo check --target aarch64-apple-darwin`
 
 Hydra is a terminal multiplexer built for running many coding agents at once: see
@@ -11,8 +11,8 @@ which ones need you, jump to them, and keep them running when you leave. See
 
 ## Now
 
-Active phase: **5 — Safe and steady: no way in for other users or hostile repos, no freezes, no crashes, no lost edits**
-Next unblocked: #7 — Move blocking work off the daemon's event loop
+Active phase: **6 — Clean code: one layout's worth of code, in files a person can read**
+Next unblocked: none yet — phase 6 needs its tickets (and the open decision below) first
 
 ## Phases
 
@@ -37,33 +37,11 @@ prewarmed agents.
 SSH remotes, extensions, tabs and splits in the hydra layout, memory view,
 notification history, `hydra doctor`, more agent types, BEL tracking.
 
-### 5 — Safe and steady · active
+### 5 — Safe and steady · complete 2026-10-04 at `f3b7ae7`
 
-Exit when:
-- every ticket below is closed and its change is on `dev`;
-- the Verify command passes on `dev`;
-- a test draws every popup at 20×6 without panicking, and a paste into a pane that
-  never reads input leaves the daemon responsive.
+#1, #2, #3, #4, #5, #6, #7, #8, #9, #10, #11, #12
 
-Tickets live in GitHub issues (label `phase-5`) on CydoEntis/hydra.
-
-Security first:
-1. #1 — Open links and files on Windows without cmd.exe
-2. #2 — Restrict the daemon socket to the current user on Unix
-3. #3 — MCP: only start configured agents, and respect approval on send
-4. #4 — Unforgeable pane tokens for status reports
-5. #5 — Ask before running a repo's .hydra.toml hooks
-
-Then freezes, crashes and data loss (any order):
-6. #6 — Pane input never blocks the daemon
-7. #7 — Move blocking work off the daemon's event loop · after 4
-8. #8 — Move blocking work off the client's UI thread
-9. #9 — Popups never draw outside the screen
-10. #10 — Restore the terminal after a crash
-11. #11 — Editor doesn't overwrite changes made while it was open
-12. #12 — Write state files atomically
-
-### 6 — Clean code: one layout's worth of code, in files a person can read
+### 6 — Clean code: one layout's worth of code, in files a person can read · active (no tickets yet)
 
 Work: remove the legacy layouts (about 2,900 lines across `render.rs`,
 `client/mod.rs`, `design.rs`, `keys.rs`, `config.rs`) after porting the screens
