@@ -12,7 +12,7 @@ which ones need you, jump to them, and keep them running when you leave. See
 ## Now
 
 Active phase: **5 — Safe and steady: no way in for other users or hostile repos, no freezes, no crashes, no lost edits**
-Next unblocked: #6 — Pane input never blocks the daemon
+Next unblocked: #7 — Move blocking work off the daemon's event loop
 
 ## Phases
 
