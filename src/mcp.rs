@@ -208,6 +208,11 @@ impl Server {
             return Err("that's you".into());
         }
         let msg = args.get("text").and_then(Value::as_str).ok_or("give the text")?;
+        // Text sent to a session that's waiting on a question would answer it; that goes
+        // through hydra_answer and the user's approval rules instead.
+        if t.status == Status::Blocked && self.cfg.mcp.approve != "always" {
+            return Err(format!("session {} is waiting on a question; use hydra_answer (the user's approval rules apply) or ask the user", t.id));
+        }
         cli::send(Some(t.id), msg.to_string(), true).map_err(|e| format!("{e:#}"))?;
         if args.get("wait").and_then(Value::as_bool) == Some(true) {
             return self.wait(t.id, None, args, true);
@@ -274,7 +279,14 @@ impl Server {
         let q = self.cfg.quote_for_shell(prompt);
         let cmd = match self.cfg.quick.agents.iter().find(|a| a.name == agent) {
             Some(a) => a.command.replace("{prompt}", &q),
-            None => format!("{agent} {q}"),
+            // Only agents hydra knows, by plain name: anything else would run as a command.
+            None if known_agent(&self.cfg, &agent) => format!("{agent} {q}"),
+            None => {
+                let mut names: Vec<String> = self.cfg.quick.agents.iter().map(|a| a.name.clone()).collect();
+                names.extend(self.cfg.agent_defs().into_iter().map(|d| d.name));
+                names.dedup();
+                return Err(format!("unknown agent \"{agent}\"; use one of: {}", names.join(", ")));
+            }
         };
         let before = self.snapshot()?;
         let had: Vec<TermId> = before.terms.keys().copied().collect();
@@ -353,6 +365,13 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
+/// A built-in or configured agent kind, named plainly (letters, digits, - _ .).
+fn known_agent(cfg: &crate::config::Config, name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+        && cfg.agent_defs().iter().any(|d| d.name == name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -365,5 +384,14 @@ mod tests {
         assert_eq!(opts.len(), 3);
         assert_eq!(opts[2], (3, "No, tell it what to do instead".into()));
         assert_eq!(slug("Fix the flaky checkout test, please"), "fix-the-flaky-checkout");
+    }
+
+    #[test]
+    fn only_known_agents_start() {
+        let cfg = crate::config::Config::default();
+        assert!(known_agent(&cfg, "claude") && known_agent(&cfg, "codex"));
+        assert!(!known_agent(&cfg, "curl x|sh;"), "a command isn't an agent");
+        assert!(!known_agent(&cfg, "not-an-agent"));
+        assert!(!known_agent(&cfg, ""));
     }
 }
