@@ -997,6 +997,10 @@ impl App {
                     self.mode = Mode::Normal;
                     self.menu_do(c.act);
                 }
+                KeyCode::Char(ch) if ch == c.key => {
+                    self.mode = Mode::Normal;
+                    self.menu_do(c.act);
+                }
                 KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('q') => self.mode = Mode::Normal,
                 _ => self.mode = Mode::Confirm(c),
             },
@@ -2540,6 +2544,22 @@ impl App {
 
     fn open_changes(&mut self, dir: PathBuf) {
         let head = crate::gitfs::head(&dir);
+        // Not a git repo: say so, and offer the next step.
+        if head.is_none() && self.cfg.ui.layout == "hydra" {
+            let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            self.mode = Mode::Confirm(Box::new(menu::Confirm {
+                title: "changes".into(),
+                sub: name,
+                what: format!("{} isn't a git repository yet.", dir.display()),
+                detail: String::new(),
+                note: "Git lets you review and undo what agents change here.".into(),
+                yes: "Make it a git repo".into(),
+                key: 'g',
+                danger: false,
+                act: menu::Act::GitInit(dir),
+            }));
+            return;
+        }
         let top = head.as_ref().map(|h| h.top.clone()).unwrap_or_else(|| dir.clone());
         let linked = head.as_ref().is_some_and(|h| h.linked);
         let branch = head.as_ref().map(|h| h.branch.clone()).unwrap_or_default();
@@ -4883,10 +4903,10 @@ mod hydra_tests {
         let Mode::HyMenu(m) = &app.mode else { panic!("a menu") };
         let close = m.items.iter().position(|(l, _)| l == "Close pane").unwrap();
         app.menu_pick(close);
-        assert!(matches!(&app.mode, Mode::Confirm(c) if c.title == "Close pane?"), "asks before closing");
+        assert!(matches!(&app.mode, Mode::Confirm(c) if c.title == "Close pane"), "asks before closing");
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("↵ confirm") && o.contains("esc cancel"));
+        assert!(o.contains(" Close Enter") && o.contains(" Cancel Esc"), "a red Close and a plain Cancel");
         app.on_key(key(KeyCode::Esc));
         assert!(matches!(app.mode, Mode::Normal), "Esc keeps it");
         // The sidebar: sessions right under their project, worktree sessions tagged.
@@ -5223,6 +5243,18 @@ mod hydra_tests {
         assert!(matches!(app.mode, Mode::Side));
         app.on_key(key(KeyCode::Char('x')));
         assert!(matches!(app.mode, Mode::Normal), "a letter leaves the sidebar (and is typed into the pane)");
+    }
+
+    #[test]
+    fn changes_outside_git_offers_git_init() {
+        let (_, mut app) = super::design_tests::render_with("hydra", 160, 45);
+        let dir = std::env::temp_dir().join(format!("hydra-nogit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        app.open_changes(dir.clone());
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("isn't a git repository yet.") && o.contains(" Make it a git repo g") && o.contains(" Cancel Esc"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -101,6 +101,22 @@ pub fn parse_color(s: &str) -> Option<Color> {
     s.parse::<Color>().ok()
 }
 
+/// WCAG contrast between two colours (1 to 21).
+pub fn contrast(a: Color, b: Color) -> f64 {
+    let l = |c: Color| match c {
+        Color::Rgb(r, g, b) => {
+            let ch = |v: u8| {
+                let s = v as f64 / 255.0;
+                if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+        }
+        _ => 0.5,
+    };
+    let (x, y) = (l(a), l(b));
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
 /// Mix `b` into `a` by `t`; colours that aren't RGB can't be mixed and fall back.
 pub fn mix(a: Color, b: Color, t: f32) -> Color {
     match (a, b) {
@@ -114,26 +130,17 @@ pub fn mix(a: Color, b: Color, t: f32) -> Color {
 }
 
 impl Theme {
-    /// The fill for "needs you" buttons (confirm, Jump): its red, a little deeper so the
-    /// text on it reads.
-    pub fn alarm_fill(&self) -> Color {
-        let deep = mix(self.blocked, Color::Rgb(0, 0, 0), 0.36);
-        if Self::contrast_of(self.ink_on(self.blocked), self.blocked) >= 4.5 { self.blocked } else { deep }
-    }
-
-    fn contrast_of(a: Color, b: Color) -> f64 {
-        let l = |c: Color| match c {
-            Color::Rgb(r, g, b) => {
-                let ch = |v: u8| {
-                    let s = v as f64 / 255.0;
-                    if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
-                };
-                0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+    /// The fill of a destructive button (Close): the error red, a little deeper when its
+    /// text wouldn't read on it otherwise.
+    pub fn danger_fill(&self) -> Color {
+        let mut c = self.err;
+        for _ in 0..6 {
+            if contrast(self.ink_on(c), c) >= 4.5 {
+                break;
             }
-            _ => 0.5,
-        };
-        let (x, y) = (l(a), l(b));
-        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+            c = mix(c, Color::Rgb(0, 0, 0), 0.08);
+        }
+        c
     }
 
     /// Text to put on a filled `c`: the theme's background or its strongest text, whichever
@@ -431,7 +438,7 @@ mod audit {
                 ("done on sidebar", t.done, t.sidebar_bg, 3.0),
                 ("working on sidebar", t.working, t.sidebar_bg, 4.5),
                 ("err on card", t.err, t.card, 3.0),
-                ("ink on alarm (confirm)", t.ink_on(t.alarm_fill()), t.alarm_fill(), 4.5),
+                ("ink on the red Close button", t.ink_on(t.danger_fill()), t.danger_fill(), 4.5),
             ];
             for (what, fg, bg, min) in checks {
                 let c = contrast(fg, bg);

@@ -1589,15 +1589,15 @@ pub(super) fn panel(app: &mut App, buf: &mut Buffer, area: Rect, w: u16, h: u16,
     let bar = Rect { height: 1, ..r };
     fill(buf, bar, t.accent);
     let ink = Style::default().fg(t.acc_ink).bg(t.accent);
-    put(buf, r.x + 1, r.y, &[seg(title, ink.add_modifier(Modifier::BOLD))], r.right());
+    put(buf, r.x + 2, r.y, &[seg(title, ink.add_modifier(Modifier::BOLD))], r.right());
     let right: Vec<Seg> = if right.is_empty() {
         vec![seg("Esc", ink.add_modifier(Modifier::BOLD)), seg(" close ", ink)]
     } else {
         right.iter().map(|(s, st)| (s.clone(), st.fg(t.acc_ink).bg(t.accent))).collect()
     };
     let rw = segs_width(&right);
-    put(buf, r.right().saturating_sub(rw), r.y, &right, r.right());
-    hit(app, Rect { x: r.right().saturating_sub(rw.max(10)), y: r.y, width: rw.max(10), height: 1 }, HyHit::Close);
+    put(buf, r.right().saturating_sub(rw + 1), r.y, &right, r.right());
+    hit(app, Rect { x: r.right().saturating_sub(rw.max(10) + 1), y: r.y, width: rw.max(10), height: 1 }, HyHit::Close);
     r
 }
 
@@ -1631,6 +1631,13 @@ pub(super) fn jump_list(model: &[Proj]) -> Vec<(Session, String, String, Color)>
             }
         }
     }
+    // Nothing waiting: the most recent sessions instead of an empty box.
+    if out.is_empty() {
+        let mut all: Vec<(Session, String, String, Color)> =
+            model.iter().flat_map(|p| p.wts.iter().flat_map(move |w| w.sessions.iter().map(move |s| (s.clone(), p.name.clone(), w.name.clone(), p.color)))).collect();
+        all.sort_by_key(|(s, ..)| std::cmp::Reverse(s.since));
+        out = all.into_iter().take(9).collect();
+    }
     out
 }
 
@@ -1657,8 +1664,15 @@ pub(super) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, sel
     let r = panel(app, buf, area, 80, h, "Jump to", &[], t);
     let mut y = r.y + 2;
     let mut i = 0;
-    for (st, label) in [(Status::Blocked, "NEEDS YOU"), (Status::Done, "DONE · NOT REVIEWED")] {
-        let rows: Vec<_> = list.iter().filter(|(s, ..)| s.status == st).collect();
+    let waiting = list.iter().any(|(s, ..)| matches!(s.status, Status::Blocked | Status::Done));
+    if !waiting {
+        put(buf, r.x + 3, y, &[seg("✓ ", Style::default().fg(t.done).bg(t.card).add_modifier(Modifier::BOLD)), seg("Nothing needs you right now.", Style::default().fg(t.strong).bg(t.card))], r.right());
+        y += 2;
+    }
+    let groups: Vec<(Option<Status>, &str)> = if waiting { vec![(Some(Status::Blocked), "NEEDS YOU"), (Some(Status::Done), "DONE · NOT REVIEWED")] } else { vec![(None, "RECENT")] };
+    for (st, label) in groups {
+        let rows: Vec<_> = list.iter().filter(|(s, ..)| st.is_none_or(|x| s.status == x)).collect();
+        let st = st.unwrap_or(Status::None);
         if rows.is_empty() {
             continue;
         }
@@ -1722,7 +1736,7 @@ pub(super) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, sel
         }
     }
     if list.is_empty() && prs.is_empty() {
-        put(buf, r.x + 3, r.y + 3, &[seg("Nothing needs you right now.", Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::ITALIC))], r.right());
+        put(buf, r.x + 3, y, &[seg("Nothing running yet.", Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::ITALIC))], r.right());
     }
     put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("1-9", "jump"), ("Enter", "jump"), ("↑↓", "choose"), ("Esc", "close")]), r.right());
 }

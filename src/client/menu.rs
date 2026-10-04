@@ -1,7 +1,7 @@
 //! Right-click menus for the hydra layout: a pane, an agent row, a project, a branch or a
 //! worktree. Short, hoverable, and every item does something.
 
-use super::design::{fill, put, seg, segs_width};
+use super::design::{fill, put, seg};
 use super::hydra::{HyHit, find, hit, hovered};
 use super::render::truncate;
 use super::{App, Mode};
@@ -39,47 +39,49 @@ pub enum Act {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Confirm {
+    /// The title bar ("Close pane", "changes").
     pub title: String,
+    /// Dim next to the title ("dsa-tool").
+    pub sub: String,
+    /// What it's about (bold) and a dim detail after it.
+    pub what: String,
     pub detail: String,
+    /// A plain line of explanation.
+    pub note: String,
+    /// The button that does it, and its key ("Close", "Enter").
+    pub yes: String,
+    pub key: char,
+    /// Red (destructive) or the accent.
+    pub danger: bool,
     pub act: Act,
 }
 
-/// "Close pane?" — what, and confirm / cancel (like herdr's).
+/// A modal like everything else: what it's about, a line of explanation, the action
+/// (red when it destroys something) and Cancel.
 pub(super) fn draw_confirm(app: &mut App, f: &mut ratatui::Frame, area: ratatui::layout::Rect, t: &crate::theme::Theme, c: &Confirm) {
-    use super::design::{fill, put, seg};
-    use super::hydra::{HyHit, dim_all, hit, hovered};
+    use super::design::{put, seg};
+    use super::hydra::{HyHit, dim_all, hit, hovered, panel};
     use ratatui::layout::Rect;
     use ratatui::style::{Modifier, Style};
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let w = 60.min(area.width.saturating_sub(4));
-    let r = Rect { x: area.x + (area.width.saturating_sub(w)) / 2, y: area.y + area.height / 3, width: w, height: 6 };
-    fill(buf, r, t.card);
-    let edge = Style::default().fg(t.blocked).bg(t.card);
-    for x in r.left()..r.right() {
-        buf[(x, r.y)].set_symbol("─").set_style(edge);
-        buf[(x, r.bottom() - 1)].set_symbol("─").set_style(edge);
+    let w = (c.what.chars().count() + c.detail.chars().count() + 12).max(c.note.chars().count() + 8).clamp(58, 90) as u16;
+    let r = panel(app, buf, area, w, 9, &c.title, &[], t);
+    if !c.sub.is_empty() {
+        put(buf, r.x + 3 + c.title.chars().count() as u16, r.y, &[seg(format!("  {}", c.sub), Style::default().bg(t.accent).fg(t.acc_ink))], r.right().saturating_sub(12));
     }
-    for y in r.top()..r.bottom() {
-        buf[(r.x, y)].set_symbol("│").set_style(edge);
-        buf[(r.right() - 1, y)].set_symbol("│").set_style(edge);
-    }
-    for (x, y, g) in [(r.x, r.y, "┌"), (r.right() - 1, r.y, "┐"), (r.x, r.bottom() - 1, "└"), (r.right() - 1, r.bottom() - 1, "┘")] {
-        buf[(x, y)].set_symbol(g).set_style(edge);
-    }
-    let c0 = Style::default().bg(t.card);
-    put(buf, r.x + 2, r.y + 1, &[seg(c.title.clone(), c0.fg(t.blocked).add_modifier(Modifier::BOLD))], r.right() - 2);
-    put(buf, r.x + 2, r.y + 2, &[seg(super::render::truncate(&c.detail, (w - 4) as usize), c0.fg(t.text))], r.right() - 2);
-    let yes = " ↵ confirm ";
-    let no = " esc cancel ";
-    let total = (yes.chars().count() + 2 + no.chars().count()) as u16;
-    let bx = r.x + (w.saturating_sub(total)) / 2;
-    let yr = Rect { x: bx, y: r.y + 4, width: yes.chars().count() as u16, height: 1 };
-    let nr = Rect { x: yr.right() + 2, y: r.y + 4, width: no.chars().count() as u16, height: 1 };
-    let ys = Style::default().bg(t.alarm_fill()).fg(t.ink_on(t.alarm_fill())).add_modifier(Modifier::BOLD);
-    let ns = if hovered(app, nr) { Style::default().bg(t.hov).fg(t.strong) } else { Style::default().bg(t.btn).fg(t.text) };
-    put(buf, yr.x, yr.y, &[seg(yes, ys)], r.right());
-    put(buf, nr.x, nr.y, &[seg(no, ns)], r.right());
+    let card = Style::default().bg(t.card);
+    put(buf, r.x + 3, r.y + 2, &[seg(c.what.clone(), card.fg(t.strong).add_modifier(Modifier::BOLD)), seg(format!("   {}", c.detail), card.fg(t.muted))], r.right() - 2);
+    put(buf, r.x + 3, r.y + 3, &[seg(c.note.clone(), card.fg(t.text))], r.right() - 2);
+    let key = if c.key == '\n' { "Enter".to_string() } else { c.key.to_string() };
+    let (yb, yf) = if c.danger { (t.danger_fill(), t.ink_on(t.danger_fill())) } else { (t.accent, t.acc_ink) };
+    let yes = vec![seg(format!(" {} ", c.yes), Style::default().bg(yb).fg(yf).add_modifier(Modifier::BOLD)), seg(format!("{key} "), Style::default().bg(yb).fg(yf).add_modifier(Modifier::BOLD))];
+    let yw: u16 = yes.iter().map(|(x, _)| x.chars().count() as u16).sum();
+    let yr = Rect { x: r.x + 3, y: r.y + 6, width: yw, height: 1 };
+    put(buf, yr.x, yr.y, &yes, r.right());
+    let nr = Rect { x: yr.right() + 2, y: r.y + 6, width: 12, height: 1 };
+    let nb = if hovered(app, nr) { t.hov } else { t.btn };
+    put(buf, nr.x, nr.y, &[seg(" Cancel ", Style::default().bg(nb).fg(t.strong).add_modifier(Modifier::BOLD)), seg("Esc ", Style::default().bg(nb).fg(t.accent).add_modifier(Modifier::BOLD))], r.right());
     hit(app, area, HyHit::ConfirmNo);
     hit(app, r, HyHit::Noop);
     hit(app, yr, HyHit::ConfirmYes);
@@ -95,7 +97,9 @@ pub struct HyMenu {
 }
 
 impl App {
-    pub(super) fn menu(&mut self, title: String, items: Vec<(String, Act)>, at: (u16, u16)) {
+    pub(super) fn menu(&mut self, title: String, mut items: Vec<(String, Act)>, at: (u16, u16)) {
+        // The destructive item last.
+        items.sort_by_key(|(_, a)| matches!(a, Act::End(_) | Act::CloseProject(_)));
         self.mode = Mode::HyMenu(Box::new(HyMenu { title, items, sel: 0, at }));
     }
 
@@ -225,25 +229,63 @@ impl App {
     /// What a menu item does; closing things asks first.
     pub(super) fn menu_act(&mut self, a: Act) {
         let model = self.hy_model();
-        let ask = match &a {
+        let ask: Option<Confirm> = match &a {
             Act::End(ts) if ts.len() == 1 => {
-                let name = find(&model, ts[0]).map(|(_, _, s)| if s.title == super::hydra::WAITING || s.title.is_empty() { s.agent.clone() } else { format!("{} · {}", s.agent, s.title) }).unwrap_or_else(|| "this pane".into());
+                let name = find(&model, ts[0]).map(|(_, _, s)| s.name.clone()).unwrap_or_else(|| "this pane".into());
+                let path = self.snap.terms.get(&ts[0]).map(|t| t.cwd.display().to_string()).unwrap_or_default();
                 let running = self.snap.terms.get(&ts[0]).is_some_and(|t| t.status == crate::protocol::Status::Working);
-                Some(("Close pane?".to_string(), format!("{name}{}", if running { " — still working" } else { "" })))
+                Some(Confirm {
+                    title: "Close pane".into(),
+                    sub: String::new(),
+                    what: name,
+                    detail: path,
+                    note: if running { "It's still working; the program running in it will stop.".into() } else { "The program running in it will stop.".into() },
+                    yes: "Close".into(),
+                    key: '\n',
+                    danger: true,
+                    act: a.clone(),
+                })
             }
-            Act::End(ts) => Some(("Close all of these?".to_string(), format!("{} panes", ts.len()))),
-            Act::GitInit(p) => Some((
-                format!("Make {} a git repo?", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
-                "git init, then everything there as the first commit; new agents get their own worktrees".to_string(),
-            )),
+            Act::End(ts) => Some(Confirm {
+                title: "Close panes".into(),
+                sub: String::new(),
+                what: format!("{} panes", ts.len()),
+                detail: String::new(),
+                note: "The programs running in them will stop.".into(),
+                yes: "Close".into(),
+                key: '\n',
+                danger: true,
+                act: a.clone(),
+            }),
+            Act::GitInit(p) => Some(Confirm {
+                title: "Make it a git repo".into(),
+                sub: String::new(),
+                what: p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                detail: p.display().to_string(),
+                note: "git init, then what's there as the first commit. Agents then get worktrees.".into(),
+                yes: "Make it a git repo".into(),
+                key: 'g',
+                danger: false,
+                act: a.clone(),
+            }),
             Act::CloseProject(pi) => model.get(*pi).map(|p| {
                 let n = p.sessions().count();
-                ("Close project?".to_string(), format!("{} — {n} pane{}", p.name, if n == 1 { "" } else { "s" }))
+                Confirm {
+                    title: "Close project".into(),
+                    sub: String::new(),
+                    what: p.name.clone(),
+                    detail: format!("{n} pane{}", if n == 1 { "" } else { "s" }),
+                    note: "Everything running in it stops; the folder stays where it is.".into(),
+                    yes: "Close".into(),
+                    key: '\n',
+                    danger: true,
+                    act: a.clone(),
+                }
             }),
             _ => None,
         };
         match ask {
-            Some((title, detail)) => self.mode = Mode::Confirm(Box::new(Confirm { title, detail, act: a })),
+            Some(c) => self.mode = Mode::Confirm(Box::new(c)),
             None => self.menu_do(a),
         }
     }
@@ -354,43 +396,40 @@ pub(super) fn menu_keys(items: &[(String, Act)]) -> Vec<Option<char>> {
 pub(super) fn draw_menu(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, m: &HyMenu) {
     let buf = f.buffer_mut();
     let keys = menu_keys(&m.items);
-    let w = m.items.iter().map(|(l, _)| l.width() as u16).max().unwrap_or(10).max(m.title.width() as u16).clamp(18, 48) + 10;
-    let h = m.items.len() as u16 + 3;
+    let danger = |a: &Act| matches!(a, Act::End(_) | Act::CloseProject(_));
+    // The destructive item sits last, after a blank row.
+    let gap = m.items.iter().any(|(_, a)| danger(a)) && m.items.len() > 1;
+    let w = m.items.iter().map(|(l, _)| l.width() as u16).max().unwrap_or(10).max(m.title.width() as u16).clamp(16, 44) + 10;
+    let h = m.items.len() as u16 + 3 + gap as u16;
     let x = m.at.0.min(area.right().saturating_sub(w + 1)).max(area.x);
     let y = if m.at.1 + h < area.bottom() { m.at.1 + 1 } else { m.at.1.saturating_sub(h) }.max(area.y);
     let r = Rect { x, y, width: w, height: h };
     // Clicking anywhere else closes it.
     hit(app, area, HyHit::Close);
     fill(buf, r, t.card);
-    for xx in r.x..r.right() {
-        buf[(xx, r.y)].set_symbol("─").set_style(Style::default().fg(t.line).bg(t.card));
-        buf[(xx, r.bottom() - 1)].set_symbol("─").set_style(Style::default().fg(t.line).bg(t.card));
-    }
-    for yy in r.y..r.bottom() {
-        buf[(r.x, yy)].set_symbol("│").set_style(Style::default().fg(t.line).bg(t.card));
-        buf[(r.right() - 1, yy)].set_symbol("│").set_style(Style::default().fg(t.line).bg(t.card));
-    }
-    buf[(r.x, r.y)].set_symbol("╭");
-    buf[(r.right() - 1, r.y)].set_symbol("╮");
-    buf[(r.x, r.bottom() - 1)].set_symbol("╰");
-    buf[(r.right() - 1, r.bottom() - 1)].set_symbol("╯");
     hit(app, r, HyHit::Noop);
-    put(buf, r.x + 2, r.y, &[seg(format!(" {} ", truncate(&m.title, (w - 6) as usize)), Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::BOLD))], r.right() - 1);
+    put(buf, r.x + 2, r.y, &[seg(truncate(&m.title, (w - 4) as usize), Style::default().fg(t.muted).bg(t.card))], r.right() - 1);
+    let mut yy = r.y + 2;
     for (i, (label, act)) in m.items.iter().enumerate() {
-        let yy = r.y + 1 + i as u16;
-        let row = Rect { x: r.x + 1, y: yy, width: w - 2, height: 1 };
+        if gap && danger(act) && i + 1 == m.items.len() {
+            yy += 1;
+        }
+        let row = Rect { x: r.x, y: yy, width: w, height: 1 };
         let on = i == m.sel || hovered(app, row);
         let bg = if on { t.hov } else { t.card };
         fill(f.buffer_mut(), row, bg);
-        let danger = matches!(act, Act::End(_) | Act::CloseProject(_));
-        let fg = if danger { t.err } else if on { t.strong } else { t.text };
-        let segs = vec![seg(if i == m.sel { "›" } else { " " }, Style::default().fg(t.accent).bg(bg)), seg(format!(" {label}"), Style::default().fg(fg).bg(bg))];
-        put(f.buffer_mut(), row.x, yy, &segs, row.right().saturating_sub(4));
+        if i == m.sel {
+            put(f.buffer_mut(), row.x + 1, yy, &[seg("›", Style::default().fg(t.accent).bg(bg).add_modifier(Modifier::BOLD))], row.right());
+        }
+        let mut ls = Style::default().fg(if danger(act) { t.err } else { t.strong }).bg(bg);
+        if i == m.sel {
+            ls = ls.add_modifier(Modifier::BOLD);
+        }
+        put(f.buffer_mut(), row.x + 3, yy, &[seg(label.clone(), ls)], row.right().saturating_sub(4));
         if let Some(k) = keys.get(i).copied().flatten() {
-            let cap = vec![seg(format!(" {k} "), Style::default().fg(t.accent).bg(t.btn).add_modifier(Modifier::BOLD))];
-            let cw = segs_width(&cap);
-            put(f.buffer_mut(), row.right().saturating_sub(cw + 1), yy, &cap, row.right());
+            put(f.buffer_mut(), row.right().saturating_sub(3), yy, &[seg(k.to_string(), Style::default().fg(t.accent).bg(bg).add_modifier(Modifier::BOLD))], row.right());
         }
         hit(app, row, HyHit::MenuPick(i));
+        yy += 1;
     }
 }
