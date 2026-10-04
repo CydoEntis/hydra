@@ -749,7 +749,8 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
     };
     let right_side = app.cfg.ui.sidebar_position == "right";
     // The panes get the full height; the sidebar sits under the logo.
-    let mid = Rect { x: area.x, y: area.y, width: area.width, height: area.height.saturating_sub(1) };
+    let mid = Rect { x: area.x, y: area.y + 1, width: area.width, height: area.height.saturating_sub(2) };
+    draw_top(app, f.buffer_mut(), Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(1), height: 1 }, t);
     let (side, panes) = if sw == 0 {
         (Rect { width: 0, ..mid }, mid)
     } else if right_side {
@@ -760,12 +761,7 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
     } else {
         (Rect { width: sw, ..mid }, Rect { x: mid.x + sw + 1, width: mid.width.saturating_sub(sw + 1), ..mid })
     };
-    let side = if sw > 0 {
-        draw_top(app, f.buffer_mut(), Rect { height: 1, ..side }, t);
-        Rect { y: side.y + 1, height: side.height.saturating_sub(1), ..side }
-    } else {
-        side
-    };
+
     if sw > 0 {
         draw_side(app, f.buffer_mut(), side, &model, t);
         // The edge between sidebar and panes: drag it.
@@ -777,8 +773,8 @@ pub(super) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect 
         }
         hit(app, edge, HyHit::SideEdge);
     }
-    // A little air between the panes and everything around them.
-    let panes = Rect { x: panes.x + 1, y: panes.y + 1, width: panes.width.saturating_sub(2), height: panes.height.saturating_sub(1) };
+    // A cell of air on each side; every pane starts with its own title bar.
+    let panes = Rect { x: panes.x + 1, y: panes.y, width: panes.width.saturating_sub(2), height: panes.height };
     draw_main(app, f, panes, &model, t);
     app.hy.crumb_x = panes.x + 1;
     draw_status(app, f.buffer_mut(), Rect { y: area.bottom().saturating_sub(1), height: 1, ..area }, &model, t);
@@ -1265,13 +1261,44 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
         draw_session(app, f, area, focus, true, false, model, t);
         return;
     };
-    // Each session in its part; a line between neighbours, which you can drag.
+    let leaves = layout.leaves();
+    // Three or more tile evenly (6 make a 3×2 grid); two split where you drag the line.
+    if leaves.len() >= 3 {
+        let n = leaves.len();
+        let rows = if n <= 3 { 1 } else if n <= 6 { 2 } else { n.div_ceil(3) };
+        let per = n.div_ceil(rows);
+        let rh = (area.height + 1) / rows as u16;
+        let mut rects = Vec::new();
+        for (ri, chunk) in leaves.chunks(per).enumerate() {
+            let y = area.y + ri as u16 * rh;
+            let h = if ri + 1 == rows { area.bottom() - y } else { rh - 1 };
+            let cols = chunk.len() as u16;
+            let cw = (area.width + 3) / cols;
+            for (ci, id) in chunk.iter().enumerate() {
+                let x = area.x + ci as u16 * cw;
+                let w = if ci as u16 + 1 == cols { area.right() - x } else { cw - 3 };
+                rects.push((*id, Rect { x, y, width: w, height: h }));
+                if (ci as u16) + 1 < cols {
+                    let buf = f.buffer_mut();
+                    for yy in y..y + h {
+                        buf[(x + w + 1, yy)].set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
+                    }
+                }
+            }
+        }
+        app.hy.leaf_rects = rects.clone();
+        for (id, r) in rects {
+            draw_session(app, f, r, id, id == focus, true, model, t);
+        }
+        return;
+    }
+    // Two: each in its part, a gutter between them (space │ space), the line drags.
     let rects = layout.rects(area);
     app.hy.leaf_rects = rects.clone();
     for (id, r) in rects {
         let mut r = r;
         if r.right() < area.right() {
-            r.width = r.width.saturating_sub(1);
+            r.width = r.width.saturating_sub(3);
         }
         if r.bottom() < area.bottom() {
             r.height = r.height.saturating_sub(1);
@@ -1283,9 +1310,14 @@ fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme
         let div = crate::layout::Node::divider(sa, horizontal, ratio);
         let c = if app.hy.drag == Some(Drag::Divider(i)) || hovered(app, div) { t.accent } else { t.line };
         let buf = f.buffer_mut();
+        // Side by side: the line in the middle of the gutter. Stacked: a blank row (it shows
+        // when you point at it).
+        let div = if horizontal { Rect { x: div.x.saturating_sub(1), ..div } } else { div };
         for yy in div.top()..div.bottom() {
             for xx in div.left()..div.right() {
-                buf[(xx, yy)].set_symbol(if horizontal { "│" } else { "─" }).set_style(Style::default().fg(c).bg(t.bg));
+                if horizontal || c == t.accent {
+                    buf[(xx, yy)].set_symbol(if horizontal { "│" } else { "─" }).set_style(Style::default().fg(c).bg(t.bg));
+                }
             }
         }
         hit(app, div, HyHit::Divider(i));
@@ -1346,57 +1378,54 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
         .map(|(_, w, s)| (s.title.clone(), if w.main { w.branch.clone() } else { w.name.clone() }, s.agent.clone()))
         .unwrap_or_default();
     let st = info.status;
-    let bar = split;
-    // Title bar (split only; on its own the top bar already says all this).
+    let _ = (split, &title, &wt);
+    // Title bar: name and where on the left (project · branch, cut with … before the right
+    // side); state and ✕ on the right. The focused pane's bar is the accent.
     let bg = if focused { t.accent } else { t.sidebar_bg };
-    if bar {
-    fill(f.buffer_mut(), Rect { height: 1, ..r }, bg);
     let ink = |c: Color| if focused { t.acc_ink } else { c };
+    fill(f.buffer_mut(), Rect { height: 1, ..r }, bg);
     let mut right: Vec<Seg> = Vec::new();
+    if let Some(n) = app.scroll.get(&term) {
+        right.push(seg(format!("↑{n}   "), Style::default().fg(ink(t.accent)).bg(bg)));
+    }
     if info.agent.is_some() {
         let mut s = Style::default().fg(ink(t.status(st))).bg(bg);
         if st == Status::Blocked {
             s = s.add_modifier(Modifier::BOLD);
         }
         let extra = if st == Status::Working { format!(" {}", age(info.since)) } else { String::new() };
-        right.push(seg(format!("{} {}{extra}  ", glyph(app, st), state_label(st)), s));
+        right.push(seg(format!("{} {}{extra}   ", glyph(app, st), state_label(st)), s));
     }
-    if let Some(n) = app.scroll.get(&term) {
-        right.push(seg(format!("↑{n}  "), Style::default().fg(ink(t.accent)).bg(bg)));
-    }
-    if split {
-        right.push(seg("✕ ", Style::default().fg(ink(t.muted)).bg(bg)));
-    }
+    let xr = Rect { x: r.right().saturating_sub(2), y: r.y, width: 1, height: 1 };
+    right.push(seg("✕", Style::default().fg(if hovered(app, xr) { t.err } else { ink(t.muted) }).bg(bg)));
     let rw = segs_width(&right);
+    let (name, place) = found
+        .map(|(p, w, s)| {
+            let br = if p.git && !w.branch.is_empty() { format!(" · {}", w.branch) } else { String::new() };
+            (s.name.clone(), format!("{}{br}", p.name))
+        })
+        .unwrap_or_else(|| (agent.clone(), String::new()));
+    let icon = if info.agent.is_some() { format!("{} ", kind_icon(app, &agent, true)) } else { String::new() };
+    let room = (r.width as usize).saturating_sub(rw as usize + 4 + icon.chars().count() + name.chars().count() + 2);
+    let place = if place.chars().count() > room { format!("{}…", place.chars().take(room.saturating_sub(1)).collect::<String>()) } else { place };
     put(
         f.buffer_mut(),
         r.x + 1,
         r.y,
         &[
-            seg(format!("{agent}  "), Style::default().fg(ink(t.strong)).bg(bg).add_modifier(Modifier::BOLD)),
-            seg(title.clone(), Style::default().fg(ink(t.strong)).bg(bg)),
-            seg(format!("  {wt}"), Style::default().fg(ink(t.muted)).bg(bg)),
+            seg(format!("{icon}{name}"), Style::default().fg(ink(t.strong)).bg(bg).add_modifier(Modifier::BOLD)),
+            seg(format!("  {place}"), Style::default().fg(ink(t.muted)).bg(bg)),
         ],
         r.right().saturating_sub(rw + 2),
     );
-    put(f.buffer_mut(), r.right().saturating_sub(rw), r.y, &right, r.right());
-    }
+    put(f.buffer_mut(), r.right().saturating_sub(rw + 1), r.y, &right, r.right());
     app.pane_frames.push((term, r));
-    if split {
-        hit(app, Rect { x: r.right().saturating_sub(2), y: r.y, width: 2, height: 1 }, HyHit::CloseSplit(term));
-    } else if r.y > 0 {
-        // On its own there's no title bar: the ✕ sits in the row of air above it.
-        let xr = Rect { x: r.right().saturating_sub(2), y: r.y - 1, width: 2, height: 1 };
-        let st = if hovered(app, xr) { Style::default().fg(t.err).bg(t.hov) } else { Style::default().fg(t.muted).bg(t.bg) };
-        put(f.buffer_mut(), xr.x, xr.y, &[seg("✕ ", st)], xr.right());
-        hit(app, xr, HyHit::CloseSplit(term));
-    }
+    hit(app, Rect { x: r.right().saturating_sub(3), y: r.y, width: 3, height: 1 }, HyHit::CloseSplit(term));
 
+    // A blank row under the bar; output starts two cells in.
     let ask = st == Status::Blocked && info.agent.is_some();
-    let foot = 0;
-    let bot = r.bottom().saturating_sub(foot + if ask { 2 } else { 0 });
-    let top = r.y + bar as u16;
-    let _ = top;
+    let bot = r.bottom().saturating_sub(if ask { 2 } else { 0 });
+    let top = r.y + 2;
     let inner = Rect { x: r.x + 2, y: top, width: r.width.saturating_sub(3), height: bot.saturating_sub(top) };
     app.panes.push((term, inner));
     app.hits.push((inner, Hit::Pane(term)));
@@ -1467,15 +1496,13 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
 
     // Answer bar: the agent's own numbered choices, so a key sends the same keystroke.
     if ask && bot + 2 <= r.bottom() {
-        fill(f.buffer_mut(), Rect { x: r.x, y: bot, width: r.width, height: 2 }, t.card2);
-        let mut x = put(
-            f.buffer_mut(),
-            r.x + 2,
-            bot,
-            &[seg(format!("● {agent} is waiting   "), Style::default().fg(t.blocked).bg(t.card2).add_modifier(Modifier::BOLD))],
-            r.right(),
-        );
+        let bot = r.bottom() - 1;
+        fill(f.buffer_mut(), Rect { x: r.x, y: bot, width: r.width, height: 1 }, t.card2);
         let opts = options(app.parsers.get(&term));
+        let need: u16 = opts.iter().take(4).map(|o| o.chars().count() as u16 + 5).sum();
+        // In a narrow pane the label shrinks to its dot.
+        let label = if r.width.saturating_sub(4 + need) >= 10 { "● answer   " } else { "● " };
+        let mut x = put(f.buffer_mut(), r.x + 2, bot, &[seg(label, Style::default().fg(t.blocked).bg(t.card2).add_modifier(Modifier::BOLD))], r.right());
         for (i, o) in opts.iter().enumerate().take(4) {
             let key = char::from_digit(i as u32 + 1, 10).unwrap_or('1');
             let kind = if i == 0 { BtnKind::Primary } else { BtnKind::Normal };
@@ -1485,13 +1512,6 @@ fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bo
             x = put(f.buffer_mut(), x, bot, &segs, r.right()) + 1;
             app.hits.push((br, Hit::Button(super::Btn::Answer(term, key))));
         }
-        let rk = k(app, &Action::Reply);
-        x += 1;
-        let w = segs_width(&button(t, "Reply…", &rk, BtnKind::Normal, false));
-        let br = Rect { x, y: bot, width: w, height: 1 };
-        let segs = button(t, "Reply…", &rk, BtnKind::Normal, hovered(app, br));
-        put(f.buffer_mut(), x, bot, &segs, r.right());
-        hit(app, br, HyHit::Talk(term));
     }
 
 }

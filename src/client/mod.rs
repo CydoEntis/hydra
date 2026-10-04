@@ -4665,7 +4665,7 @@ mod hydra_tests {
         let (text, mut app) = super::design_tests::render_with("hydra", 160, 45);
         show(&text);
         let lines: Vec<&str> = text.lines().collect();
-        assert!(lines[0].starts_with(" >_ hydra"), "logo: {}", lines[0]);
+        assert!(lines[0].starts_with("  >_ hydra"), "logo: {}", lines[0]);
         let bottom = lines.iter().rev().find(|l| !l.trim().is_empty()).unwrap();
         assert!(bottom.contains("shop-api  ›  ⎇ main  ›  claude  ● needs you  ·  Fix flaky checkout test"), "crumb at the bottom: {bottom}");
         assert!(lines[2].contains("PROJECTS") && lines[2].contains("+ open"), "the sidebar's header: {}", lines[2]);
@@ -4682,9 +4682,12 @@ mod hydra_tests {
         assert!(!text.contains("Rate limit /login"), "under a session only its question, as in the redesign");
         assert!(text.contains("›   shell") && !text.contains("shell 2"), "a shell in the project's folder is just 'shell', no age");
         assert!(!text.contains("session"), "no 'session' wording on screen");
-        assert!(text.contains("● claude is waiting") && text.contains(" Yes 1 ") && text.contains(" Always 2 ") && text.contains(" No 3 "));
+        for part in ["● answer", " Yes 1 ", " Always 2 ", " No 3"] {
+            assert!(text.contains(part), "the answer bar has {part:?}");
+        }
         assert!(!text.contains("click or press T"), "no footer under the pane");
-        assert!(lines[1].contains("> fix the flaky checkout test"), "one pane: the full height, a row of air at the top");
+        assert!(lines[1].contains("✻ claude  shop-api · main") && lines[1].contains("● needs you"), "every pane has a title bar: {}", lines[1]);
+        assert!(lines[3].contains("> fix the flaky checkout test"), "a blank row under the bar, then the output");
         // Overlays are centred over a dimmed screen.
         for (mode, needle) in [
             (Mode::Jump { sel: 0 }, "NEEDS YOU"),
@@ -5140,16 +5143,18 @@ mod hydra_tests {
         let o = draw(&mut app, 200, 50);
         show(&o);
         assert_eq!(app.hy.leaf_rects.len(), 3);
-        assert_eq!(app.hy.dividers.len(), 2, "a divider between each");
-        // Drag the first divider.
+        let widths: Vec<u16> = app.hy.leaf_rects.iter().map(|(_, r)| r.width).collect();
+        assert!(widths.iter().max().unwrap() - widths.iter().min().unwrap() <= 2, "three tile evenly: {widths:?}");
+        // Close one: two left, with a line between them you can drag.
+        assert!(app.hy_unshow(c));
+        assert_eq!(app.hy.tabs[0].layout.leaves().len(), 2);
+        draw(&mut app, 200, 50);
+        assert_eq!(app.hy.dividers.len(), 1, "a divider between the two");
         let before = app.hy.leaf_rects[0].1.width;
         let path = app.hy.dividers[0].2.clone();
         app.hy.tabs[0].layout.set_ratio(&path, 0.3);
         draw(&mut app, 200, 50);
         assert!(app.hy.leaf_rects[0].1.width < before, "dragging moves it");
-        // Close one: two left.
-        assert!(app.hy_unshow(c));
-        assert_eq!(app.hy.tabs[0].layout.leaves().len(), 2);
         // A new tab for c; the bar shows both.
         app.hy.new_tab = Some(Instant::now());
         app.hy_place(c, Some(a));
