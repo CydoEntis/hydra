@@ -24,7 +24,8 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # One test at a time, so a stuck one shows by name in the log.
+      # One test at a time: CI's Windows machines stall when several tests start real
+      # shells (ConPTY) at once. It also names a stuck test in the log.
       - run: cargo test --locked -- --test-threads=1
       - run: cargo clippy --locked --all-targets -- -D warnings
 
