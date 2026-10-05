@@ -701,7 +701,7 @@ impl App {
             PromptKind::NewWorkspace => {
                 // A group starts with a shell where you are.
                 let name = (!input.is_empty()).then_some(input);
-                self.cmd(Command::NewWorkspace { cwd: Some(self.here_dir()), name, cmd: None });
+                self.cmd(Command::NewWorkspace { cwd: Some(self.here_dir()), name, cmd: None, home: crate::protocol::Home::Auto });
             }
             _ => {}
         }
@@ -735,6 +735,6 @@ impl App {
             return;
         }
         let name = if w.main { w.repo.clone() } else { format!("{}:{}", w.repo, w.branch) };
-        self.cmd(Command::NewWorkspace { cwd: Some(w.path.clone()), name: Some(name), cmd });
+        self.cmd(Command::NewWorkspace { cwd: Some(w.path.clone()), name: Some(name), cmd, home: crate::protocol::Home::Auto });
     }
 }

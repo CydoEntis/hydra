@@ -93,6 +93,7 @@ mod design_tests {
             color: 0,
             is_new: false,
             group: None,
+            home: crate::protocol::Home::Auto,
         });
         app.snap.active_ws = Some(10);
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
@@ -774,6 +775,44 @@ mod hydra_tests {
         show(&o);
         assert!(o.contains("THEME") && o.contains("● Default") && o.contains("○ Monokai") && o.contains("○ Tokyo Night"));
         assert!(o.contains("Swatches: background, surface"));
+    }
+
+    #[test]
+    fn sessions_stay_where_they_were_started() {
+        use crate::protocol::Home;
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        // A quick shell outside projects (the shell, in a workspace of its own): its own group,
+        // last, named by the folder it's in.
+        let loose_term = 3;
+        let mut quick = app.snap.workspaces[0].clone();
+        let tab = &mut app.snap.workspaces[0].tabs[0];
+        tab.layout = tab.layout.clone().remove(loose_term).unwrap();
+        quick.id = 20;
+        quick.home = Home::Loose;
+        quick.tabs = vec![crate::protocol::TabInfo { id: 21, name: String::new(), layout: crate::layout::Node::Leaf(loose_term), focus: loose_term }];
+        quick.active_tab = 21;
+        app.snap.workspaces.push(quick);
+        app.snap.terms.get_mut(&loose_term).unwrap().agent = None;
+        app.snap.terms.get_mut(&loose_term).unwrap().cwd = PathBuf::from(if cfg!(windows) { r"C:\code\scratch" } else { "/code/scratch" });
+        // One that wandered off: cd'd out of its project, but it was started there.
+        let (home_ws, away) = (0, app.snap.workspaces[0].tabs[0].layout.first_leaf());
+        let project = app.snap.terms[&away].root.clone().unwrap();
+        app.snap.workspaces[home_ws].home = Home::Project(project.clone());
+        let elsewhere = PathBuf::from(if cfg!(windows) { r"C:\elsewhere" } else { "/elsewhere" });
+        let t = app.snap.terms.get_mut(&away).unwrap();
+        (t.cwd, t.root, t.top) = (elsewhere.clone(), None, None);
+        app.hy_fresh();
+        let model = app.hy_model();
+        let last = model.last().unwrap();
+        assert!(last.loose && last.name == "outside projects", "{:?}", model.iter().map(|p| &p.name).collect::<Vec<_>>());
+        let row = last.sessions().find(|s| s.term == loose_term).expect("the quick shell is outside projects");
+        assert_eq!(row.name, "scratch", "named by its folder");
+        let home = model.iter().find(|p| p.sessions().any(|s| s.term == away)).unwrap();
+        assert_eq!(home.path, project, "still in the project it was started in");
+        assert!(!model.iter().any(|p| p.path == elsewhere), "no project made up for where it went");
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("outside projects") && o.contains("scratch") && o.contains("claude · elsewhere"));
     }
 
     #[test]

@@ -263,6 +263,7 @@ impl App {
             Action::BrowseTree,
             Action::NewPane,
             Action::ShellHere,
+            Action::QuickShell,
             Action::OpenProject,
             Action::SplitRight,
             Action::SplitDown,

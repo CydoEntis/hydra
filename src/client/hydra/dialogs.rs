@@ -482,6 +482,7 @@ pub(in crate::client) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: 
             vec![
                 (vec![Action::NewPane], "new agent"),
                 (vec![Action::ShellHere], "new shell"),
+                (vec![Action::QuickShell], "quick shell"),
                 (vec![Action::OpenProject], "open project"),
                 (vec![Action::Talk], "message"),
                 (vec![Action::Reply], "reply"),

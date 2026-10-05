@@ -705,7 +705,7 @@ impl App {
         } else {
             // The last one started gets the focus, so start the first command last.
             for c in rest.iter().rev() {
-                self.cmd(Command::NewWorkspace { cwd: Some(main.clone()), name: None, cmd: Some(c.clone()) });
+                self.cmd(Command::NewWorkspace { cwd: Some(main.clone()), name: None, cmd: Some(c.clone()), home: crate::protocol::Home::Auto });
             }
             self.hy_new_session(main, Some(first), false);
         }
@@ -723,7 +723,7 @@ impl App {
         let Some(w) = model.iter().flat_map(|p| p.wts.iter()).find(|w| w.branch == branch && !w.sessions.is_empty()).cloned() else { return };
         self.hy.pending_recipe = None;
         for c in rest {
-            self.cmd(Command::NewWorkspace { cwd: Some(w.path.clone()), name: None, cmd: Some(c) });
+            self.cmd(Command::NewWorkspace { cwd: Some(w.path.clone()), name: None, cmd: Some(c), home: crate::protocol::Home::Auto });
         }
         if let Some(first) = w.sessions.first() {
             self.cmd(Command::FocusPane { term: first.term });

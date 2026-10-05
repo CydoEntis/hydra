@@ -123,8 +123,8 @@ From source (any platform with Rust): `cargo install --git https://github.com/Cy
 ## Use
 
 ```sh
-hydra            # attach (starts the server if needed); opens the current dir
-hydra ~/code/api # open or switch to that directory
+hydra            # attach (starts the server if needed); a quick shell where you are
+hydra ~/code/api # open that directory as a project (or switch to it)
 ```
 
 The sidebar is one tree of your **projects** (git repos, found from where things run plus any
@@ -153,6 +153,10 @@ folder you open with `o`):
   worktree with an agent.
 - `#412 ✓` / `#412 ✕±`: the branch's pull request, its checks, and review state. Click it.
 - Things that need you sort to the top. Agents asleep (see Settings) show `☾ asleep`.
+- A session stays where you started it: everything started in a project (shells, agents,
+  splits) is listed there even after it `cd`s elsewhere.
+- **outside projects**, at the bottom: quick shells (`s`), each named by the folder it's in now.
+  They stay out of every project, even when you start an agent in one or `cd` into a repo.
 
 The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 
@@ -161,7 +165,8 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 | `g` | **go to** a project or session: type to find it |
 | `e` / `a` | focus the sidebar / jump to what needs you |
 | `p` (or Space) | **command palette**: type what you want |
-| `n` / `t` / `o` | new session (a shell here) / new agent (task box) / open a project |
+| `n` / `t` / `o` | new shell in this project / new agent (task box) / open a project |
+| `s` | quick shell, outside projects (in the folder you're in) |
 | `v` / `-` | split right / split down |
 | `h j k l` or arrows | focus the pane that way (left past the edge: the sidebar) |
 | `x` / `z` / `b` / `y` | close pane / zoom pane / show or hide the sidebar / select text with keys |

@@ -649,6 +649,7 @@ pub(super) fn key_rows() -> Vec<(&'static str, Vec<(&'static str, Vec<crate::key
             "START & TALK",
             vec![
                 ("New session (a shell here)", vec![A::ShellHere]),
+                ("Quick shell, outside projects", vec![A::QuickShell]),
                 ("New agent", vec![A::NewPane]),
                 ("Open a project", vec![A::OpenProject]),
                 ("Message an agent", vec![A::Talk]),

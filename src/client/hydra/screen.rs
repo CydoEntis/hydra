@@ -333,7 +333,7 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 if needs > 0 {
                     c.push(seg(format!("● {needs}"), s.fg(t.blocked).add_modifier(Modifier::BOLD)));
                 }
-                if !p.git {
+                if !p.git && !p.loose {
                     c.push(seg(format!("{}no git", if c.is_empty() { "" } else { "  " }), s.fg(t.muted)));
                 }
                 if !open {
@@ -884,6 +884,7 @@ pub(in crate::client) fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, m
             (Action::GoTo, "go to"),
             (Action::Palette, "palette"),
             (Action::ShellHere, "new session"),
+            (Action::QuickShell, "quick shell"),
             (Action::NewPane, "new agent"),
             (Action::SplitRight, "split"),
             (Action::Help, "all keys"),

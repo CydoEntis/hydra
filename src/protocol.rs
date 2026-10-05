@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 21;
+pub const PROTOCOL_VERSION: u32 = 22;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -56,7 +56,14 @@ pub enum ClientMsg {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Command {
-    NewWorkspace { cwd: Option<PathBuf>, name: Option<String>, cmd: Option<String> },
+    /// `home`: where the sidebar files it (Auto: the project of `cwd`).
+    NewWorkspace {
+        cwd: Option<PathBuf>,
+        name: Option<String>,
+        cmd: Option<String>,
+        #[serde(default)]
+        home: Home,
+    },
     CloseWorkspace { ws: WsId },
     RenameWorkspace { ws: WsId, name: String },
     SelectWorkspace { ws: WsId },
@@ -238,6 +245,22 @@ pub struct WorkspaceInfo {
     pub is_new: bool,
     /// The sidebar group it's in, if the user put it in one.
     pub group: Option<String>,
+    /// Where the sidebar files it, fixed when it starts.
+    #[serde(default)]
+    pub home: Home,
+}
+
+/// Where a workspace belongs in the sidebar. Set when it starts and kept, wherever its
+/// panes `cd` to or whatever they turn into.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Home {
+    /// Not recorded (saved by an older hydra): filed by the folder its panes are in.
+    #[default]
+    Auto,
+    /// A project: everything started in it stays in it.
+    Project(PathBuf),
+    /// Outside projects: a quick shell, and anything it becomes.
+    Loose,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -427,7 +450,7 @@ mod tests {
             ClientMsg::Query(Query::List),
             ClientMsg::Query(Query::Read { term: 3 }),
             ClientMsg::Query(Query::Worktrees { ws: 1 }),
-            ClientMsg::Command(Command::NewWorkspace { cwd: Some(PathBuf::from("/code")), name: None, cmd: Some("claude".into()) }),
+            ClientMsg::Command(Command::NewWorkspace { cwd: Some(PathBuf::from("/code")), name: None, cmd: Some("claude".into()), home: crate::protocol::Home::Auto }),
             ClientMsg::Command(Command::Split { term: 3, dir: crate::layout::Dir::Down, cmd: None, cwd: None }),
             ClientMsg::Command(Command::ClosePane { term: 3 }),
             ClientMsg::Command(Command::Reveal { term: 3 }),

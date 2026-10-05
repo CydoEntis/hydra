@@ -562,7 +562,7 @@ impl Daemon {
                         }
                         None => {
                             let _ = &repo;
-                            self.command(client, Command::NewWorkspace { cwd: Some(path.clone()), name: None, cmd })?;
+                            self.command(client, Command::NewWorkspace { cwd: Some(path.clone()), name: None, cmd, home: crate::protocol::Home::Auto })?;
                         }
                     }
                     Ok(path)

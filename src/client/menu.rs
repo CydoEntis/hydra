@@ -334,7 +334,7 @@ impl App {
                     self.cmd(Command::FocusPane { term: t });
                 }
                 self.hy.pending_split = Some((t, std::time::Instant::now()));
-                self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd: None });
+                self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd: None, home: crate::protocol::Home::Auto });
             }
             Act::GitInit(dir) => {
                 self.notify("making it a git repo…".into(), false);

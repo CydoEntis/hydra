@@ -140,14 +140,44 @@ impl App {
     }
 
     /// Start a session in `cwd` running `cmd` (None: a shell), beside the focused one or
-    /// on its own.
+    /// on its own. It goes in the project of `cwd`; one beside another goes where that is.
     pub(in crate::client) fn hy_new_session(&mut self, cwd: PathBuf, cmd: Option<String>, beside: bool) {
+        self.hy_start(cwd, cmd, beside, Home::Auto);
+    }
+
+    /// Start a session outside projects: it stays there wherever it goes.
+    pub(in crate::client) fn hy_new_loose(&mut self, cwd: PathBuf, cmd: Option<String>) {
+        self.hy_start(cwd, cmd, false, Home::Loose);
+    }
+
+    fn hy_start(&mut self, cwd: PathBuf, cmd: Option<String>, beside: bool, mut home: Home) {
         if beside && let Some(f) = self.focused() {
             self.hy.pending_split = Some((f, Instant::now()));
+            // A split belongs with the session it's split from.
+            if let Some(h) = self.home_of(f).filter(|h| *h != Home::Auto) {
+                home = h;
+            }
         }
         self.hy.cursor = None;
         self.mode = Mode::Normal;
-        self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd });
+        self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd, home });
+    }
+
+    /// Where the workspace holding `term` belongs.
+    pub(in crate::client) fn home_of(&self, term: TermId) -> Option<Home> {
+        self.snap.workspaces.iter().find(|w| w.tabs.iter().any(|t| t.layout.contains(term))).map(|w| w.home.clone())
+    }
+
+    /// A shell outside projects, in the folder of the session you're on (else your home).
+    pub(in crate::client) fn hy_quick_shell(&mut self) {
+        let dir = self
+            .focused()
+            .and_then(|t| self.snap.terms.get(&t))
+            .map(|t| t.cwd.clone())
+            .filter(|d| d.is_dir())
+            .or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()))
+            .unwrap_or_else(std::env::temp_dir);
+        self.hy_new_loose(dir, None);
     }
 
     /// A new worktree of a project running `cmd`: on `branch` if given (an existing one),
@@ -328,6 +358,13 @@ impl App {
             Action::Settings => self.hy_settings(),
             Action::NewPane => self.hy_open_new_pane(false),
             // A plain shell in the project's own folder (the repo itself, not a worktree).
+            // Outside projects, it's another session out there, in that one's folder.
+            Action::ShellHere if self.hy.cursor.or(self.focused()).and_then(|t| self.home_of(t)) == Some(Home::Loose) => {
+                let dir = self.hy.cursor.or(self.focused()).and_then(|t| self.snap.terms.get(&t)).map(|t| t.cwd.clone()).unwrap_or_else(|| self.here_dir());
+                self.hy.cursor = None;
+                self.hy_new_loose(dir, None);
+            }
+            Action::QuickShell => self.hy_quick_shell(),
             Action::ShellHere => {
                 let dir = self
                     .hy
@@ -679,6 +716,14 @@ impl App {
             self.run_recipe(&p, recipe);
             return;
         }
+        if p.loose {
+            // Outside projects: where the session you're on is, else your home folder.
+            let dir = self.focused().filter(|f| self.home_of(*f) == Some(Home::Loose)).and_then(|f| self.snap.terms.get(&f)).map(|t| t.cwd.clone()).unwrap_or(main);
+            if np.beside {
+                return self.hy_new_session(dir, cmd, true);
+            }
+            return self.hy_new_loose(dir, cmd);
+        }
         if !p.git {
             return self.hy_new_session(main, cmd, np.beside);
         }
@@ -1007,7 +1052,11 @@ impl App {
             HyHit::ShellIn(pi) => {
                 if let Some(p) = self.hy_model().get(pi) {
                     let dir = p.wts.iter().find(|w| w.main).map(|w| w.path.clone()).unwrap_or_else(|| p.path.clone());
-                    self.hy_new_session(dir, None, false);
+                    if p.loose {
+                        self.hy_new_loose(dir, None);
+                    } else {
+                        self.hy_new_session(dir, None, false);
+                    }
                 }
             }
             HyHit::RowMenuSess(t) => {

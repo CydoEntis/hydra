@@ -107,7 +107,7 @@ fn status_reports_apply_in_the_order_they_came() {
 fn detaching_and_closing_prune_tabs_and_workspaces() {
     let (mut d, _rx) = daemon();
     let dir = std::env::temp_dir();
-    d.command(0, Command::NewWorkspace { cwd: Some(dir.clone()), name: None, cmd: None }).unwrap();
+    d.command(0, Command::NewWorkspace { cwd: Some(dir.clone()), name: None, cmd: None, home: crate::protocol::Home::Auto }).unwrap();
     assert_eq!(d.workspaces.len(), 1);
     let first = d.workspaces[0].tabs[0].focus;
     d.command(0, Command::Split { term: first, dir: crate::layout::Dir::Right, cmd: None, cwd: None }).unwrap();
@@ -161,6 +161,7 @@ fn restore_gives_panes_new_ids_and_keeps_their_layout() {
             worktree: false,
             color: None,
             group: None,
+            home: Home::Loose,
             tabs: vec![persist::SavedTab { name: "main".into(), layout, focus: 71, panes }],
             active_tab: 0,
         }],
@@ -169,6 +170,7 @@ fn restore_gives_panes_new_ids_and_keeps_their_layout() {
     };
     d.restore(saved);
     assert_eq!(d.workspaces.len(), 1);
+    assert_eq!(d.workspaces[0].home, Home::Loose, "outside projects stays outside after a restart");
     let tab = &d.workspaces[0].tabs[0];
     let leaves = tab.layout.leaves();
     assert_eq!(leaves.len(), 2, "both panes came back, side by side");
@@ -198,4 +200,16 @@ fn closing_the_last_pane_keeps_an_open_window() {
     assert!(!d.should_exit(), "a window is still showing hydra");
     d.handle(Ev::Disconnected(1));
     assert!(d.should_exit(), "everything closed and nobody's looking: exit");
+}
+
+#[test]
+fn a_new_session_remembers_where_it_belongs() {
+    let (mut d, _rx) = daemon();
+    let dir = std::env::temp_dir();
+    d.command(0, Command::NewWorkspace { cwd: Some(dir.clone()), name: None, cmd: None, home: Home::Auto }).unwrap();
+    d.command(0, Command::NewWorkspace { cwd: Some(dir.clone()), name: None, cmd: None, home: Home::Loose }).unwrap();
+    assert!(matches!(&d.workspaces[0].home, Home::Project(p) if clean_path(p.clone()) == clean_path(dir.clone())), "the project of the folder it started in: {:?}", d.workspaces[0].home);
+    assert_eq!(d.workspaces[1].home, Home::Loose, "a quick shell stays outside projects");
+    let terms: Vec<TermId> = d.terms.keys().copied().collect();
+    close(&mut d, &terms);
 }
