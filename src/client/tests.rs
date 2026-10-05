@@ -777,6 +777,32 @@ mod hydra_tests {
     }
 
     #[test]
+    fn a_split_is_one_session_and_others_open_full_size() {
+        let (_, mut app) = super::design_tests::render_with(200, 50);
+        let a = app.focused().unwrap();
+        let others: Vec<TermId> = app.snap.terms.keys().copied().filter(|t| *t != a).collect();
+        let (b, c) = (others[0], others[1]);
+        app.hy.tabs.clear();
+        app.hy_place(a, None);
+        app.hy.pending_split = Some((a, Instant::now()));
+        app.hy_place(b, Some(a));
+        app.hy_fresh();
+        let rows: Vec<TermId> = app.hy_model().iter().flat_map(|p| p.sessions().map(|s| s.term).collect::<Vec<_>>()).collect();
+        assert!(rows.contains(&a) && !rows.contains(&b), "the pane beside a isn't a session of its own: {rows:?}");
+        // b needs you: a's row says so.
+        app.snap.terms.get_mut(&b).unwrap().status = Status::Blocked;
+        app.hy_fresh();
+        let row = app.hy_model().iter().flat_map(|p| p.sessions().cloned().collect::<Vec<_>>()).find(|s| s.term == a).unwrap();
+        assert_eq!(row.status, Status::Blocked);
+        // Picking another session shows it alone; the split is still there to go back to.
+        app.hy_place(c, Some(b));
+        assert_eq!(app.hy.tabs[app.hy.tab].layout, crate::layout::Node::Leaf(c), "full size");
+        assert!(app.hy.tabs.iter().any(|t| t.layout.leaves() == vec![a, b]), "the split is kept: {:?}", app.hy.tabs);
+        app.hy_place(a, Some(c));
+        assert_eq!(app.hy.tabs[app.hy.tab].layout.leaves(), vec![a, b], "its row brings the split back");
+    }
+
+    #[test]
     fn closing_a_split_pane_leaves_the_other() {
         let (_, mut app) = super::design_tests::render_with(200, 50);
         let a = app.focused().unwrap();

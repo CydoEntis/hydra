@@ -85,8 +85,21 @@ impl App {
             self.cmd(Command::FocusPane { term: to });
             return;
         }
+        // Not shown anywhere: it shows on its own, full size. A split stays as you made it
+        // (pick its row to get it back); the session goes where a lone one is, or a new tab.
+        if self.hy.tabs[self.hy.tab].layout.leaves().len() > 1 {
+            let i = match self.hy.tabs.iter().position(|t| t.layout.leaves().len() == 1) {
+                Some(i) => i,
+                None => {
+                    self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f });
+                    self.hy.tabs.len() - 1
+                }
+            };
+            self.hy.tabs[i] = HyTab { layout: Node::Leaf(f), focus: f };
+            self.hy.tab = i;
+            return;
+        }
         let tab = &mut self.hy.tabs[self.hy.tab];
-        // Not shown anywhere: it takes the place of the one you were on.
         let old = prev.filter(|o| tab.layout.contains(*o)).unwrap_or(tab.focus);
         let swapped = tab.layout.map_leaves(&mut |id| Some(if id == old { f } else { id }));
         tab.layout = swapped.filter(|l| l.contains(f)).unwrap_or(Node::Leaf(f));

@@ -223,8 +223,9 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     fill(buf, r, surf);
     app.hy.side_rect = r;
     let lines = side_lines(app, model, t);
-    let focus = app.focused();
     let shown: Vec<TermId> = app.hy.tabs.get(app.hy.tab).map(|t| t.layout.leaves()).unwrap_or_default();
+    // In a split, the split's row (its first pane's) is the open one, whichever side you're on.
+    let focus = app.focused().map(|f| if shown.len() > 1 && shown.contains(&f) { shown[0] } else { f });
     let split = shown.iter().copied().find(|t| Some(*t) != focus && shown.len() > 1);
     // PROJECTS, and "+ open o" on the right.
     let sb = Style::default().bg(surf);

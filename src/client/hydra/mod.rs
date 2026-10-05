@@ -299,6 +299,39 @@ pub(super) fn rank(s: Status) -> u8 {
     }
 }
 
+/// A split is one session: the pane it was split from keeps its row, the panes opened
+/// beside it don't get rows of their own. The row shows the most urgent of them, so an agent
+/// in a split that needs you still says so (and what it asks).
+pub(super) fn fold_splits(projs: &mut [Proj], tabs: &[HyTab]) {
+    for tab in tabs {
+        let leaves = tab.layout.leaves();
+        let Some((&owner, beside)) = leaves.split_first() else { continue };
+        if beside.is_empty() {
+            continue;
+        }
+        let mut members: Vec<Session> = Vec::new();
+        for p in projs.iter_mut() {
+            for w in &mut p.wts {
+                w.sessions.retain(|s| {
+                    let gone = beside.contains(&s.term);
+                    if gone {
+                        members.push(s.clone());
+                    }
+                    !gone
+                });
+            }
+        }
+        let Some(row) = projs.iter_mut().flat_map(|p| p.wts.iter_mut()).flat_map(|w| w.sessions.iter_mut()).find(|s| s.term == owner) else {
+            continue;
+        };
+        if let Some(m) = members.into_iter().filter(|m| rank(m.status) < rank(row.status)).min_by_key(|m| rank(m.status)) {
+            row.status = m.status;
+            row.since = m.since;
+            row.question = m.question;
+        }
+    }
+}
+
 pub(super) fn folder_name(p: &Path) -> String {
     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.display().to_string())
 }
@@ -460,6 +493,11 @@ impl App {
                 };
             }
         }
+        let had: Vec<String> = projs.iter().filter(|p| p.sessions().next().is_some()).map(|p| p.key.clone()).collect();
+        fold_splits(&mut projs, &self.hy.tabs);
+        // A project that was only listed for a pane now inside a split goes (unless you opened it).
+        let known: Vec<String> = self.hy.saved.known.iter().map(|k| path_key(k)).collect();
+        projs.retain(|p| p.sessions().next().is_some() || !had.contains(&p.key) || known.iter().any(|k| *k == p.key || p.wts.iter().any(|w| w.key == *k)));
         for p in &mut projs {
             if sort {
                 for w in &mut p.wts {
@@ -520,13 +558,18 @@ impl App {
                 }
                 let prev = self.hy.last_focus;
                 self.hy_place(f, prev);
+                // Which panes share a split may have changed, and the sidebar folds those.
+                self.hy_fresh();
             }
             self.hy.last_focus = focus;
         }
         // Sessions that ended leave their tabs; empty tabs go.
         let alive = |t: TermId| self.snap.terms.contains_key(&t);
-        let mut tabs: Vec<HyTab> = std::mem::take(&mut self.hy.tabs)
-            .into_iter()
+        let mut tabs: Vec<HyTab> = self
+            .hy
+            .tabs
+            .iter()
+            .cloned()
             .filter_map(|tab| {
                 let layout = tab.layout.map_leaves(&mut |id| alive(id).then_some(id))?;
                 let focus = if layout.contains(tab.focus) { tab.focus } else { layout.first_leaf() };
@@ -534,6 +577,9 @@ impl App {
             })
             .collect();
         tabs.dedup_by(|a, b| a.layout == b.layout);
+        if tabs != self.hy.tabs {
+            self.hy_fresh();
+        }
         self.hy.tabs = tabs;
         self.hy.tab = self.hy.tab.min(self.hy.tabs.len().saturating_sub(1));
         if self.hy.proj.as_ref().is_none_or(|k| !model.iter().any(|p| &p.key == k)) {
