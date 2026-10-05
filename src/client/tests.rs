@@ -451,6 +451,33 @@ mod hydra_tests {
     }
 
     #[test]
+    fn wheel_scrolls_history_even_when_the_program_takes_the_mouse() {
+        use crossterm::event::{MouseEvent, MouseEventKind};
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        // An agent printing into the normal screen (its history above) that also asked for
+        // the mouse: the wheel is still for scrolling back.
+        let mut p = vt100::Parser::new(40, 120, 1000);
+        for i in 1..=100 {
+            p.process(format!("line {i}\r\n").as_bytes());
+        }
+        p.process(b"\x1b[?1000h\x1b[?1006h");
+        app.parsers.insert(1, p);
+        draw(&mut app, 160, 45);
+        let (_, inner) = app.panes[0];
+        for _ in 0..5 {
+            app.on_mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: inner.x + 5, row: inner.y + 5, modifiers: KeyModifiers::NONE });
+        }
+        assert_eq!(app.scroll.get(&1), Some(&15), "hydra scrolled its history");
+        // A full-screen program (no history of its own here) gets the wheel itself.
+        let mut p = vt100::Parser::new(40, 120, 1000);
+        p.process(b"\x1b[?1049h\x1b[?1000h\x1b[?1006h");
+        app.parsers.insert(1, p);
+        app.scroll.clear();
+        app.on_mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: inner.x + 5, row: inner.y + 5, modifiers: KeyModifiers::NONE });
+        assert!(!app.scroll.contains_key(&1), "the program scrolls itself");
+    }
+
+    #[test]
     fn behaves_like_a_terminal() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         let mut p = vt100::Parser::new(40, 120, 1000);

@@ -364,6 +364,10 @@ impl App {
             && let Some((term, inner)) = self.panes.iter().find(|(_, r)| r.contains(pos)).copied()
             && (self.hy.right_clicks.contains(&term)
                 || !matches!(m.kind, MouseEventKind::Down(MouseButton::Right) | MouseEventKind::Up(MouseButton::Right) | MouseEventKind::Drag(MouseButton::Right)))
+            // The wheel goes to full-screen programs, which scroll themselves; one printing
+            // into the normal screen (Claude Code) has its history here, so hydra scrolls it.
+            && (!matches!(m.kind, MouseEventKind::ScrollUp | MouseEventKind::ScrollDown)
+                || self.parsers.get(&term).is_some_and(|p| p.screen().alternate_screen()))
             && let Some(bytes) = self.parsers.get(&term).and_then(|p| keys::mouse_bytes(p.screen(), &m, pos.x - inner.x, pos.y - inner.y))
         {
             if m.kind == MouseEventKind::Moved && self.hover != Some(pos) {
