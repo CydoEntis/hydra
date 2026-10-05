@@ -407,12 +407,16 @@ impl Default for Worktree {
     }
 }
 
+/// The "done" icon before it became a green dot.
+const OLD_DONE_ICON: &str = "✓";
+
 impl Default for Icons {
     fn default() -> Self {
         Icons {
             working: "⠹".into(),
             blocked: "●".into(),
-            done: "✓".into(),
+            // Filled like "needs you", told apart by colour: green.
+            done: "●".into(),
             idle: "○".into(),
             shell: "›".into(),
             active_workspace: "▌".into(),
@@ -625,7 +629,13 @@ impl Config {
             let over: toml::Table = toml::from_str(&s).with_context(|| format!("parsing {}", local.display()))?;
             merge(&mut value, over);
         }
-        toml::Value::Table(value).try_into().with_context(|| format!("parsing {}", path.display()))
+        let mut cfg: Config = toml::Value::Table(value).try_into().with_context(|| format!("parsing {}", path.display()))?;
+        // Config files written from the old example spell out the old "done" icon; it's a
+        // green dot now (any other choice is kept).
+        if cfg.icons.done == OLD_DONE_ICON {
+            cfg.icons.done = Icons::default().done;
+        }
+        Ok(cfg)
     }
 
     /// Load, falling back to defaults and returning the error message for display.

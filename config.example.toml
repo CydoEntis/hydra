@@ -66,7 +66,7 @@ prewarm = ""                # e.g. "claude": keep one booted in a spare worktree
 [icons]
 working = "⠹"
 blocked = "●"
-done = "✓"
+done = "●"                  # same as blocked, told apart by colour (green)
 idle = "○"
 shell = "›"
 branch = "\ue0a0 "          # Nerd Font branch glyph; use "" or "on " without one

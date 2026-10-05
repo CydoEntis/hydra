@@ -954,6 +954,25 @@ mod hydra_tests {
     }
 
     #[test]
+    fn a_finished_agent_is_a_green_dot_even_if_it_rang() {
+        let (_, mut app) = super::design_tests::render_with(120, 30);
+        // codex finished and rang the bell (it does both), and you're on another session.
+        let t = app.snap.terms.get_mut(&2).unwrap();
+        (t.status, t.bell) = (Status::Done, true);
+        app.hy_fresh();
+        let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        term.draw(|f| render::draw(&mut app, f)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let row = |y: u16| (0..40u16).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>();
+        let y = (0..30).find(|&y| row(y).contains("rate")).expect("codex's row");
+        assert!(row(y).contains('●') && !row(y).contains('♪'), "the done dot, not the bell: {:?}", row(y));
+        let dot = (0..40u16).find(|&x| buf[(x, y)].symbol() == "●").unwrap();
+        assert_eq!(buf[(dot, y)].fg, app.theme.done, "a green dot");
+        let name = (0..40u16).find(|&x| buf[(x, y)].symbol() == "r").unwrap();
+        assert_eq!(buf[(name, y)].fg, app.theme.done, "and green text");
+    }
+
+    #[test]
     fn only_the_part_with_the_keys_looks_focused() {
         let (_, mut app) = super::design_tests::render_with(120, 30);
         let bar_bg = |app: &mut App| {

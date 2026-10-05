@@ -374,7 +374,9 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 };
                 let (gl, gc) = match &s.dev {
                     Some(d) => ("▶".to_string(), if d.ready { t.done } else { t.muted }),
-                    None if s.bell && s.status != Status::Blocked => ("♪".to_string(), t.blocked),
+                    // A bell from something with no status of its own; an agent's state says more
+                    // (codex rings it when it finishes).
+                    None if s.bell && !matches!(s.status, Status::Blocked | Status::Done) => ("♪".to_string(), t.blocked),
                     None => (gl, gc),
                 };
                 let mut gs = st.fg(ink.unwrap_or(gc));
@@ -392,8 +394,10 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 }
                 let focused_row = Some(s.term) == focus;
                 let needs = s.status == Status::Blocked && !s.asleep;
-                let mut ns = st.fg(ink.unwrap_or(if needs { t.blocked } else if focused_row { t.strong } else { t.text }));
-                if focused_row || needs {
+                // Finished and not looked at yet: green, like its dot.
+                let done = s.is_agent && s.status == Status::Done && !s.asleep;
+                let mut ns = st.fg(ink.unwrap_or(if needs { t.blocked } else if done { t.done } else if focused_row { t.strong } else { t.text }));
+                if focused_row || needs || done {
                     ns = ns.add_modifier(Modifier::BOLD);
                 }
                 if s.is_agent && s.status == Status::Working && ink.is_none() && !s.asleep {
@@ -424,7 +428,11 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 } else if s.is_agent {
                     // branch · age (in a repo), state · age (outside one); amber when it needs you.
                     let first = if model[*pi].git && !wt.branch.is_empty() && wt.branch != s.name { wt.branch.clone() } else { state_label(s.status).to_string() };
-                    let col = if s.status == Status::Blocked { t.blocked } else { t.muted };
+                    let col = match s.status {
+                        Status::Blocked => t.blocked,
+                        Status::Done => t.done,
+                        _ => t.muted,
+                    };
                     vec![seg(format!("{} · {}", truncate(&first, 18), age(s.since)), st.fg(ink.unwrap_or(col)))]
                 } else {
                     vec![]

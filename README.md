@@ -141,7 +141,7 @@ folder you open with `o`):
    ⑂ quick-fox            ● codex 40s
        Allow running npm test?
    BRANCHES ▸ 6
-▸ ▌web-shop                         ✓1
+▸ ▌web-shop                         ●1
   + open a project  o
 ```
 
@@ -279,7 +279,7 @@ Shared: `config.toml` and `ideas.json`. Anything for one machine only (a shell p
 ## Splash and settings
 
 hydra opens on the splash: the hydra, what happened while you were away (`● 2 need you ⠹ 3 still
-working ✓ 1 finished`) and buttons: Open your last project (Enter), Jump to what needs you (`j`),
+working ● 1 finished`) and buttons: Open your last project (Enter), Jump to what needs you (`j`),
 Open a folder (`o`), Settings (`,`). Turn it off in Settings → General.
 
 `Ctrl+Space ,` opens **Settings**, with tabs (Tab cycles): General · Sessions · Appearance · Agents ·
