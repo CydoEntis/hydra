@@ -340,10 +340,12 @@ impl Daemon {
     }
 
     fn should_exit(&self) -> bool {
-        if !self.terms.is_empty() || self.pending_ops > 0 {
+        // A window still showing hydra (empty projects, the splash) keeps it open: closing
+        // the last pane mustn't close the app under you.
+        if !self.terms.is_empty() || self.pending_ops > 0 || self.clients.values().any(|c| c.attach) {
             return false;
         }
-        // Exit when the last pane closes, or if nobody ever started one.
+        // Exit once the last pane is closed and no window is left, or if nobody ever started one.
         self.had_terms || (self.clients.is_empty() && self.empty_since.elapsed() > EXIT_WHEN_UNUSED_FOR)
     }
 

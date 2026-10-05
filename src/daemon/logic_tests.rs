@@ -187,3 +187,15 @@ fn worktree_names_that_look_like_options_are_refused() {
         assert!(git::create_worktree(&dir, bad, None, "{repo_parent}/{repo}-worktrees/{branch}").is_err(), "branch {bad:?}");
     }
 }
+
+#[test]
+fn closing_the_last_pane_keeps_an_open_window() {
+    let (mut d, _rx) = daemon();
+    let t = pane(&mut d);
+    let (tx, _crx) = mpsc::channel(64);
+    d.handle(Ev::Connected(1, tx, true));
+    d.close_term(t);
+    assert!(!d.should_exit(), "a window is still showing hydra");
+    d.handle(Ev::Disconnected(1));
+    assert!(d.should_exit(), "everything closed and nobody's looking: exit");
+}

@@ -107,7 +107,10 @@ pub(in crate::client) fn draw_splash(app: &mut App, f: &mut Frame, area: Rect, t
         seg("   ", Style::default()),
         seg(format!("{} {} finished", app.cfg.icons.done, n(Status::Done)), Style::default().fg(t.done)),
     ];
-    put(buf, center(segs_width(&away)), y, &away, area.right());
+    // Nothing running, nothing to report: no line of zeros.
+    if !app.snap.terms.is_empty() {
+        put(buf, center(segs_width(&away)), y, &away, area.right());
+    }
     y += 3;
     let last = app.focused().and_then(|fo| find(&model, fo)).map(|(p, w, s)| (p.name.clone(), p.color, w.name.clone(), s.title.clone()));
     // A short list, one under the other: Resume (when there's something to go back to),
