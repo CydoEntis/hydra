@@ -57,7 +57,7 @@ Next, in order:
 
 1. #25 (rest) Hooks for Gemini, opencode, Qwen in one command
 2. #24 (rest) Per-pane permissions for what an agent may do through hydra
-3. #28 Scrollback: jump between commands, multi-pane copy
+3. #28 Scrollback: jump between commands (done, 0.8.1); multi-pane copy (with #26)
 4. #26 Layouts: tiling, scrolling, master-stack, workspaces, popups
 
 On hold (2026-10-05, the user's call): #31 package managers (AUR name and account to decide),

@@ -337,6 +337,11 @@ impl App {
                 self.hy_new_session(dir, None, false);
             }
             Action::Jump | Action::Picker => self.mode = Mode::Jump { sel: 0 },
+            Action::PrevPrompt | Action::NextPrompt => {
+                if let Some(t) = self.focused() {
+                    self.jump_prompt(t, *a == Action::PrevPrompt);
+                }
+            }
             Action::OpenProject => self.hy_open_finder(),
             Action::Talk | Action::Reply => {
                 let from_side = *a == Action::Talk && self.hy.cursor.is_some();

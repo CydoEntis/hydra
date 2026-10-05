@@ -258,7 +258,7 @@ fn from_file_url(url: &str) -> Option<String> {
 /// convention), which keeps the sidebar, splits and restores in the right folder. Runs after
 /// the profile; uses no double quotes so it survives Windows argument quoting.
 const PWSH_CWD_HOOK: &str = "$global:__hydraPrompt = $function:prompt; \
-function global:prompt { $l = $executionContext.SessionState.Path.CurrentLocation; \
+function global:prompt { [Console]::Write([char]27 + ']133;A' + [char]7); $l = $executionContext.SessionState.Path.CurrentLocation; \
 if ($l.Provider.Name -eq 'FileSystem') { [Console]::Write([char]27 + ']9;9;' + [char]34 + $l.ProviderPath + [char]34 + [char]7) }; \
 & $global:__hydraPrompt }";
 

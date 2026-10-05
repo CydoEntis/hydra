@@ -841,6 +841,47 @@ mod hydra_tests {
     }
 
     #[test]
+    fn jumps_between_commands_in_history() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let term = 1;
+        app.parsers.insert(term, vt100::Parser::new(20, 80, 1000));
+        app.marks.remove(&term);
+        // Three commands, each with output long enough to scroll away.
+        for n in 1..=3 {
+            app.feed(term, format!("\x1b]133;A\x07$ cmd{n}\r\n").as_bytes());
+            for i in 0..30 {
+                app.feed(term, format!("cmd{n} line {i}\r\n").as_bytes());
+            }
+        }
+        app.feed(term, b"\x1b]133;A\x07$ ");
+        let top = |app: &App| {
+            let p = app.parsers.get(&term).unwrap();
+            let (_, cols) = p.screen().size();
+            p.screen().rows(0, cols).next().unwrap_or_default().trim_end().to_string()
+        };
+        app.jump_prompt(term, true);
+        assert_eq!(top(&app), "$ cmd3", "back to the last command");
+        app.jump_prompt(term, true);
+        assert_eq!(top(&app), "$ cmd2");
+        app.jump_prompt(term, false);
+        assert_eq!(top(&app), "$ cmd3", "and forward again");
+        // A history that fills up and drops its oldest lines: still the right command.
+        app.parsers.insert(term, vt100::Parser::new(20, 80, 50));
+        app.marks.remove(&term);
+        app.scroll.remove(&term);
+        for n in 1..=4 {
+            app.feed(term, format!("\x1b]133;A\x07$ job{n}\r\n").as_bytes());
+            for i in 0..30 {
+                app.feed(term, format!("job{n} line {i}\r\n").as_bytes());
+            }
+        }
+        app.jump_prompt(term, true);
+        assert_eq!(top(&app), "$ job4", "found though the history shifted");
+        app.jump_prompt(term, true);
+        assert_eq!(top(&app), "$ job3");
+    }
+
+    #[test]
     fn x_closes_and_x_confirms() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         app.menu_act(menu::Act::End(vec![3]));

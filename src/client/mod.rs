@@ -2,6 +2,7 @@
 //! turns keys into either pane input or commands.
 
 mod copy;
+mod marks;
 mod design;
 mod files;
 mod find;
@@ -327,6 +328,8 @@ pub struct App {
     snap: Snapshot,
     got_state: bool,
     parsers: HashMap<TermId, vt100::Parser>,
+    /// Where commands started in each pane's history (see `marks`).
+    marks: HashMap<TermId, marks::Marks>,
     scroll: HashMap<TermId, usize>,
     sizes: HashMap<TermId, (u16, u16)>,
     mode: Mode,
@@ -472,6 +475,7 @@ impl App {
             snap: Snapshot::default(),
             got_state: false,
             parsers: HashMap::new(),
+            marks: HashMap::new(),
             scroll: HashMap::new(),
             sizes: HashMap::new(),
             mode: Mode::Normal,

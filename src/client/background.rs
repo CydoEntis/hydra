@@ -43,13 +43,14 @@ impl App {
                 self.hy_sync();
             }
             ServerMsg::Replay { term, cols, rows, data } => {
-                let mut p = self.new_parser(rows, cols);
-                p.process(&data);
+                let p = self.new_parser(rows, cols);
+                self.parsers.insert(term, p);
+                self.marks.remove(&term);
+                self.feed(term, &data);
                 self.keep_raw(term, &data, true);
                 if let Some(c) = keys::last_cursor_style(&data) {
                     self.cursor_style.insert(term, c);
                 }
-                self.parsers.insert(term, p);
                 self.sizes.insert(term, (cols, rows));
             }
             ServerMsg::Output { term, data } => {
@@ -76,13 +77,13 @@ impl App {
                     }
                     _ => {}
                 }
-                if let Some(p) = self.parsers.get_mut(&term) {
-                    p.process(&data);
-                } else if let Some(t) = self.snap.terms.get(&term) {
-                    let mut p = self.new_parser(t.rows, t.cols);
-                    p.process(&data);
+                if !self.parsers.contains_key(&term)
+                    && let Some(t) = self.snap.terms.get(&term)
+                {
+                    let p = self.new_parser(t.rows, t.cols);
                     self.parsers.insert(term, p);
                 }
+                self.feed(term, &data);
             }
             ServerMsg::Attention { term, status } => {
                 if self.focused() == Some(term) && self.window_focused {
