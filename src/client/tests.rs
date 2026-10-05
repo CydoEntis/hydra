@@ -806,6 +806,22 @@ mod hydra_tests {
     }
 
     #[test]
+    fn a_program_hydra_doesnt_know_goes_by_its_name_and_can_be_taught() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let t = app.snap.terms.get_mut(&3).unwrap();
+        (t.process, t.title) = ("dst".into(), "✦ 🐋 deepseek harness".into());
+        app.hy_fresh();
+        let model = app.hy_model();
+        let row = model.iter().flat_map(|p| p.sessions().cloned().collect::<Vec<_>>()).find(|s| s.term == 3).unwrap();
+        assert_eq!(row.name, "dst", "the row says what runs there, not 'shell'");
+        let (title, items) = app.session_items(3).unwrap();
+        let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
+        assert!(labels.contains(&"dst is an agent…"), "{labels:?}");
+        assert!(!labels.iter().any(|l| l.starts_with("Message")), "no messaging a program that isn't an agent: {labels:?}");
+        assert!(!title.contains('🐋'), "titled by the program, not its window title: {title}");
+    }
+
+    #[test]
     fn the_sidebar_has_a_section_per_kind_of_session() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         // The shell ssh's into a machine; a second shell sits in another folder.

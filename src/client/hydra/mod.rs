@@ -688,7 +688,8 @@ fn row_name(t: &TermInfo, root: &Path, top: &Path, main: bool, git: bool) -> Str
         return folder_name(top);
     }
     let cwd = if t.cwd.as_os_str().is_empty() { top } else { t.cwd.as_path() };
-    let kind = t.agent.clone().unwrap_or_else(|| "shell".into());
+    // An agent by its name; a program (vim, a harness hydra doesn't know) by its own.
+    let kind = t.agent.clone().unwrap_or_else(|| if t.is_shell() || t.process.is_empty() { "shell".into() } else { t.process.clone() });
     match cwd.strip_prefix(root) {
         Ok(rel) if !rel.as_os_str().is_empty() => rel.display().to_string().replace('\\', "/"),
         // The project's own folder: the agent's (or shell's) name.

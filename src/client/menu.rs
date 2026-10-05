@@ -156,7 +156,15 @@ impl App {
             ];
             return Some(("dev server".into(), items));
         }
-        let mut items = vec![(format!("Message {agent}…"), Act::Talk(term))];
+        let info = self.snap.terms.get(&term);
+        // An agent can be messaged; a program hydra doesn't know can be taught.
+        let mut items = Vec::new();
+        if s.is_agent {
+            items.push((format!("Message {agent}…"), Act::Talk(term)));
+        }
+        if let Some(t) = info.filter(|t| t.agent.is_none() && !t.is_shell() && !t.process.is_empty() && t.remote.is_none()) {
+            items.push((format!("{} is an agent…", t.process), Act::TeachAgent(term)));
+        }
         if self.focused().is_some_and(|f| f != term) {
             items.push(("Open beside".into(), Act::Beside(term)));
         }
@@ -170,7 +178,10 @@ impl App {
             items.push(("▶ Run dev server here".to_string(), Act::Dev(d, crate::protocol::DevAction::Start)));
         }
         items.push(("Close".to_string(), Act::End(vec![term])));
-        Some((format!("{} · {}", s.name, truncate(&agent, 30)), items))
+        // Titled by what it is (an agent, or the program's name), never its window title.
+        let what = if s.is_agent { agent } else { info.map(|t| t.process.clone()).filter(|p| !p.is_empty()).unwrap_or_else(|| "shell".into()) };
+        let title = if what == s.name { what } else { format!("{} · {}", s.name, truncate(&what, 30)) };
+        Some((title, items))
     }
 
     /// Right-click on a project row.
