@@ -548,6 +548,15 @@ impl App {
         if changed {
             self.hy.save();
         }
+        // You closed the last session: a shell in your home folder takes its place, so there's
+        // always somewhere to type (and closing a project never closes the app).
+        if focus.is_none() && self.hy.last_focus.is_some() && self.snap.terms.is_empty() {
+            self.hy.last_focus = None;
+            self.splash = false;
+            let home = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()).unwrap_or_else(std::env::temp_dir);
+            self.hy_new_session(home, None, false);
+            return;
+        }
         let proj_of = |t: TermId| model.iter().find(|p| p.sessions().any(|s| s.term == t)).map(|p| p.key.clone());
         if focus != self.hy.last_focus {
             self.hy.follow = true;
