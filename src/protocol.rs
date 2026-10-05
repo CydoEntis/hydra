@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 23;
+pub const PROTOCOL_VERSION: u32 = 24;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -289,6 +289,9 @@ pub struct TermInfo {
     pub title: String,
     /// Name of the most interesting process running in the pane (the leaf of the tree).
     pub process: String,
+    /// The machine an ssh (or mosh, …) client in the pane is connected to.
+    #[serde(default)]
+    pub remote: Option<String>,
     /// Detected or hook-reported agent name.
     pub agent: Option<String>,
     pub status: Status,

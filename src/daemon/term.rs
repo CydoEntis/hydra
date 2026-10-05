@@ -81,6 +81,8 @@ pub struct Term {
     pub cols: u16,
     pub rows: u16,
     pub process: String,
+    /// The machine an ssh-like client in the pane is connected to.
+    pub remote: Option<String>,
     pub agent: Option<String>,
     pub status: Status,
     /// When the status last changed (unix seconds), for "working 3m".
@@ -365,6 +367,7 @@ impl Term {
             cols: size.cols,
             rows: size.rows,
             process,
+            remote: None,
             agent: None,
             status: Status::None,
             status_since: unix_now(),

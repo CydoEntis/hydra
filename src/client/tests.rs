@@ -51,6 +51,7 @@ mod design_tests {
             since: 0,
             asleep: false,
             win32_input: false,
+            remote: None,
         }
     }
 
@@ -168,7 +169,7 @@ mod hydra_tests {
         assert!(!text.contains(">_ hydra") && !text.contains("Ctrl+Space"), "no logo, no keys buttons");
         let bottom = lines.iter().rev().find(|l| !l.trim().is_empty()).unwrap();
         assert!(bottom.contains("● 1 needs you") && !bottom.contains("›"), "the bottom bar: what needs you, no path (the pane's title has it): {bottom}");
-        assert!(lines[1].contains("PROJECTS") && !lines[1].contains("+ open"), "the sidebar's header, nothing to open: {}", lines[1]);
+        assert!(lines[1].contains("SESSIONS") && !lines[1].contains("+ open"), "the sidebar's header, nothing to open: {}", lines[1]);
         assert!(text.contains("n new") && text.contains("g go to") && text.contains(", settings"), "quiet hints at the bottom of the sidebar");
         // Projects and their sessions, nothing in between.
         assert!(text.contains("▾ ▌shop-api") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
@@ -802,6 +803,36 @@ mod hydra_tests {
         show(&o);
         assert!(o.contains("THEME") && o.contains("● Default") && o.contains("○ Monokai") && o.contains("○ Tokyo Night"));
         assert!(o.contains("Swatches: background, surface"));
+    }
+
+    #[test]
+    fn the_sidebar_has_a_section_per_kind_of_session() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        // The shell ssh's into a machine; a second shell sits in another folder.
+        let t = app.snap.terms.get_mut(&3).unwrap();
+        (t.process, t.remote) = ("ssh".into(), Some("build-box".into()));
+        let mut notes = app.snap.terms[&3].clone();
+        (notes.id, notes.process, notes.remote, notes.root, notes.top, notes.branch) = (4, "bash".into(), None, None, None, None);
+        notes.cwd = PathBuf::from(if cfg!(windows) { r"C:\notes" } else { "/notes" });
+        app.snap.terms.insert(4, notes);
+        let mut ws = app.snap.workspaces[0].clone();
+        ws.id = 30;
+        ws.tabs = vec![crate::protocol::TabInfo { id: 31, name: String::new(), layout: crate::layout::Node::Leaf(4), focus: 4 }];
+        ws.active_tab = 31;
+        app.snap.workspaces.push(ws);
+        app.hy_fresh();
+        let model = app.hy_model();
+        let kinds: Vec<(hydra::Kind, String)> = model.iter().map(|p| (p.kind, p.name.clone())).collect();
+        assert_eq!(
+            kinds,
+            vec![(hydra::Kind::Agents, "shop-api".into()), (hydra::Kind::Terminals, "notes".into()), (hydra::Kind::Ssh, "build-box".into())],
+            "agents, then terminals, then other machines, each grouped by where"
+        );
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        let at = |s: &str| o.find(s).unwrap_or_else(|| panic!("{s} in the sidebar"));
+        assert!(at("AGENTS") < at("TERMINALS") && at("TERMINALS") < at("SSH"), "a heading per section, in order");
+        assert!(at("build-box") > at("SSH"));
     }
 
     #[test]

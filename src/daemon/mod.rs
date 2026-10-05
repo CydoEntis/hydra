@@ -504,6 +504,10 @@ impl Daemon {
                         t.process = f.process;
                         self.dirty = true;
                     }
+                    if t.remote != f.remote {
+                        t.remote = f.remote;
+                        self.dirty = true;
+                    }
                     if !t.cwd_reported
                         && let Some(c) = f.cwd.filter(|c| c.is_dir() && *c != t.cwd)
                     {
@@ -795,6 +799,7 @@ impl Daemon {
                     rows: t.rows,
                     title: t.title().to_string(),
                     process: t.process.clone(),
+                    remote: t.remote.clone(),
                     agent: t.agent.clone(),
                     status: t.status,
                     cwd: t.cwd.clone(),

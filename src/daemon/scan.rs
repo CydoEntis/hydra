@@ -52,6 +52,39 @@ pub struct Found {
     pub agent_cwd: Option<std::path::PathBuf>,
     /// Memory used by everything running in the pane (bytes).
     pub mem: u64,
+    /// The machine an ssh (or mosh, …) client in the pane is connected to.
+    pub remote: Option<String>,
+}
+
+/// Programs that put the pane on another machine.
+const REMOTE_CLIENTS: &[&str] = &["ssh", "mosh", "mosh-client", "autossh", "et"];
+
+/// The host an ssh-like command line connects to: its first argument that isn't an option
+/// (or an option's value), without `user@` or `ssh://`.
+pub fn remote_host(args: &[String]) -> Option<String> {
+    // ssh options that take a value.
+    const WITH_VALUE: &[&str] = &["-b", "-B", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w", "--ssh", "--port"];
+    let mut it = args.iter().skip(1);
+    while let Some(a) = it.next() {
+        if a == "--" {
+            return it.next().and_then(|h| clean_host(h));
+        }
+        if a.starts_with('-') {
+            if WITH_VALUE.contains(&a.as_str()) {
+                it.next();
+            }
+            continue;
+        }
+        return clean_host(a);
+    }
+    None
+}
+
+fn clean_host(a: &str) -> Option<String> {
+    let a = a.strip_prefix("ssh://").unwrap_or(a);
+    let host = a.rsplit_once('@').map_or(a, |(_, h)| h);
+    let host = host.split([':', '/']).next().unwrap_or(host);
+    (!host.is_empty()).then(|| host.to_string())
 }
 
 /// Helper processes that are never what the user thinks of as "running in the pane".
@@ -106,6 +139,7 @@ fn scan(sys: &System, roots: &[(TermId, u32)], agents: &[CompiledAgent]) -> Vec<
             let mut agent_cwd = None;
             let mut deepest: Option<(usize, u64, String)> = None;
             let mut mem = 0u64;
+            let mut remote = None;
             let mut i = 0;
             while i < queue.len() {
                 let (pid, depth) = queue[i];
@@ -114,6 +148,10 @@ fn scan(sys: &System, roots: &[(TermId, u32)], agents: &[CompiledAgent]) -> Vec<
                     mem += p.memory();
                     let name = stem(p.name());
                     if !IGNORED.contains(&name.as_str()) {
+                        if remote.is_none() && depth > 0 && REMOTE_CLIENTS.contains(&name.as_str()) {
+                            let args: Vec<String> = p.cmd().iter().map(|a| a.to_string_lossy().into_owned()).collect();
+                            remote = remote_host(&args);
+                        }
                         if agent.is_none() && depth > 0 {
                             agent = match_agent(&name, p.cmd(), agents);
                             if agent.is_some() {
@@ -133,7 +171,7 @@ fn scan(sys: &System, roots: &[(TermId, u32)], agents: &[CompiledAgent]) -> Vec<
                 }
             }
             let cwd = sys.process(root).and_then(|p| p.cwd()).map(|p| p.to_path_buf());
-            Found { term, process: deepest.map(|d| d.2).unwrap_or_default(), agent, cwd, agent_cwd, mem }
+            Found { term, process: deepest.map(|d| d.2).unwrap_or_default(), agent, cwd, agent_cwd, mem, remote }
         })
         .collect()
 }
@@ -173,5 +211,25 @@ mod walk_tests {
         let r = super::descends_from(me, up, &Default::default());
         eprintln!("descends_from(me, {up}) = {:?}", r.0);
         assert_eq!(r.0, Some(true));
+    }
+}
+
+#[cfg(test)]
+mod remote_tests {
+    use super::remote_host;
+
+    fn host(line: &str) -> Option<String> {
+        remote_host(&line.split_whitespace().map(String::from).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn the_machine_an_ssh_command_reaches() {
+        assert_eq!(host("ssh build-box").as_deref(), Some("build-box"));
+        assert_eq!(host("ssh vox@10.0.0.4").as_deref(), Some("10.0.0.4"));
+        assert_eq!(host("ssh -p 2222 -i ~/.ssh/key me@pi.local uptime").as_deref(), Some("pi.local"), "options and their values are skipped");
+        assert_eq!(host("ssh -A -o StrictHostKeyChecking=no gpu").as_deref(), Some("gpu"));
+        assert_eq!(host("ssh ssh://me@host:22").as_deref(), Some("host"));
+        assert_eq!(host("mosh --ssh=ssh -p 22 me@remote").as_deref(), Some("remote"));
+        assert_eq!(host("ssh -V"), None);
     }
 }

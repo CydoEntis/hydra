@@ -276,6 +276,40 @@ pub(super) struct Proj {
     pub branches: Vec<String>,
     /// Your open pull requests here.
     pub prs: Vec<super::pr::PrBrief>,
+    /// The sidebar section it's in.
+    pub kind: Kind,
+}
+
+/// The sidebar's sections, in order: each holds one type of session, grouped by where.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Kind {
+    /// Coding agents, by repo or folder.
+    Agents,
+    /// Plain terminals, by repo or folder.
+    Terminals,
+    /// Sessions on another machine (ssh, mosh), by machine.
+    Ssh,
+}
+
+impl Kind {
+    pub fn heading(self) -> &'static str {
+        match self {
+            Kind::Agents => "AGENTS",
+            Kind::Terminals => "TERMINALS",
+            Kind::Ssh => "SSH",
+        }
+    }
+
+    /// Which section a session belongs in.
+    pub fn of(t: &TermInfo) -> Kind {
+        if t.remote.is_some() {
+            Kind::Ssh
+        } else if t.agent.is_some() {
+            Kind::Agents
+        } else {
+            Kind::Terminals
+        }
+    }
 }
 
 impl Proj {
@@ -401,9 +435,9 @@ impl App {
         let sort = self.cfg.ui.attention_sort;
         let order = &self.hy.saved.order;
         let fallback: Vec<Color> = self.cfg.ui.workspace_colors.iter().filter_map(|c| crate::theme::parse_color(c)).collect();
-        let add_proj = |projs: &mut Vec<Proj>, path: &Path, git: bool| -> usize {
+        let add_proj = |projs: &mut Vec<Proj>, path: &Path, git: bool, kind: Kind| -> usize {
             let key = path_key(path);
-            if let Some(i) = projs.iter().position(|p| p.key == key) {
+            if let Some(i) = projs.iter().position(|p| p.key == key && p.kind == kind) {
                 projs[i].git |= git;
                 return i;
             }
@@ -418,6 +452,7 @@ impl App {
                 git,
                 branches: Vec::new(),
                 prs: Vec::new(),
+                kind,
             });
             projs.len() - 1
         };
@@ -446,9 +481,40 @@ impl App {
                         (cwd.clone(), cwd, String::new(), true, false)
                     }
                 };
-                let name = row_name(t, &root, &top, main, git);
-                let pi = add_proj(&mut projs, &root, git);
-                let wi = add_wt(&mut projs[pi], &top, branch, main);
+                let kind = Kind::of(t);
+                let (name, pi, wi) = match &t.remote {
+                    // On another machine: grouped by that machine (the local folder means
+                    // nothing there).
+                    Some(host) => {
+                        let key = format!("ssh:{host}");
+                        let pi = match projs.iter().position(|p| p.kind == Kind::Ssh && p.key == key) {
+                            Some(i) => i,
+                            None => {
+                                projs.push(Proj {
+                                    key: key.clone(),
+                                    path: cwd_of(t, w),
+                                    name: host.clone(),
+                                    color: self.theme.muted,
+                                    wts: vec![Wt { key, path: cwd_of(t, w), name: String::new(), branch: String::new(), main: true, sessions: Vec::new() }],
+                                    fresh: false,
+                                    git: false,
+                                    branches: Vec::new(),
+                                    prs: Vec::new(),
+                                    kind,
+                                });
+                                projs.len() - 1
+                            }
+                        };
+                        let what = t.label.trim().to_string();
+                        (if what.is_empty() { t.process.clone() } else { what }, pi, 0)
+                    }
+                    None => {
+                        let name = row_name(t, &root, &top, main, git);
+                        let pi = add_proj(&mut projs, &root, git, kind);
+                        let wi = add_wt(&mut projs[pi], &top, branch, main);
+                        (name, pi, wi)
+                    }
+                };
                 let title = session_title(t, if leaves.len() == 1 { &w.name } else { "" }, &top);
                 let question = (t.status == Status::Blocked).then(|| self.parsers.get(id).and_then(question)).flatten();
                 projs[pi].wts[wi].sessions.push(Session {
@@ -499,6 +565,8 @@ impl App {
         projs.sort_by_key(|p| order.iter().position(|k| *k == p.key).unwrap_or(usize::MAX));
         // Attention first: a project with something that needs you goes to the top.
         projs.sort_by_key(|p| !p.sessions().any(|s| s.status == Status::Blocked));
+        // Sections: agents, then terminals, then other machines (each keeps the order above).
+        projs.sort_by_key(|p| p.kind);
         // The same name twice in a project: number them (shell 1, shell 2), oldest first.
         for p in &mut projs {
             let mut seen: HashMap<String, Vec<TermId>> = HashMap::new();
@@ -607,6 +675,11 @@ impl App {
 /// shell is (inside its worktree), else the program.
 /// A session's row name: what you renamed it to; else the worktree it's in; else the
 /// folder under the project it's in; else (the project's own folder) its agent or "shell".
+/// Where a pane is: what it reported, else its workspace's folder.
+fn cwd_of(t: &TermInfo, w: &crate::protocol::WorkspaceInfo) -> PathBuf {
+    if t.cwd.as_os_str().is_empty() { w.cwd.clone() } else { t.cwd.clone() }
+}
+
 fn row_name(t: &TermInfo, root: &Path, top: &Path, main: bool, git: bool) -> String {
     if !t.label.trim().is_empty() {
         return t.label.trim().to_string();

@@ -12,7 +12,7 @@ which ones need you, jump to them, and keep them running when you leave. See
 ## Now
 
 Active phase: **7 — test-week feedback** (collecting: the user runs Hydra for a week)
-Next unblocked: #20 (sidebar sections by type)
+Next unblocked: #25 (agent coverage)
 
 ## Phases
 
@@ -50,7 +50,7 @@ notification history, `hydra doctor`, more agent types, BEL tracking.
 What a week of daily use turns up. Bugs found were fixed straight away (0.3.1–0.6.6). #19 is
 done. Chosen 2026-10-05 after comparing with tuios, in this order:
 
-1. #20 Sidebar: agents, terminals and ssh sessions in their own sections
+1. #20 Sidebar: agents, terminals and ssh sessions in their own sections — done (0.7.0)
 2. #25 Agent coverage: any agent from config; hooks for more harnesses
 3. #21 Inbox: everything waiting on you, answerable from one list
 4. #22 Claude Code agent teams as hydra panes

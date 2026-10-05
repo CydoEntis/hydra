@@ -128,6 +128,8 @@ pub(in crate::client) fn hline(buf: &mut Buffer, x: u16, y: u16, w: u16, t: &The
 /// A line of the sidebar tree.
 #[derive(Debug, Clone)]
 pub(in crate::client) enum Line {
+    /// A section's heading: AGENTS, TERMINALS, SSH (with how many sessions).
+    Section(Kind, usize),
     Proj(usize),
     /// A heading: BRANCHES or WORKTREES.
     /// An agent or shell (pi, wi, si).
@@ -157,6 +159,10 @@ pub(in crate::client) fn session_lines(s: &Session, t: &Theme, out: &mut Vec<Lin
 pub(in crate::client) fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec<Line> {
     let mut out = Vec::new();
     for (pi, p) in model.iter().enumerate() {
+        if pi == 0 || model[pi - 1].kind != p.kind {
+            let n = model.iter().filter(|q| q.kind == p.kind).map(|q| q.sessions().count()).sum();
+            out.push(Line::Section(p.kind, n));
+        }
         out.push(Line::Proj(pi));
         if app.hy.saved.closed.contains(&format!("p:{}", p.key)) {
             out.push(Line::Gap);
@@ -227,10 +233,10 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     // In a split, the split's row (its first pane's) is the open one, whichever side you're on.
     let focus = app.focused().map(|f| if shown.len() > 1 && shown.contains(&f) { shown[0] } else { f });
     let split = shown.iter().copied().find(|t| Some(*t) != focus && shown.len() > 1);
-    // PROJECTS.
+    // SESSIONS.
     let sb = Style::default().bg(surf);
     let focused_side = app.mode == Mode::Side;
-    put(buf, r.x + 2, r.y + 1, &[seg("PROJECTS", sb.fg(if focused_side { t.accent } else { t.muted }).add_modifier(Modifier::BOLD))], r.right());
+    put(buf, r.x + 2, r.y + 1, &[seg("SESSIONS", sb.fg(if focused_side { t.accent } else { t.muted }).add_modifier(Modifier::BOLD))], r.right());
     if focused_side {
         // The keys are here: an accent line along the sidebar's top too.
         for xx in r.x..r.right() {
@@ -326,7 +332,7 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 if needs > 0 {
                     c.push(seg(format!("● {needs}"), s.fg(t.blocked).add_modifier(Modifier::BOLD)));
                 }
-                if !p.git {
+                if !p.git && p.kind != Kind::Ssh {
                     c.push(seg(format!("{}no git", if c.is_empty() { "" } else { "  " }), s.fg(t.muted)));
                 }
                 if !open {
@@ -491,6 +497,10 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                     r.right(),
                 );
                 hit(app, row, HyHit::ShellIn(*pi));
+            }
+            Line::Section(kind, n) => {
+                let st = Style::default().bg(surf);
+                put(buf, x0 + 2, y, &[seg(kind.heading(), st.fg(t.muted).add_modifier(Modifier::BOLD)), seg(format!("  {n}"), st.fg(t.muted))], r.right());
             }
             Line::Gap => {}
         }
