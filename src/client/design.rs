@@ -618,7 +618,7 @@ pub(super) fn key_rows() -> Vec<(&'static str, Vec<(&'static str, Vec<crate::key
                 ("Focus the pane below", vec![A::Focus(Down)]),
                 ("Focus the pane above", vec![A::Focus(Up)]),
                 ("Focus the pane right", vec![A::Focus(Right)]),
-                ("Jump to what needs you", vec![A::Jump]),
+                ("Inbox: what needs you", vec![A::Jump]),
             ],
         ),
         (

@@ -255,6 +255,25 @@ mod hydra_tests {
     }
 
     #[test]
+    fn the_inbox_answers_from_where_you_are() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        // claude (pane 1) asks a numbered question (on its screen in the fixture); codex finished.
+        let t = app.snap.terms.get_mut(&2).unwrap();
+        (t.status, t.said) = (Status::Done, "All 14 tests pass now.".into());
+        app.hy_fresh();
+        app.mode = Mode::Jump { sel: 0 };
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("Inbox"), "it's the Inbox");
+        assert!(o.contains("Run npm test -- checkout?") && o.contains(" Yes 1 ") && o.contains(" Always 2 ") && o.contains(" No 3"), "the question and its answers");
+        assert!(o.contains("All 14 tests pass now."), "what the finished one said");
+        // 2 answers the selected question without going there.
+        app.on_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
+        assert!(matches!(app.mode, Mode::Jump { .. }), "still in the Inbox");
+        assert!(app.notice.as_ref().is_some_and(|(m, ..)| m.contains("Always")), "{:?}", app.notice);
+    }
+
+    #[test]
     fn ship_confirm_says_what_happens() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         let task = tasks::TaskRow {

@@ -951,7 +951,7 @@ pub(in crate::client) fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, m
     } else {
         let needs = model.iter().flat_map(|p| p.sessions()).filter(|x| x.status == Status::Blocked).count();
         if needs > 0 {
-            vec![seg(format!("● {needs} needs you"), s.fg(t.blocked).add_modifier(Modifier::BOLD)), seg(format!("   {} jump", k(app, &Action::Jump)), s.fg(t.muted))]
+            vec![seg(format!("● {needs} needs you"), s.fg(t.blocked).add_modifier(Modifier::BOLD)), seg(format!("   {} inbox", k(app, &Action::Jump)), s.fg(t.muted))]
         } else {
             Vec::new()
         }

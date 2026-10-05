@@ -469,7 +469,7 @@ pub(in crate::client) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: 
                 (vec![Action::GoTo], "go to session"),
                 (vec![Action::BrowseTree], "focus sidebar"),
                 (vec![Action::Focus(Dir::Left), Action::Focus(Dir::Down), Action::Focus(Dir::Up), Action::Focus(Dir::Right)], "focus pane"),
-                (vec![Action::Jump], "needs you"),
+                (vec![Action::Jump], "inbox"),
                 (vec![Action::PrevTab, Action::NextTab], "prev / next tab"),
                 (vec![Action::Palette], "palette"),
             ],

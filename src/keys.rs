@@ -332,7 +332,7 @@ impl Action {
             Action::UndoAutoWorkspace => "undo automatic workspace".into(),
             Action::OpenFolder => "open folder".into(),
             Action::StopAgent => "stop agent (Ctrl+C)".into(),
-            Action::Jump => "Jump to what needs you".into(),
+            Action::Jump => "Inbox: what needs you, answer from there".into(),
             Action::OpenProject => "Open a folder (start a session there)".into(),
             Action::NewSession => "+ new, beside this one".into(),
             Action::CloseSplit => "close the split".into(),

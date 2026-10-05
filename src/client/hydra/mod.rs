@@ -748,6 +748,8 @@ pub(super) enum HyHit {
     /// Fold / unfold a project.
     ToggleProj(usize),
     Session(TermId),
+    /// An answer chip in the Inbox: send this key to that agent.
+    InboxAnswer(TermId, char),
     Talk(TermId),
     Settings,
     Jump,

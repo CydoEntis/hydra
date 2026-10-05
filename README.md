@@ -162,7 +162,7 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 | keys (after the leader) | action |
 |---|---|
 | `g` | **go to** a project or session: type to find it |
-| `e` / `a` | focus the sidebar / jump to what needs you |
+| `e` / `a` | focus the sidebar / **Inbox**: everything that needs you; answer a question with its number, Enter goes there, `d` marks a finished one seen |
 | `p` (or Space) | **command palette**: type what you want |
 | `n` | **new session**: a shell right where you are (run `claude`, `codex`, … in it; hydra sees the agent) |
 | `v` / `-` | split right / split down |

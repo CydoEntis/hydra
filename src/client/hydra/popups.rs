@@ -72,13 +72,17 @@ pub(in crate::client) fn hints(t: &Theme, pairs: &[(&str, &str)]) -> Vec<Seg> {
 pub(in crate::client) fn jump_list(model: &[Proj]) -> Vec<(Session, String, String, Color)> {
     let mut out = Vec::new();
     for st in [Status::Blocked, Status::Done] {
+        let mut these = Vec::new();
         for p in model {
             for w in &p.wts {
                 for s in w.sessions.iter().filter(|s| s.status == st) {
-                    out.push((s.clone(), p.name.clone(), w.name.clone(), p.color));
+                    these.push((s.clone(), p.name.clone(), w.name.clone(), p.color));
                 }
             }
         }
+        // Waiting longest first.
+        these.sort_by_key(|(s, ..)| s.since);
+        out.extend(these);
     }
     // Nothing waiting: the most recent sessions instead of an empty box.
     if out.is_empty() {
@@ -109,8 +113,15 @@ pub(in crate::client) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: 
     let prs = jump_prs(&model);
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let h = (list.len() as u16 + prs.len() as u16 + 12).max(10);
-    let r = panel(app, buf, area, 80, h, "Jump to", &[], t);
+    // Each one that needs you takes three lines (its question, its answers), a finished
+    // one two (what it said).
+    let lines: u16 = list.iter().map(|(s, ..)| match s.status {
+        Status::Blocked => 3,
+        Status::Done => 2,
+        _ => 1,
+    }).sum();
+    let h = (lines + prs.len() as u16 + 12).max(10);
+    let r = panel(app, buf, area, 90, h, "Inbox", &[], t);
     let mut y = r.y + 2;
     let mut i = 0;
     let waiting = list.iter().any(|(s, ..)| matches!(s.status, Status::Blocked | Status::Done));
@@ -147,16 +158,43 @@ pub(in crate::client) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: 
                 buf,
                 r.x + 3,
                 y,
-                &[
-                    seg(format!("{}  ", i + 1), st_.fg(t.accent).add_modifier(Modifier::BOLD)),
-                    seg(format!("{} ", glyph(app, s.status)), st_.fg(t.status(s.status)).add_modifier(Modifier::BOLD)),
-                    seg(s.title.clone(), ts),
-                ],
+                &[seg(format!("{} ", glyph(app, s.status)), st_.fg(t.status(s.status)).add_modifier(Modifier::BOLD)), seg(s.title.clone(), ts)],
                 r.right().saturating_sub(rw + 3),
             );
             put(buf, r.right().saturating_sub(rw + 2), y, &rseg, r.right());
             hit(app, Rect { x: r.x + 1, y, width: r.width - 2, height: 1 }, HyHit::JumpTo(s.term));
             y += 1;
+            let note = Style::default().bg(t.card);
+            match s.status {
+                // What it asks, and its answers: a number (or a click) answers from here.
+                Status::Blocked => {
+                    let q = s.question.clone().unwrap_or_else(|| "It's waiting on you.".into());
+                    put(buf, r.x + 5, y, &[seg(truncate(&q, (r.width - 8) as usize), note.fg(t.blocked))], r.right() - 2);
+                    y += 1;
+                    let mut x = r.x + 5;
+                    for (n, label) in super::options(app.parsers.get(&s.term)).iter().enumerate() {
+                        let key = char::from(b'1' + n as u8);
+                        let chip = format!(" {label} {key} ");
+                        let w = chip.width() as u16;
+                        if x + w >= r.right() - 2 {
+                            break;
+                        }
+                        let on = i == sel;
+                        put(buf, x, y, &[seg(chip, Style::default().bg(if on { t.btn } else { t.card2 }).fg(if on { t.strong } else { t.text }))], r.right());
+                        hit(app, Rect { x, y, width: w, height: 1 }, HyHit::InboxAnswer(s.term, key));
+                        x += w + 1;
+                    }
+                    y += 1;
+                }
+                // What it said when it finished.
+                Status::Done => {
+                    let said = app.snap.terms.get(&s.term).map(|t| t.said.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default().trim().to_string()).unwrap_or_default();
+                    let said = if said.is_empty() { "Finished.".to_string() } else { said };
+                    put(buf, r.x + 5, y, &[seg(truncate(&said, (r.width - 8) as usize), note.fg(t.muted))], r.right() - 2);
+                    y += 1;
+                }
+                _ => {}
+            }
             i += 1;
         }
         y += 1;
@@ -170,7 +208,7 @@ pub(in crate::client) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: 
             }
             let bg = sel_row(app, buf, r, y, i == sel, t);
             let st_ = Style::default().bg(bg);
-            let mut row = vec![seg(format!("{}  ", i + 1), st_.fg(t.accent).add_modifier(Modifier::BOLD))];
+            let mut row: Vec<Seg> = Vec::new();
             row.extend(pr_tag(t, pr).into_iter().map(|(x, s2)| (x, s2.bg(bg))));
             row.push(seg(format!("  {}", pr.title), st_.fg(t.strong)));
             let rseg = vec![seg("▌", st_.fg(*pc)), seg(pname.clone(), st_.fg(t.text)), seg(format!("  {}", pr.state_text()), st_.fg(if pr.checks == crate::client::pr::Checks::Fail { t.err } else { t.blocked }))];
@@ -187,7 +225,7 @@ pub(in crate::client) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: 
     if list.is_empty() && prs.is_empty() {
         put(buf, r.x + 3, y, &[seg("Nothing running yet.", Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::ITALIC))], r.right());
     }
-    put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("1-9", "jump"), ("Enter", "jump"), ("↑↓", "choose"), ("Esc", "close")]), r.right());
+    put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("↑↓", "choose"), ("1-9", "answer"), ("Enter", "go there"), ("d", "seen"), ("Esc", "close")]), r.right());
 }
 
 // Open a folder ------------------------------------------------------------------------------

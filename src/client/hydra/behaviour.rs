@@ -577,14 +577,33 @@ impl App {
                 app.open_pr(dir.clone(), pr.number.to_string());
             }
         };
+        let chosen = list.get(sel).map(|(s, ..)| (s.term, s.status, s.name.clone()));
         match k.code {
             KeyCode::Esc | KeyCode::Char('j') => self.mode = Mode::Normal,
             KeyCode::Down => self.mode = Mode::Jump { sel: (sel + 1).min(total.saturating_sub(1)) },
             KeyCode::Up => self.mode = Mode::Jump { sel: sel.saturating_sub(1) },
             KeyCode::Enter if sel < total => go(self, sel),
-            KeyCode::Char(c) if c.is_ascii_digit() && c != '0' && (c as usize - '1' as usize) < total => go(self, c as usize - '1' as usize),
+            // Answer the selected one's question from here (its options are numbered).
+            KeyCode::Char(c @ '1'..='9') => {
+                if let Some((term, Status::Blocked, name)) = chosen {
+                    self.inbox_answer(term, c, &name);
+                }
+            }
+            // Seen: a finished one leaves the list without going there.
+            KeyCode::Char('d') => {
+                if let Some((term, Status::Done, _)) = chosen {
+                    self.cmd(Command::MarkSeen { term });
+                }
+            }
             _ => {}
         }
+    }
+
+    /// Answer an agent's numbered question from the Inbox: its option `key`, as if typed there.
+    pub(in crate::client) fn inbox_answer(&mut self, term: TermId, key: char, name: &str) {
+        let label = options(self.parsers.get(&term)).get((key as u8 - b'1') as usize).cloned().unwrap_or_else(|| key.to_string());
+        self.send(crate::protocol::ClientMsg::Input { term, data: key.to_string().into_bytes() });
+        self.notify(format!("answered {name}: {label}"), false);
     }
 
     /// The folder Files / Changes / PR act on: the sidebar cursor's, else the focused one's.
@@ -1073,6 +1092,10 @@ impl App {
                 }
             }
             HyHit::JumpTo(t) => self.hy_focus(t),
+            HyHit::InboxAnswer(term, key) => {
+                let name = self.snap.terms.get(&term).map(|t| t.display_name()).unwrap_or_default();
+                self.inbox_answer(term, key, &name);
+            }
             HyHit::NpTask => {
                 if let Mode::HyPane(np) = &mut self.mode {
                     np.row = 0;
