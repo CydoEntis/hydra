@@ -66,11 +66,20 @@ pub fn latest_tag() -> Result<String, String> {
         return crate::proc::run(Command::new("gh").args(["release", "view", "-R", REPO, "--json", "tagName", "-q", ".tagName"]))
             .map(|s| s.trim().to_string());
     }
-    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
-    let body = crate::proc::run(system_tool("curl").args(["-fsSL", "--max-time", "20", "-H", "Accept: application/vnd.github+json", &url]))
-        .map_err(|e| format!("couldn't reach GitHub ({e}); a private repo needs the GitHub CLI: gh auth login"))?;
-    let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| format!("unexpected answer from GitHub: {e}"))?;
-    v.get("tag_name").and_then(|t| t.as_str()).map(String::from).ok_or_else(|| "no release found".into())
+    // The releases/latest page redirects to the newest tag's page. Unlike GitHub's API it
+    // has no per-address limit, which shared networks (offices, CI) run out of.
+    let url = format!("https://github.com/{REPO}/releases/latest");
+    let landed = crate::proc::run(system_tool("curl").args(["-fsSL", "--max-time", "20", "-o", NULL_DEVICE, "-w", "%{url_effective}", &url]))
+        .map_err(|e| format!("couldn't reach GitHub: {e}"))?;
+    tag_from_url(&landed).ok_or_else(|| "no release found".into())
+}
+
+const NULL_DEVICE: &str = if cfg!(windows) { "NUL" } else { "/dev/null" };
+
+/// `v1.2.3` from `https://github.com/owner/repo/releases/tag/v1.2.3`.
+fn tag_from_url(url: &str) -> Option<String> {
+    let tag = url.trim().rsplit_once("/releases/tag/")?.1.trim_end_matches('/');
+    version(tag).map(|_| tag.to_string())
 }
 
 fn download(tag: &str, name: &str, dir: &Path) -> Result<PathBuf> {
@@ -226,6 +235,13 @@ mod tests {
         assert!(is_newer("v999.0.0"));
         assert!(!is_newer(&format!("v{}", env!("CARGO_PKG_VERSION"))), "the same version isn't newer");
         assert!(!is_newer("v0.0.1"));
+    }
+
+    #[test]
+    fn the_latest_tag_comes_from_where_github_redirects() {
+        assert_eq!(tag_from_url("https://github.com/CydoEntis/hydra/releases/tag/v0.3.1\n").as_deref(), Some("v0.3.1"));
+        assert_eq!(tag_from_url("https://github.com/CydoEntis/hydra/releases"), None, "no release yet");
+        assert_eq!(tag_from_url("https://github.com/CydoEntis/hydra/releases/tag/nightly"), None);
     }
 
     #[test]
