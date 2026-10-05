@@ -704,7 +704,7 @@ pub(super) fn settings_group(row: &SRow) -> &'static str {
             "prefix" | "ui.mouse" | "ui.which_key" => "INPUT",
             "ui.sidebar_position" | "ui.splash" => "LAYOUT",
             "ui.update_check" => "UPDATES",
-            "shell" | "editor" | "shell_integration" => "SHELL",
+            "shell" | "editor" | "shell_integration" | "ui.start_dir" => "SHELL",
             "ui.attention_sort" => "SIDEBAR",
             p if p.starts_with("notify.") => "ALERTS",
             "worktree.delete_with_last" | "worktree.per_agent" | "worktree.command" => "WORKTREES",

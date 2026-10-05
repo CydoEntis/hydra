@@ -133,6 +133,7 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "ui.mouse", label: "Mouse", kind: Kind::Bool, cat: Cat::General, help: "Click, hover, scroll and drag. Hold Shift to select text with your terminal instead." },
     Setting { path: "ui.which_key", label: "Keys after a pause", kind: Kind::Bool, cat: Cat::General, help: "After the leader key, show every shortcut if you pause." },
     Setting { path: "ui.sidebar_position", label: "Sidebar side", kind: Kind::Choice(&["left", "right"]), cat: Cat::General, help: "Which edge the sidebar sits on." },
+    Setting { path: "ui.start_dir", label: "Start folder", kind: Kind::Text, cat: Cat::General, help: "Where plain `hydra` opens (and the shell after you close everything). Empty: wherever you run it. ~ is home." },
     Setting { path: "editor", label: "Editor", kind: Kind::Text, cat: Cat::General, help: "For open in editor (e). Empty: $VISUAL, $EDITOR, then code. nvim, hx, … open inside hydra." },
     Setting { path: "shell", label: "Shell", kind: Kind::Text, cat: Cat::General, help: "The shell new sessions run. Empty: pwsh / powershell on Windows, $SHELL elsewhere." },
     Setting { path: "shell_integration", label: "PowerShell folder tracking", kind: Kind::Bool, cat: Cat::General, help: "Lets hydra see where PowerShell sessions cd to." },

@@ -144,7 +144,7 @@ impl App {
             }
         }
         if self.snap.workspaces.is_empty() || open.is_some() {
-            let cwd = open.or_else(|| std::env::current_dir().ok());
+            let cwd = open.or_else(|| self.cfg.start_dir()).or_else(|| std::env::current_dir().ok());
             self.cmd(Command::NewWorkspace { cwd, name: None, cmd: None });
         }
     }

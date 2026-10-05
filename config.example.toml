@@ -36,6 +36,7 @@ replay_bytes = 2097152      # output kept per pane by the daemon, replayed on re
 # sidebar_bg = "#16161e"
 
 [ui]
+start_dir = ""              # where plain `hydra` opens, e.g. "~/code" (empty: where you run it)
 attention_sort = true       # sidebar: needs you → done → working → idle
 sidebar = true              # <leader> b
 sidebar_position = "left"   # left | right

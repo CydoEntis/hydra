@@ -275,7 +275,8 @@ Shared: `config.toml` and `ideas.json`. Anything for one machine only (a shell p
 
 hydra opens on the splash: the hydra, what happened while you were away (`● 2 need you ⠹ 3 still
 working ● 1 finished`) and buttons: Resume where you left off (`r`), New session (`n`).
-Turn it off in Settings → General.
+Turn it off in Settings → General. Settings → General → Start folder sets where plain `hydra`
+opens (e.g. `~/code`); empty means wherever you run it.
 
 `Ctrl+Space ,` opens **Settings**, with tabs (Tab cycles): General · Sessions · Appearance · Agents ·
 Projects · Keys. Values are chips you click (or ←→ / Enter). Appearance has the themes (Default,

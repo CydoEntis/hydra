@@ -80,6 +80,9 @@ pub struct Ui {
     pub splash: bool,
     /// Look for a newer hydra once a day and say so (`hydra update` installs it).
     pub update_check: bool,
+    /// Where plain `hydra` opens its first shell (and the one after you close everything).
+    /// Empty: wherever you run hydra. `~` is your home folder.
+    pub start_dir: String,
     /// Sidebar sessions (and worktrees) sorted needs → done → working → idle.
     pub attention_sort: bool,
 }
@@ -369,6 +372,7 @@ impl Default for Ui {
                 .to_vec(),
             splash: true,
             update_check: true,
+            start_dir: String::new(),
             attention_sort: true,
         }
     }
@@ -646,6 +650,20 @@ impl Config {
         }
     }
 
+    /// The start folder (`ui.start_dir`), if it's set and there.
+    pub fn start_dir(&self) -> Option<PathBuf> {
+        let raw = self.ui.start_dir.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        let home = || directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf());
+        let dir = match raw.strip_prefix('~') {
+            Some(rest) => home()?.join(rest.trim_start_matches(['/', '\\'])),
+            None => PathBuf::from(raw),
+        };
+        dir.is_dir().then_some(dir)
+    }
+
     pub fn theme(&self) -> Theme {
         let mut t = Theme::named(&self.theme);
         t.apply(&self.theme_overrides);
@@ -795,6 +813,20 @@ fn which(exe: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_start_folder() {
+        let mut cfg = super::Config::default();
+        assert_eq!(cfg.start_dir(), None, "empty: wherever you run hydra");
+        cfg.ui.start_dir = "~".into();
+        let home = directories::BaseDirs::new().unwrap().home_dir().to_path_buf();
+        assert_eq!(cfg.start_dir(), Some(home), "~ is home");
+        let here = std::env::temp_dir();
+        cfg.ui.start_dir = here.display().to_string();
+        assert_eq!(cfg.start_dir(), Some(here));
+        cfg.ui.start_dir = "/no/such/folder/anywhere".into();
+        assert_eq!(cfg.start_dir(), None, "a folder that isn't there is ignored");
+    }
+
     #[test]
     fn state_files_swap_in_and_keep_a_bad_copy() {
         let dir = std::env::temp_dir().join(format!("hydra-state-{}", std::process::id()));

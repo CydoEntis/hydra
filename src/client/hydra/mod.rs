@@ -539,7 +539,7 @@ impl App {
         if focus.is_none() && self.hy.last_focus.is_some() && self.snap.terms.is_empty() {
             self.hy.last_focus = None;
             self.splash = false;
-            let home = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()).unwrap_or_else(std::env::temp_dir);
+            let home = self.cfg.start_dir().or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())).unwrap_or_else(std::env::temp_dir);
             self.hy_new_session(home, None, false);
             return;
         }
