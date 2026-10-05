@@ -847,7 +847,7 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
     if ask && bot + 2 <= r.bottom() {
         let bot = r.bottom() - 1;
         fill(f.buffer_mut(), Rect { x: r.x, y: bot, width: r.width, height: 1 }, t.card2);
-        let opts = options(app.parsers.get(&term));
+        let opts = app.answer_options(term);
         let need: u16 = opts.iter().take(4).map(|o| o.chars().count() as u16 + 5).sum();
         // In a narrow pane the label shrinks to its dot.
         let label = if r.width.saturating_sub(4 + need) >= 10 { "● answer   " } else { "● " };

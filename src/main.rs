@@ -101,6 +101,14 @@ enum Cmd {
     /// The program in a pane (default: this one) is an agent: hydra learns it, by its
     /// program (any alias) or, run by node / python, by its script.
     Teach { pane: Option<protocol::TermId> },
+    /// Ask the person a question and wait for their answer (printed): from an agent in a
+    /// pane. It shows in the Inbox and on the pane, with these answers (default Yes / No).
+    AskHuman {
+        question: String,
+        /// An allowed answer (repeat for each).
+        #[arg(short = 'o', long = "option")]
+        options: Vec<String>,
+    },
     /// Run a command (default: your shell) with a `tmux` that opens hydra panes, so Claude
     /// Code's agent teams put each teammate in a pane: `hydra tmux-shim -- claude`.
     TmuxShim {
@@ -270,6 +278,7 @@ fn main() {
         Some(Cmd::Reveal { target }) => reveal::run(&target),
         Some(Cmd::Teach { pane }) => cli::teach(pane),
         Some(Cmd::TmuxShim { cmd }) => tmux_shim::run(cmd),
+        Some(Cmd::AskHuman { question, options }) => cli::ask_human(question, options),
         Some(Cmd::Close { pane }) => cli::close(pane),
         Some(Cmd::Hook { agent, status, payload }) => {
             // Hooks run inline in the agent's turn: never fail, never print.

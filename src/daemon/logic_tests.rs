@@ -233,3 +233,24 @@ fn a_turn_waiting_on_background_agents_stays_working() {
     let terms: Vec<TermId> = d.terms.keys().copied().collect();
     close(&mut d, &terms);
 }
+
+#[test]
+fn an_agent_asks_you_and_gets_your_answer() {
+    let (mut d, _rx) = daemon();
+    let t = pane(&mut d);
+    // The agent's `hydra ask-human` is a client waiting for the reply.
+    let (tx, mut asker) = mpsc::channel(8);
+    d.handle(Ev::Connected(5, tx, false));
+    let ask = Command::AskHuman { term: t, text: "Deploy to staging?".into(), options: vec!["Yes".into(), "No".into()] };
+    assert!(!d.command(5, ask).unwrap(), "the reply waits for you");
+    assert_eq!(d.terms[&t].status, Status::Blocked, "it needs you");
+    let q = d.snapshot().questions;
+    assert_eq!((q.len(), q[0].text.as_str()), (1, "Deploy to staging?"));
+    // You answer No: the asker gets it, the pane is back at work.
+    d.command(0, Command::AnswerHuman { id: q[0].id, choice: 1 }).unwrap();
+    assert!(matches!(asker.try_recv(), Ok(ServerMsg::Reply(Reply::Text(a))) if a == "No"));
+    assert_eq!(d.terms[&t].status, Status::Working);
+    assert!(d.snapshot().questions.is_empty());
+    let terms: Vec<TermId> = d.terms.keys().copied().collect();
+    close(&mut d, &terms);
+}

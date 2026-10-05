@@ -125,6 +125,9 @@ struct Daemon {
     empty_since: Instant,
     /// Background git work in flight; the server stays up until it lands.
     pending_ops: u32,
+    /// Questions agents asked you: the question, who's waiting for the answer, and the
+    /// pane's status before it asked.
+    questions: Vec<(HumanQuestion, ClientId, Status)>,
     git_busy: bool,
     last_git: Instant,
     last_save: Instant,
@@ -287,6 +290,7 @@ impl Daemon {
             had_terms: false,
             empty_since: Instant::now(),
             pending_ops: 0,
+            questions: Vec::new(),
             git_busy: false,
             last_git: crate::clock::ago(GIT_POLL_EVERY),
             last_save: Instant::now(),
@@ -453,6 +457,15 @@ impl Daemon {
             }
             Ev::Disconnected(id) => {
                 self.clients.remove(&id);
+                // The agent that asked went away (cancelled, killed): its question goes too.
+                let gone: Vec<(TermId, Status)> = self.questions.iter().filter(|(_, c, _)| *c == id).map(|(q, _, s)| (q.term, *s)).collect();
+                if !gone.is_empty() {
+                    self.questions.retain(|(_, c, _)| *c != id);
+                    for (term, before) in gone {
+                        self.set_status(term, before);
+                    }
+                    self.dirty = true;
+                }
             }
             Ev::Msg(id, msg) => self.message(id, msg),
             Ev::Output(tid, data) => {
@@ -822,7 +835,12 @@ impl Daemon {
                 })
             })
             .collect();
-        Snapshot { workspaces: self.workspaces.clone(), active_ws: self.active_ws, terms }
+        Snapshot {
+            workspaces: self.workspaces.clone(),
+            active_ws: self.active_ws,
+            terms,
+            questions: self.questions.iter().map(|(q, ..)| q.clone()).collect(),
+        }
     }
 
     fn sync_scan_roots(&self) {

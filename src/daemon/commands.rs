@@ -399,6 +399,25 @@ impl Daemon {
                 self.command(client, Command::ReloadConfig)?;
                 self.broadcast(|c| c.attach, ServerMsg::Notice(format!("{name} is an agent now: hydra shows when it's working, needs you or done")));
             }
+            Command::AskHuman { term, text, options } => {
+                let options = if options.is_empty() { vec!["Yes".to_string(), "No".to_string()] } else { options };
+                let id = self.next() as u64;
+                let before = self.terms.get(&term).map(|t| t.status).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?;
+                self.questions.push((HumanQuestion { id, term, text, options }, client, before));
+                // It needs you: the sidebar, a notification, the Inbox.
+                self.set_status(term, Status::Blocked);
+                self.dirty = true;
+                return Ok(false);
+            }
+            Command::AnswerHuman { id, choice } => {
+                let i = self.questions.iter().position(|(q, ..)| q.id == id).ok_or_else(|| anyhow::anyhow!("that question was already answered"))?;
+                let (q, asker, _) = self.questions.remove(i);
+                let answer = q.options.get(choice).cloned().ok_or_else(|| anyhow::anyhow!("no answer {choice}"))?;
+                self.send(asker, ServerMsg::Reply(Reply::Text(answer)));
+                // Back to work with the answer.
+                self.set_status(q.term, Status::Working);
+                self.dirty = true;
+            }
             Command::ReloadConfig => {
                 self.exts = crate::ext::load_all().0;
                 self.cfg = Config::load()?;

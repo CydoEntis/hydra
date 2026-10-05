@@ -652,7 +652,7 @@ impl App {
     pub(super) fn on_button(&mut self, hit: Hit, double: bool) -> bool {
         match hit {
             Hit::Button(b) => match b {
-                Btn::Answer(term, c) => self.send(ClientMsg::Input { term, data: c.to_string().into_bytes() }),
+                Btn::Answer(term, c) => self.answer(term, c),
                 Btn::CloseView => self.view = None,
                 Btn::ViewKey(c) => {
                     let code = match c {

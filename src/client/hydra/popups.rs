@@ -169,10 +169,11 @@ pub(in crate::client) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: 
                 // What it asks, and its answers: a number (or a click) answers from here.
                 Status::Blocked => {
                     let q = s.question.clone().unwrap_or_else(|| "It's waiting on you.".into());
+                    let opts = app.answer_options(s.term);
                     put(buf, r.x + 5, y, &[seg(truncate(&q, (r.width - 8) as usize), note.fg(t.blocked))], r.right() - 2);
                     y += 1;
                     let mut x = r.x + 5;
-                    for (n, label) in super::options(app.parsers.get(&s.term)).iter().enumerate() {
+                    for (n, label) in opts.iter().enumerate() {
                         let key = char::from(b'1' + n as u8);
                         let chip = format!(" {label} {key} ");
                         let w = chip.width() as u16;

@@ -518,7 +518,10 @@ impl App {
                     }
                 };
                 let title = session_title(t, if leaves.len() == 1 { &w.name } else { "" }, &top);
-                let question = (t.status == Status::Blocked).then(|| self.parsers.get(id).and_then(question)).flatten();
+                // What it asks: its ask-human question, else what its screen asks.
+                let question = (t.status == Status::Blocked)
+                    .then(|| self.snap.questions.iter().find(|q| q.term == *id).map(|q| q.text.clone()).or_else(|| self.parsers.get(id).and_then(question)))
+                    .flatten();
                 projs[pi].wts[wi].sessions.push(Session {
                     term: *id,
                     name,

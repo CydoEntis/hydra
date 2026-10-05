@@ -601,9 +601,32 @@ impl App {
 
     /// Answer an agent's numbered question from the Inbox: its option `key`, as if typed there.
     pub(in crate::client) fn inbox_answer(&mut self, term: TermId, key: char, name: &str) {
-        let label = options(self.parsers.get(&term)).get((key as u8 - b'1') as usize).cloned().unwrap_or_else(|| key.to_string());
-        self.send(crate::protocol::ClientMsg::Input { term, data: key.to_string().into_bytes() });
+        let label = self.answer_options(term).get((key as u8 - b'1') as usize).cloned().unwrap_or_else(|| key.to_string());
+        self.answer(term, key);
         self.notify(format!("answered {name}: {label}"), false);
+    }
+
+    /// A question an agent asked you with `hydra ask-human`, waiting in this pane.
+    pub(in crate::client) fn pending_question(&self, term: TermId) -> Option<&crate::protocol::HumanQuestion> {
+        self.snap.questions.iter().find(|q| q.term == term)
+    }
+
+    /// The answers a waiting agent offers: its ask-human question's, else the numbered
+    /// choices on its screen.
+    pub(in crate::client) fn answer_options(&self, term: TermId) -> Vec<String> {
+        match self.pending_question(term) {
+            Some(q) => q.options.clone(),
+            None => options(self.parsers.get(&term)),
+        }
+    }
+
+    /// Answer with choice `key` ('1' is the first): to its ask-human question, or typed into
+    /// the agent as its own numbered prompt expects.
+    pub(in crate::client) fn answer(&mut self, term: TermId, key: char) {
+        match self.pending_question(term).map(|q| q.id) {
+            Some(id) => self.cmd(Command::AnswerHuman { id, choice: (key as u8).saturating_sub(b'1') as usize }),
+            None => self.send(crate::protocol::ClientMsg::Input { term, data: key.to_string().into_bytes() }),
+        }
     }
 
     /// The folder Files / Changes / PR act on: the sidebar cursor's, else the focused one's.

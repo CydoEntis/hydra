@@ -309,6 +309,18 @@ pub fn focused_pane() -> Option<TermId> {
     s.workspaces.iter().find(|w| Some(w.id) == s.active_ws)?.tab().map(|t| t.focus)
 }
 
+/// `hydra ask-human "…?" -o Yes -o No`: ask the person, wait, print the answer.
+pub fn ask_human(text: String, options: Vec<String>) -> Result<()> {
+    let term = resolve_pane(None).context("run it in a hydra pane (the question shows there)")?;
+    match block_on(request(ClientMsg::Command(Command::AskHuman { term, text, options })))? {
+        Reply::Text(answer) => {
+            println!("{answer}");
+            Ok(())
+        }
+        _ => bail!("no answer"),
+    }
+}
+
 /// `hydra teach [pane]`: the program running there is an agent.
 pub fn teach(pane: Option<TermId>) -> Result<()> {
     let term = resolve_pane(pane)?;

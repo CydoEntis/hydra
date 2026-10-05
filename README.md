@@ -424,6 +424,17 @@ Hydra looks at the program actually running, whatever alias started it (or, for 
 python harness, its package or script), and adds it under `[[agents]]` in your config with the
 usual screen signs of working. Edit that entry to tune them.
 
+## Agents asking you
+
+An agent (or any script in a pane) can ask you something with fixed answers and wait:
+
+```sh
+hydra ask-human "Deploy to staging?" -o Yes -o "Not yet"   # prints the answer you pick
+```
+
+The pane shows **needs you** (with a notification), the question is in the Inbox and on the
+pane's answer bar, and a number or click answers. Without `-o` the answers are Yes / No.
+
 ## Claude Code agent teams
 
 Claude Code's agent teams can put each teammate in its own pane, through tmux. In a hydra pane
