@@ -34,7 +34,7 @@ pub(crate) async fn request(msg: ClientMsg) -> Result<Reply> {
     }
 }
 
-fn snapshot() -> Result<Snapshot> {
+pub(crate) fn snapshot() -> Result<Snapshot> {
     match block_on(request(ClientMsg::Query(Query::List)))? {
         Reply::List(s) => Ok(s),
         _ => bail!("unexpected reply"),

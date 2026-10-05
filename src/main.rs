@@ -17,6 +17,7 @@ mod sync;
 mod theme;
 mod update;
 mod reveal;
+mod tmux_shim;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -100,6 +101,12 @@ enum Cmd {
     /// The program in a pane (default: this one) is an agent: hydra learns it, by its
     /// program (any alias) or, run by node / python, by its script.
     Teach { pane: Option<protocol::TermId> },
+    /// Run a command (default: your shell) with a `tmux` that opens hydra panes, so Claude
+    /// Code's agent teams put each teammate in a pane: `hydra tmux-shim -- claude`.
+    TmuxShim {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        cmd: Vec<String>,
+    },
     /// Go to a session and bring hydra's window forward: what clicking a notification runs.
     /// Takes a hydra:// link or a pane number.
     Reveal { target: String },
@@ -227,6 +234,10 @@ enum ConfigCmd {
 }
 
 fn main() {
+    // Run under the name `tmux` (the shim's link): answer as tmux.
+    if tmux_shim::invoked_as_tmux() {
+        std::process::exit(tmux_shim::main(std::env::args().skip(1).collect()));
+    }
     let args = Args::parse();
     if let Some(r) = &args.remote {
         // SAFETY: set once at startup, before any thread is started.
@@ -258,6 +269,7 @@ fn main() {
         Some(Cmd::Focus { pane }) => cli::focus(pane),
         Some(Cmd::Reveal { target }) => reveal::run(&target),
         Some(Cmd::Teach { pane }) => cli::teach(pane),
+        Some(Cmd::TmuxShim { cmd }) => tmux_shim::run(cmd),
         Some(Cmd::Close { pane }) => cli::close(pane),
         Some(Cmd::Hook { agent, status, payload }) => {
             // Hooks run inline in the agent's turn: never fail, never print.

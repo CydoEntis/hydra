@@ -424,6 +424,20 @@ Hydra looks at the program actually running, whatever alias started it (or, for 
 python harness, its package or script), and adds it under `[[agents]]` in your config with the
 usual screen signs of working. Edit that entry to tune them.
 
+## Claude Code agent teams
+
+Claude Code's agent teams can put each teammate in its own pane, through tmux. In a hydra pane
+(macOS, Linux):
+
+```sh
+hydra tmux-shim -- env CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude
+```
+
+Claude sees a tmux, and every teammate it starts opens as a hydra pane beside it: in the
+sidebar under Agents, with its status, in the Inbox. They close when the team is done. The shim
+changes nothing outside that command; a real tmux still works inside it. Calls it doesn't
+handle yet are logged in `tmux-shim/calls.log` in hydra's data folder.
+
 ## Script it
 
 ```sh

@@ -177,7 +177,7 @@ Rules for the language live in `docs/stack/rust.md`.
   `theme.rs`, `config.rs`. No I/O beyond reading config.
 - **Infrastructure:** `ipc.rs` (sockets, SSH proxy), `daemon/term.rs` (PTY +
   emulator per pane), `daemon/scan.rs` (status detection), `daemon/git.rs`,
-  `daemon/persist.rs`, `gitfs.rs`, `alert.rs`, `reveal.rs` (notification links,
+  `daemon/persist.rs`, `gitfs.rs`, `alert.rs`, `tmux_shim.rs` (a tmux for agent teams), `reveal.rs` (notification links,
   bringing the window forward), `update.rs`, `sync.rs`, `ext.rs`, `mcp.rs`.
 - **Application:** `daemon/mod.rs` (the server loop: commands in, state and
   output out) and `client/mod.rs` (the client loop: events in, commands out).

@@ -53,7 +53,7 @@ done. Chosen 2026-10-05 after comparing with tuios, in this order:
 1. #20 Sidebar: agents, terminals and ssh sessions in their own sections — done (0.7.0)
 2. #25 Agent coverage: any agent from config; hooks for more harnesses
 3. #21 Inbox: everything waiting on you, answerable from one list — done (0.7.5)
-4. #22 Claude Code agent teams as hydra panes
+4. #22 Claude Code agent teams as hydra panes — done (0.7.7)
 5. #24 Agent-to-agent: ask-human, messages, ask-agent, pane permissions
 6. #31 Install from package managers (AUR first)
 7. #28 Scrollback: jump between commands, multi-pane copy
