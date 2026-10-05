@@ -940,6 +940,56 @@ pub fn refresh_claude_hooks() {
     }
 }
 
+/// Codex's config file (`$CODEX_HOME/config.toml`, else `~/.codex/config.toml`).
+fn codex_config() -> PathBuf {
+    std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().join(".codex")).unwrap_or_default())
+        .join("config.toml")
+}
+
+enum CodexNotify {
+    Set,
+    Removed,
+    /// Someone else's notify is there (shown as written).
+    Theirs(String),
+}
+
+/// Point Codex's top-level `notify` at hydra (or take hydra's out), keeping the rest of the
+/// file. Another program's notify is left alone.
+fn codex_notify(path: &std::path::Path, exe: &str, uninstall: bool) -> Result<CodexNotify> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e.into()),
+    };
+    let mut doc: toml_edit::DocumentMut = text.parse().with_context(|| format!("{} has a syntax error; not touching it", path.display()))?;
+    let ours = |v: &toml_edit::Item| v.as_array().is_some_and(|a| a.iter().any(|x| x.as_str() == Some("hook")) && a.iter().any(|x| x.as_str().is_some_and(|s| s.contains("hydra"))));
+    if let Some(cur) = doc.get("notify")
+        && !ours(cur)
+    {
+        return Ok(CodexNotify::Theirs(cur.to_string().trim().to_string()));
+    }
+    if uninstall {
+        doc.remove("notify");
+    } else {
+        let mut a = toml_edit::Array::new();
+        for part in [exe, "hook", "codex"] {
+            a.push(part);
+        }
+        // Top-level keys go before the tables.
+        doc.insert("notify", toml_edit::value(a));
+    }
+    if path.exists() {
+        std::fs::copy(path, path.with_extension("toml.hydra-bak"))?;
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    crate::config::write_atomic(path, doc.to_string())?;
+    Ok(if uninstall { CodexNotify::Removed } else { CodexNotify::Set })
+}
+
 pub fn integrate(agent: &str, uninstall: bool) -> Result<()> {
     let exe = this_exe()?;
     match agent {
@@ -970,9 +1020,16 @@ pub fn integrate(agent: &str, uninstall: bool) -> Result<()> {
             Ok(())
         }
         "codex" => {
-            println!("Add this line to ~/.codex/config.toml (top level):\n");
-            println!("notify = [\"{exe}\", \"hook\", \"codex\"]\n");
-            println!("Codex then reports finished turns; working/blocked come from screen detection.");
+            let path = codex_config();
+            match codex_notify(&path, &exe, uninstall)? {
+                CodexNotify::Set => println!("set hydra as Codex's notify in {}: it reports finished turns", path.display()),
+                CodexNotify::Removed => println!("removed hydra's notify from {}", path.display()),
+                CodexNotify::Theirs(other) => println!(
+                    "{} already has notify = {other}; not touching it. To add hydra, make it run:\n  \"{exe}\" hook codex",
+                    path.display()
+                ),
+            }
+            println!("Working / needs-you come from Codex's screen.");
             Ok(())
         }
         other => bail!("no integration for `{other}`; any agent can call `hydra hook {other} --status <working|blocked|done|idle>`"),
@@ -1044,6 +1101,25 @@ pub fn allow(dir: Option<std::path::PathBuf>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn codex_notify_is_set_and_others_kept() {
+        let file = std::env::temp_dir().join(format!("hydra-codex-{}.toml", std::process::id()));
+        std::fs::write(&file, "model = \"gpt-5\"\n\n[tui]\nnotifications = true\n").unwrap();
+        assert!(matches!(super::codex_notify(&file, "/bin/hydra", false).unwrap(), super::CodexNotify::Set));
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains(r#"notify = ["/bin/hydra", "hook", "codex"]"#) && text.contains("[tui]") && text.contains("gpt-5"), "{text}");
+        assert!(text.find("notify") < text.find("[tui]"), "a top-level key, before the tables: {text}");
+        // Run again with hydra elsewhere: replaced (it's ours).
+        super::codex_notify(&file, "/usr/local/bin/hydra", false).unwrap();
+        assert!(std::fs::read_to_string(&file).unwrap().contains("/usr/local/bin/hydra"));
+        // Someone else's notify stays.
+        std::fs::write(&file, "notify = [\"my-notifier\"]\n").unwrap();
+        assert!(matches!(super::codex_notify(&file, "/bin/hydra", false).unwrap(), super::CodexNotify::Theirs(_)));
+        assert!(std::fs::read_to_string(&file).unwrap().contains("my-notifier"));
+        let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_file(file.with_extension("toml.hydra-bak"));
+    }
+
     #[test]
     fn hooks_from_another_hydra_are_found() {
         let want = "\"/home/me/.local/bin/hydra\" hook claude";

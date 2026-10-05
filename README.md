@@ -411,7 +411,8 @@ these sources, in order:
 1. **Hooks**, which are exact. `hydra integrate claude` adds hooks to `~/.claude/settings.json`.
    They stay inert outside hydra panes and are tagged so a re-run or `--uninstall` replaces them cleanly.
    Any tool can report its own state with `hydra hook <name> --status working|blocked|done|idle`.
-   For Codex, `hydra integrate codex` prints the `notify` line to add.
+   For Codex, `hydra integrate codex` sets hydra as its `notify` (in `~/.codex/config.toml`;
+   another program's notify is left alone).
 2. **Screen patterns**: regexes matched against the bottom of the screen, such as "esc to interrupt".
 3. **Activity**: recent output that isn't the echo of your own typing.
 

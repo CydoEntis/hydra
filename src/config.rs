@@ -587,6 +587,8 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         agent("grok", &["grok"], &["@vibe-kit/grok-cli", "grok-cli"], &[r"esc to interrupt"], &[r"Do you want to"]),
         agent("auggie", &["auggie"], &["@augmentcode/auggie"], &[], &[]),
         agent("kimi", &["kimi"], &["kimi-cli"], &[], &[]),
+        // The DeepSeek harness (dsh-TUI), whatever alias starts it.
+        agent("deepseek", &["dsh", "dsh-tui", "deepseek"], &["dsh-tui", "deepseek-harness"], &[r"esc to interrupt", r"esc to cancel"], &[r"Do you want to", r"\(y/n\)"]),
     ]
 }
 
