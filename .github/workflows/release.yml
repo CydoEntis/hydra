@@ -116,6 +116,7 @@ jobs:
         run: |
           gh api -H "Accept: application/vnd.github.raw" "repos/$GITHUB_REPOSITORY/contents/install.sh" | sh
           ~/.local/bin/hydra --version
+          ~/.local/bin/hydra update --check
           ~/.local/bin/hydra doctor || true
       - name: install.ps1
         if: runner.os == 'Windows'
@@ -123,3 +124,4 @@ jobs:
         run: |
           gh api -H "Accept: application/vnd.github.raw" "repos/$env:GITHUB_REPOSITORY/contents/install.ps1" | Out-String | iex
           & "$env:LOCALAPPDATA\Programs\hydra\hydra.exe" --version
+          & "$env:LOCALAPPDATA\Programs\hydra\hydra.exe" update --check

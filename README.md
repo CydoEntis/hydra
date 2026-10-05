@@ -90,7 +90,9 @@ The repo is private for now, so the installers download through the [GitHub CLI]
 (run `gh auth login` once). They pick the build for your machine, check its checksum, put it in
 `~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\hydra`, added to your PATH) and tell you if
 another `hydra` comes first. `HYDRA_VERSION=v0.1.0` picks a version; `HYDRA_INSTALL_DIR` a folder.
-Run them again to update.
+To update later: `hydra update` (or `hydra update --check` to just look). Hydra also checks
+once a day and says on the splash when a newer version is out; turn that off in Settings
+(Check for updates).
 
 Then run `hydra doctor` to check your setup. For the best look: a terminal with true colour and a
 [Nerd Font](https://www.nerdfonts.com) (Windows Terminal, Ghostty, Alacritty, WezTerm, iTerm2).

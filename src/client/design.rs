@@ -708,6 +708,7 @@ pub(super) fn settings_group(row: &SRow) -> &'static str {
         SRow::Setting(s) => match s.path {
             "prefix" | "ui.mouse" | "ui.which_key" => "INPUT",
             "ui.sidebar_position" | "ui.splash" => "LAYOUT",
+            "ui.update_check" => "UPDATES",
             "shell" | "editor" | "shell_integration" => "SHELL",
             "ui.attention_sort" => "SIDEBAR",
             p if p.starts_with("notify.") => "ALERTS",

@@ -307,6 +307,8 @@ enum PickTarget {
 }
 
 pub struct App {
+    /// A newer release found by the daily check (shown on the splash).
+    update_available: Option<String>,
     cfg: Config,
     theme: Theme,
     keymap: Keymap,
@@ -394,6 +396,17 @@ async fn run_async(opts: Options) -> Result<()> {
     if crate::sync::enabled() {
         app.spawn_bg(|| Bg::Synced(crate::sync::pull().unwrap_or(false)));
     }
+    if app.cfg.ui.update_check {
+        app.spawn_bg(|| {
+            let newer = crate::update::newer_release();
+            Bg::Then(Box::new(move |app: &mut App| {
+                if let Some(v) = newer {
+                    app.notify(format!("hydra {v} is out: run `hydra update`"), false);
+                    app.update_available = Some(v);
+                }
+            }))
+        });
+    }
     if let Some(e) = err {
         app.notify(format!("config error: {e}"), true);
     }
@@ -443,6 +456,7 @@ impl App {
     fn new(cfg: Config, out: mpsc::UnboundedSender<ClientMsg>, open: Option<PathBuf>, bg_tx: mpsc::UnboundedSender<Bg>) -> App {
         let keymap = cfg.keymap();
         let mut app = App {
+            update_available: None,
             theme: cfg.theme(),
             sidebar: cfg.ui.sidebar,
             keymap,

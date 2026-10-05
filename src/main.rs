@@ -15,6 +15,7 @@ mod proc;
 mod protocol;
 mod sync;
 mod theme;
+mod update;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -158,6 +159,15 @@ enum Cmd {
     DebugColors { pane: u32 },
     /// Check that everything hydra relies on is in place, and how to fix what isn't.
     Doctor,
+    /// Install the newest release over this one.
+    Update {
+        /// Only say whether a newer version is out.
+        #[arg(long)]
+        check: bool,
+        /// Reinstall the latest release even if this is it (repairs an install).
+        #[arg(long)]
+        force: bool,
+    },
     /// Let this repo's .hydra.toml hooks run (they don't until you allow them).
     Allow {
         /// The repo (default: here).
@@ -216,6 +226,7 @@ fn main() {
         unsafe { std::env::set_var("HYDRA_REMOTE", r) };
     }
     config::migrate_from_drover();
+    update::tidy();
     // `hydra <dir>` opens a directory; a typo'd subcommand shouldn't silently attach.
     if let Some(p) = args.path.as_ref().or(match &args.cmd {
         Some(Cmd::Attach { path }) => path.as_ref(),
@@ -263,6 +274,7 @@ fn main() {
         Some(Cmd::Mcp) => mcp::run(),
         Some(Cmd::Dev { action, dir }) => cli::dev(&action, dir),
         Some(Cmd::Doctor) => cli::doctor(),
+        Some(Cmd::Update { check, force }) => update::run(check, force),
         Some(Cmd::Allow { dir }) => cli::allow(dir),
         Some(Cmd::Proxy) => cli::block_on(ipc::proxy()),
         Some(Cmd::Ext { action, name, index, term }) => cli::ext(&action, name, index, term),

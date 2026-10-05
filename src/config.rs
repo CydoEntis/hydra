@@ -78,6 +78,8 @@ pub struct Ui {
     pub workspace_colors: Vec<String>,
     /// The welcome screen when hydra starts.
     pub splash: bool,
+    /// Look for a newer hydra once a day and say so (`hydra update` installs it).
+    pub update_check: bool,
     /// Sidebar sessions (and worktrees) sorted needs → done → working → idle.
     pub attention_sort: bool,
 }
@@ -366,6 +368,7 @@ impl Default for Ui {
                 .map(String::from)
                 .to_vec(),
             splash: true,
+            update_check: true,
             attention_sort: true,
         }
     }
