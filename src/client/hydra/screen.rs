@@ -613,11 +613,17 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
     for (i, (sa, horizontal, path)) in layout.splits(area).into_iter().enumerate() {
         let ratio = layout.ratio_at(&path).unwrap_or(0.5);
         let div = crate::layout::Node::divider(sa, horizontal, ratio);
-        let c = if app.hy.drag == Some(Drag::Divider(i)) || hovered(app, div) { t.accent } else { t.line };
+        // Side by side: the line in the middle of the three-column gutter, and the whole
+        // gutter grabs it (one column is hard to hit). Stacked: a blank row (it shows when
+        // you point at it). What lights up is exactly what a press grabs.
+        let (div, grab) = if horizontal {
+            let line = Rect { x: div.x.saturating_sub(1), ..div };
+            (line, Rect { x: line.x.saturating_sub(1), width: 3, ..line })
+        } else {
+            (div, div)
+        };
+        let c = if app.hy.drag == Some(Drag::Divider(i)) || hovered(app, grab) { t.accent } else { t.line };
         let buf = f.buffer_mut();
-        // Side by side: the line in the middle of the gutter. Stacked: a blank row (it shows
-        // when you point at it).
-        let div = if horizontal { Rect { x: div.x.saturating_sub(1), ..div } } else { div };
         for yy in div.top()..div.bottom() {
             for xx in div.left()..div.right() {
                 if (horizontal || c == t.accent)
@@ -626,7 +632,7 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
                     }
             }
         }
-        hit(app, div, HyHit::Divider(i));
+        hit(app, grab, HyHit::Divider(i));
         app.hy.dividers.push((sa, horizontal, path));
     }
 }
@@ -682,7 +688,16 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
     let found = find(model, term);
     let (title, wt, agent) = found
         .map(|(_, w, s)| (s.title.clone(), if w.main { w.branch.clone() } else { w.name.clone() }, s.agent.clone()))
-        .unwrap_or_default();
+        .unwrap_or_else(|| {
+            // A pane beside another in a split has no sidebar row of its own: say what it is
+            // from the pane itself.
+            let agent = match &info.agent {
+                Some(a) => a.clone(),
+                None if info.is_shell() => "shell".into(),
+                None => info.display_name(),
+            };
+            (String::new(), String::new(), agent)
+        });
     let st = info.status;
     let _ = (split, &title, &wt);
     // While the sidebar has the keys, no pane shows as focused.
@@ -715,7 +730,10 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
             let on = if s.is_agent && s.title != WAITING && !s.title.is_empty() && s.title != s.name { format!("{} · ", s.title) } else { String::new() };
             (s.name.clone(), format!("{on}{}{br}{model}", p.name))
         })
-        .unwrap_or_else(|| (agent.clone(), String::new()));
+        .unwrap_or_else(|| {
+            let br = info.branch.as_ref().map(|b| format!(" · {b}")).unwrap_or_default();
+            (agent.clone(), format!("{}{br}", folder_name(&info.cwd)))
+        });
     let icon = if info.agent.is_some() { format!("{} ", kind_icon(app, &agent, true)) } else { String::new() };
     let room = (r.width as usize).saturating_sub(rw as usize + 4 + icon.chars().count() + name.chars().count() + 2);
     let place = if place.chars().count() > room { format!("{}…", place.chars().take(room.saturating_sub(1)).collect::<String>()) } else { place };

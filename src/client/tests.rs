@@ -819,6 +819,11 @@ mod hydra_tests {
         app.hy_fresh();
         let rows: Vec<TermId> = app.hy_model().iter().flat_map(|p| p.sessions().map(|s| s.term).collect::<Vec<_>>()).collect();
         assert!(rows.contains(&a) && !rows.contains(&b), "the pane beside a isn't a session of its own: {rows:?}");
+        // Its title bar still says what it is.
+        let o = draw(&mut app, 200, 50);
+        let name = app.snap.terms[&b].agent.clone().unwrap_or_else(|| "shell".into());
+        let bar = o.lines().find(|l| l.contains('✕') && l.matches('✕').count() == 2).unwrap_or_default();
+        assert!(bar.matches(name.as_str()).count() >= 1, "the split pane's title names it ({name}): {bar}");
         // b needs you: a's row says so.
         app.snap.terms.get_mut(&b).unwrap().status = Status::Blocked;
         app.hy_fresh();
@@ -942,7 +947,8 @@ mod hydra_tests {
             app.on_mouse(MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE });
             draw(app, 200, 50);
         };
-        let line_x = |app: &App| app.hits.iter().find_map(|(r, h)| matches!(h, Hit::Hy(hydra::HyHit::Divider(_))).then_some(r.x));
+        // The grab area is the gutter, the line its middle column.
+        let line_x = |app: &App| app.hits.iter().find_map(|(r, h)| matches!(h, Hit::Hy(hydra::HyHit::Divider(_))).then_some(r.x + 1));
         // Both programs want the mouse (full-screen agents do).
         for t in [a, b] {
             let mut p = vt100::Parser::new(40, 90, 0);
@@ -951,13 +957,14 @@ mod hydra_tests {
         }
         draw(&mut app, 200, 50);
         let mut at = line_x(&app).expect("a divider");
-        for (n, to) in [at - 30, at + 20, at - 10].into_iter().enumerate() {
+        // Grab it on the line, just right of it, just left of it: all of the gutter takes it.
+        for (n, (to, off)) in [(at - 30, 0i32), (at + 20, 1), (at - 10, -1)].into_iter().enumerate() {
             let y = 20;
-            mouse(&mut app, MouseEventKind::Down(MouseButton::Left), at, y);
+            mouse(&mut app, MouseEventKind::Down(MouseButton::Left), (at as i32 + off) as u16, y);
             mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), to, y);
             mouse(&mut app, MouseEventKind::Up(MouseButton::Left), to, y);
             let now = line_x(&app).expect("still a divider");
-            assert!(now.abs_diff(to) <= 1, "drag {n}: the line follows the mouse to {to}, it's at {now}");
+            assert_eq!(now, to, "drag {n}: the line is under the pointer");
             at = now;
         }
     }

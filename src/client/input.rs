@@ -406,8 +406,10 @@ impl App {
                         }
                         hydra::Drag::Divider(i) => {
                             if let Some((r, horizontal, path)) = self.hy.dividers.get(i).cloned() {
+                                // The line sits two columns in from the left part's edge (the
+                                // middle of the gutter): put it under the pointer.
                                 let f = if horizontal {
-                                    (m.column + 1).saturating_sub(r.x) as f32 / r.width.max(1) as f32
+                                    (m.column + 2).saturating_sub(r.x) as f32 / r.width.max(1) as f32
                                 } else {
                                     (m.row + 1).saturating_sub(r.y) as f32 / r.height.max(1) as f32
                                 };
