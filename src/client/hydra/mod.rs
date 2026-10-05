@@ -42,6 +42,9 @@ pub(super) struct Saved {
     pub order: Vec<String>,
     /// Folded sidebar rows ("p:<project key>").
     pub closed: Vec<String>,
+    /// Sessions in the order you dragged them to (within a group; what needs you still
+    /// comes first).
+    pub session_order: Vec<TermId>,
     /// Projects whose BRANCHES list is unfolded.
     pub open_branches: Vec<String>,
     /// Races in progress.
@@ -144,6 +147,9 @@ pub(super) struct HyTab {
     pub focus: TermId,
     /// How its panes are laid out.
     pub arrange: Arrange,
+    /// Not a tab you made: a split kept to come back to, or a session shown on its own.
+    /// It isn't in the tab bar; its session's row brings it back.
+    pub hidden: bool,
 }
 
 /// How a tab lays out its panes (Ctrl+Space = goes to the next).
@@ -247,6 +253,9 @@ pub(super) enum Drag {
     /// A group's header in the sidebar (its index when pressed; moved yet?): dragged onto
     /// another group it takes that place, released where it was it folds.
     Group(usize, bool),
+    /// A session's row (moved yet?): dragged onto another in its group it takes that place,
+    /// released where it was it opens.
+    Session(TermId, bool),
 }
 
 /// The sidebar's width limits.
@@ -656,7 +665,8 @@ impl App {
         for p in &mut projs {
             if sort {
                 for w in &mut p.wts {
-                    w.sessions.sort_by_key(|s| (rank(s.status), s.term));
+                    let order = &self.hy.saved.session_order;
+                    w.sessions.sort_by_key(|s| (rank(s.status), order.iter().position(|t| *t == s.term).unwrap_or(usize::MAX), s.term));
                 }
             }
             p.wts.sort_by_key(|w| {
@@ -739,7 +749,7 @@ impl App {
             .filter_map(|tab| {
                 let layout = tab.layout.map_leaves(&mut |id| alive(id).then_some(id))?;
                 let focus = if layout.contains(tab.focus) { tab.focus } else { layout.first_leaf() };
-                Some(HyTab { layout, focus, arrange: Arrange::Split })
+                Some(HyTab { layout, focus, arrange: Arrange::Split, hidden: false })
             })
             .collect();
         tabs.dedup_by(|a, b| a.layout == b.layout);

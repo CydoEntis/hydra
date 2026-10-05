@@ -328,6 +328,8 @@ pub struct App {
     snap: Snapshot,
     got_state: bool,
     parsers: HashMap<TermId, vt100::Parser>,
+    /// The mouse pointer shape last asked of the terminal (OSC 22).
+    pointer: &'static str,
     /// The pane copy mode was on when it yanked (for joining with `copy_set`).
     copy_term: Option<TermId>,
     /// Selections kept from other panes while copying across a split (Tab in copy mode):
@@ -453,8 +455,12 @@ fn restore_terminal() {
         event::DisableBracketedPaste,
         event::DisableFocusChange
     );
-    // Give the terminal its own background and cursor back.
+    // Give the terminal its own background, cursor and mouse pointer back.
     let _ = execute!(std::io::stdout(), crossterm::cursor::SetCursorStyle::DefaultUserShape);
+    {
+        use std::io::Write;
+        let _ = write!(std::io::stdout(), "\x1b]22;default\x1b\\");
+    }
     {
         use std::io::Write;
         let _ = write!(std::io::stdout(), "]111");
@@ -483,6 +489,7 @@ impl App {
             marks: HashMap::new(),
             copy_set: Vec::new(),
             copy_term: None,
+            pointer: "default",
             scroll: HashMap::new(),
             sizes: HashMap::new(),
             mode: Mode::Normal,

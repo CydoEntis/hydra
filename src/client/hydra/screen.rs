@@ -184,7 +184,14 @@ pub(in crate::client) fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec
         // Just the sessions, most urgent first: needs you, done, working, idle (the repo
         // folder's before the worktrees' when equal).
         let mut rows: Vec<(usize, usize)> = (0..p.wts.len()).flat_map(|wi| (0..p.wts[wi].sessions.len()).map(move |si| (wi, si))).collect();
-        rows.sort_by_key(|&(wi, si)| (rank(p.wts[wi].sessions[si].status), !p.wts[wi].main, p.wts[wi].sessions[si].term));
+        // Your order (dragged) within the same urgency.
+        let order = &app.hy.saved.session_order;
+        let at = |t: TermId| order.iter().position(|x| *x == t).unwrap_or(usize::MAX);
+        rows.sort_by_key(|&(wi, si)| {
+            let s = &p.wts[wi].sessions[si];
+            let mine = at(s.term);
+            (rank(s.status), if mine == usize::MAX { !p.wts[wi].main } else { false }, mine, s.term)
+        });
         let mut any = false;
         for (wi, si) in rows {
             any = true;
@@ -580,7 +587,8 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         return;
     };
     // Tabs, once there's more than one.
-    let area = if app.hy.tabs.len() > 1 {
+    // A tab bar once you've made more than one tab.
+    let area = if app.hy.tabs.iter().filter(|t| !t.hidden).count() > 1 {
         draw_tab_bar(app, f.buffer_mut(), Rect { height: 1, ..area }, model, t);
         Rect { y: area.y + 1, height: area.height.saturating_sub(1), ..area }
     } else {
@@ -672,11 +680,16 @@ pub(in crate::client) fn row_menu_button(app: &mut App, buf: &mut Buffer, r: Rec
 pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
     fill(buf, r, t.bg);
     let mut x = r.x + 1;
+    let mut shown = 0;
     for i in 0..app.hy.tabs.len() {
         let tab = &app.hy.tabs[i];
+        if tab.hidden {
+            continue;
+        }
+        shown += 1;
         let n = tab.layout.leaves().len();
         let name = find(model, tab.focus).map(|(_, _, s)| if s.title == WAITING || s.title.is_empty() { s.agent.clone() } else { format!("{} · {}", s.agent, truncate(&s.title, 18)) }).unwrap_or_else(|| "…".into());
-        let label = if n > 1 { format!(" {} {name} +{} ", i + 1, n - 1) } else { format!(" {} {name} ", i + 1) };
+        let label = if n > 1 { format!(" {shown} {name} +{} ", n - 1) } else { format!(" {shown} {name} ") };
         let w = label.width() as u16;
         if x + w + 4 > r.right() {
             break;

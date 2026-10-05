@@ -84,13 +84,7 @@ pub(in crate::client) fn jump_list(model: &[Proj]) -> Vec<(Session, String, Stri
         these.sort_by_key(|(s, ..)| s.since);
         out.extend(these);
     }
-    // Nothing waiting: the most recent sessions instead of an empty box.
-    if out.is_empty() {
-        let mut all: Vec<(Session, String, String, Color)> =
-            model.iter().flat_map(|p| p.wts.iter().flat_map(move |w| w.sessions.iter().map(move |s| (s.clone(), p.name.clone(), w.name.clone(), p.color)))).collect();
-        all.sort_by_key(|(s, ..)| std::cmp::Reverse(s.since));
-        out = all.into_iter().take(9).collect();
-    }
+    // Only what needs you or finished: finding any session is Go to's job.
     out
 }
 
@@ -129,7 +123,12 @@ pub(in crate::client) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: 
         put(buf, r.x + 3, y, &[seg("✓ ", Style::default().fg(t.done).bg(t.card).add_modifier(Modifier::BOLD)), seg("Nothing needs you right now.", Style::default().fg(t.strong).bg(t.card))], r.right());
         y += 2;
     }
-    let groups: Vec<(Option<Status>, &str)> = if waiting { vec![(Some(Status::Blocked), "NEEDS YOU"), (Some(Status::Done), "DONE · NOT REVIEWED")] } else { vec![(None, "RECENT")] };
+    let groups: Vec<(Option<Status>, &str)> = if waiting { vec![(Some(Status::Blocked), "NEEDS YOU"), (Some(Status::Done), "DONE · NOT REVIEWED")] } else { Vec::new() };
+    if !waiting {
+        let gk = k(app, &Action::GoTo);
+        put(buf, r.x + 3, y, &[seg(format!("To find any session: Go to ({gk})."), Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::ITALIC))], r.right());
+        y += 2;
+    }
     for (st, label) in groups {
         let rows: Vec<_> = list.iter().filter(|(s, ..)| st.is_none_or(|x| s.status == x)).collect();
         let st = st.unwrap_or(Status::None);

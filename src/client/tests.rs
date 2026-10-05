@@ -946,6 +946,41 @@ mod hydra_tests {
     }
 
     #[test]
+    fn sessions_drag_within_their_group_and_click_to_open() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        for t in app.snap.terms.values_mut() {
+            t.status = Status::Idle;
+        }
+        app.hy_fresh();
+        draw(&mut app, 160, 45);
+        let rows = |app: &mut App| {
+            let model = app.hy_model();
+            hydra::side_lines(app, &model, &app.theme).iter().filter_map(|l| hydra::line_term(&model, l)).collect::<Vec<_>>()
+        };
+        let before = rows(&mut app);
+        // claude and codex: agents in one group (the shell is in the terminals section).
+        let (first, last) = (before[0], before[1]);
+        let at = |app: &App, t: TermId| app.hits.iter().find_map(|(r, h)| (*h == Hit::Hy(hydra::HyHit::Session(t))).then_some((r.x + 6, r.y))).unwrap();
+        let mouse = |app: &mut App, kind: MouseEventKind, (x, y): (u16, u16)| {
+            app.on_mouse(MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE });
+            draw(app, 160, 45);
+        };
+        let (from, to) = (at(&app, last), at(&app, first));
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), from);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), to);
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), to);
+        assert_eq!(rows(&mut app)[0], last, "dragged to the top of its group: {:?}", rows(&mut app));
+        // Not across sections: the shell can't be dragged among the agents.
+        let shell = *before.last().unwrap();
+        assert!(!app.move_session(shell, first), "a terminal stays in its section");
+        // A click (no move) opens it.
+        let p = at(&app, first);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), p);
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), p);
+        assert!(app.hy.drag.is_none(), "a click opens it and leaves nothing being dragged");
+    }
+
+    #[test]
     fn x_closes_and_x_confirms() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         app.menu_act(menu::Act::End(vec![3]));
@@ -1087,6 +1122,7 @@ mod hydra_tests {
         // Picking another session shows it alone; the split is still there to go back to.
         app.hy_place(c, Some(b));
         assert_eq!(app.hy.tabs[app.hy.tab].layout, crate::layout::Node::Leaf(c), "full size");
+        assert_eq!(app.hy.tabs.iter().filter(|t| !t.hidden).count(), 1, "no tab bar: the split is kept out of sight, not made a tab");
         assert!(app.hy.tabs.iter().any(|t| t.layout.leaves() == vec![a, b]), "the split is kept: {:?}", app.hy.tabs);
         app.hy_place(a, Some(c));
         assert_eq!(app.hy.tabs[app.hy.tab].layout.leaves(), vec![a, b], "its row brings the split back");

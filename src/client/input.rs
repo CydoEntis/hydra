@@ -443,6 +443,15 @@ impl App {
                                 self.scroll_to(term, v.min(total));
                             }
                         }
+                        hydra::Drag::Session(t, _) => {
+                            let over = self.hits.iter().rev().find(|(r, h)| r.contains(pos) && matches!(h, Hit::Hy(hydra::HyHit::Session(_)))).map(|(_, h)| *h);
+                            if let Some(Hit::Hy(hydra::HyHit::Session(u))) = over
+                                && u != t
+                                && self.move_session(t, u)
+                            {
+                                self.hy.drag = Some(hydra::Drag::Session(t, true));
+                            }
+                        }
                         hydra::Drag::Group(pi, _) => {
                             let over = self.hits.iter().rev().find(|(r, h)| r.contains(pos) && matches!(h, Hit::Hy(hydra::HyHit::ToggleProj(_)))).map(|(_, h)| *h);
                             if let Some(Hit::Hy(hydra::HyHit::ToggleProj(to))) = over
@@ -485,6 +494,13 @@ impl App {
                     return;
                 }
                 MouseEventKind::Up(_) => {
+                    // A session pressed and let go where it was: open it.
+                    if let hydra::Drag::Session(t, false) = d {
+                        self.hy.drag = None;
+                        self.on_hy_hit(hydra::HyHit::Session(t), false);
+                        self.dirty = true;
+                        return;
+                    }
                     // A group header pressed and let go where it was: fold or open it.
                     if let hydra::Drag::Group(pi, false) = d {
                         self.hy.drag = None;
@@ -532,10 +548,18 @@ impl App {
                 self.hover = Some(pos);
                 self.dirty = true;
             }
+            self.pointer_for(pos);
             return;
         }
         if m.kind == MouseEventKind::Down(MouseButton::Left) {
             let hit = self.hits.iter().rev().find(|(r, _)| r.contains(pos)).map(|(_, h)| *h);
+            // A session's row: it may be dragged within its group; a plain click opens it
+            // (on release).
+            if let Some(Hit::Hy(hydra::HyHit::Session(t))) = hit {
+                self.hy.drag = Some(hydra::Drag::Session(t, false));
+                self.dirty = true;
+                return;
+            }
             // A group's header: it may be dragged to a new place; a plain click folds it (on
             // release).
             if let Some(Hit::Hy(hydra::HyHit::ToggleProj(pi))) = hit {
@@ -632,6 +656,52 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Put session `t` where `u` is, within their group (the order you dragged them to).
+    /// False when they aren't in the same group.
+    pub(super) fn move_session(&mut self, t: TermId, u: TermId) -> bool {
+        let model = self.hy_model();
+        let Some(group) = model.iter().find(|p| p.sessions().any(|s| s.term == t)) else { return false };
+        if !group.sessions().any(|s| s.term == u) {
+            return false;
+        }
+        // The group's sessions as shown, then t moved to u's place.
+        let lines = hydra::side_lines(self, &model, &self.theme);
+        let mut ids: Vec<TermId> = lines.iter().filter_map(|l| hydra::line_term(&model, l)).filter(|id| group.sessions().any(|s| s.term == *id)).collect();
+        let (from, to) = (ids.iter().position(|x| *x == t), ids.iter().position(|x| *x == u));
+        let (Some(from), Some(to)) = (from, to) else { return false };
+        let id = ids.remove(from);
+        ids.insert(to, id);
+        let order = &mut self.hy.saved.session_order;
+        order.retain(|x| !ids.contains(x));
+        order.extend(ids);
+        // Only sessions that still exist.
+        let alive: Vec<TermId> = self.snap.terms.keys().copied().collect();
+        order.retain(|x| alive.contains(x));
+        self.hy_fresh();
+        self.dirty = true;
+        true
+    }
+
+    /// The mouse pointer for what's under it: ↔ / ↕ over a line you can drag (in terminals
+    /// that take OSC 22: Ghostty, kitty, foot, WezTerm; others keep their arrow).
+    pub(super) fn pointer_for(&mut self, pos: Position) {
+        let want = match self.hits.iter().rev().find(|(r, _)| r.contains(pos)).map(|(_, h)| *h) {
+            Some(Hit::Hy(hydra::HyHit::Divider(i))) => match self.hy.dividers.get(i) {
+                Some((_, true, _)) => "col-resize",
+                Some(_) => "row-resize",
+                None => "default",
+            },
+            Some(Hit::Hy(hydra::HyHit::SideEdge)) => "col-resize",
+            _ => "default",
+        };
+        if self.pointer != want {
+            self.pointer = want;
+            use std::io::Write;
+            let _ = write!(std::io::stdout(), "\x1b]22;{want}\x1b\\");
+            let _ = std::io::stdout().flush();
         }
     }
 

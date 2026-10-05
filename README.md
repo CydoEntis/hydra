@@ -156,7 +156,8 @@ beside a session stays with it.
   worktree with an agent.
 - `#412 ✓` / `#412 ✕±`: the branch's pull request, its checks, and review state. Click it.
 - Things that need you sort to the top. Agents asleep (see Settings) show `☾ asleep`.
-- Drag a group's name up or down to reorder; click it to fold. With the sidebar focused
+- Drag a group's name, or a session within its group, up or down to reorder (what needs you
+  still comes first); click to fold or open. With the sidebar focused
   (`Ctrl+Space e`), a row's menu letters work directly: `x` (or Delete) closes, `r` renames,
   `m` messages. The bottom-left says which hydra you're on.
 

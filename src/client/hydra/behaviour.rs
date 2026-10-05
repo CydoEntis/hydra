@@ -40,7 +40,7 @@ impl App {
         };
         if new_tab {
             take_out(&mut self.hy.tabs, f);
-            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split });
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, hidden: false });
             self.hy.tab = self.hy.tabs.len() - 1;
             return;
         }
@@ -49,7 +49,7 @@ impl App {
             let i = match self.hy.tabs.iter().position(|t| t.layout.contains(p)) {
                 Some(i) => i,
                 None => {
-                    self.hy.tabs.push(HyTab { layout: Node::Leaf(p), focus: p, arrange: Arrange::Split });
+                    self.hy.tabs.push(HyTab { layout: Node::Leaf(p), focus: p, arrange: Arrange::Split, hidden: true });
                     self.hy.tabs.len() - 1
                 }
             };
@@ -68,7 +68,7 @@ impl App {
             return;
         }
         if self.hy.tabs.is_empty() {
-            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split });
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, hidden: false });
             self.hy.tab = 0;
             return;
         }
@@ -88,14 +88,15 @@ impl App {
         // Not shown anywhere: it shows on its own, full size. A split stays as you made it
         // (pick its row to get it back); the session goes where a lone one is, or a new tab.
         if self.hy.tabs[self.hy.tab].layout.leaves().len() > 1 {
-            let i = match self.hy.tabs.iter().position(|t| t.layout.leaves().len() == 1) {
+            // A view of its own, kept out of the tab bar (a lone one of those is reused).
+            let i = match self.hy.tabs.iter().position(|t| t.hidden && t.layout.leaves().len() == 1) {
                 Some(i) => i,
                 None => {
-                    self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split });
+                    self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, hidden: true });
                     self.hy.tabs.len() - 1
                 }
             };
-            self.hy.tabs[i] = HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split };
+            self.hy.tabs[i] = HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, hidden: true };
             self.hy.tab = i;
             return;
         }
@@ -388,16 +389,25 @@ impl App {
                 self.notify("pick what the new tab shows (or + New for something new)".into(), false);
             }
             Action::NextTab | Action::PrevTab => {
-                let n = self.hy.tabs.len();
+                // The tabs you made, in order.
+                let seen: Vec<usize> = (0..self.hy.tabs.len()).filter(|i| !self.hy.tabs[*i].hidden).collect();
+                let n = seen.len();
                 if n > 1 {
-                    self.hy.tab = if *a == Action::NextTab { (self.hy.tab + 1) % n } else { (self.hy.tab + n - 1) % n };
-                    let to = self.hy.tabs[self.hy.tab].focus;
+                    let at = seen.iter().position(|i| *i == self.hy.tab);
+                    let next = match (at, *a == Action::NextTab) {
+                        (Some(k), true) => seen[(k + 1) % n],
+                        (Some(k), false) => seen[(k + n - 1) % n],
+                        (None, _) => seen[0],
+                    };
+                    self.hy.tab = next;
+                    let to = self.hy.tabs[next].focus;
                     self.cmd(Command::FocusPane { term: to });
                 }
             }
             Action::GoTo => self.mode = Mode::GoTo { query: String::new(), sel: 0 },
             Action::SelectTab(n) => {
-                if let Some(i) = n.checked_sub(1)
+                let seen: Vec<usize> = (0..self.hy.tabs.len()).filter(|i| !self.hy.tabs[*i].hidden).collect();
+                if let Some(i) = n.checked_sub(1).and_then(|k| seen.get(k).copied())
                     && let Some(tab) = self.hy.tabs.get(i)
                 {
                     let to = tab.focus;
