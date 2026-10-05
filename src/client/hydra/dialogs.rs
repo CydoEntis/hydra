@@ -474,9 +474,7 @@ pub(in crate::client) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: 
         (
             "START & TALK",
             vec![
-                (vec![Action::NewPane], "new agent"),
-                (vec![Action::ShellHere], "new shell"),
-                (vec![Action::OpenProject], "open folder"),
+                (vec![Action::ShellHere], "new session"),
                 (vec![Action::Talk], "message"),
                 (vec![Action::Reply], "reply"),
                 (vec![Action::RenameWorkspace], "rename"),

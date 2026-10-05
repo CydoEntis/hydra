@@ -45,8 +45,7 @@ pub(in crate::client) fn splash_options(app: &App) -> Vec<(String, String, char)
         let n = app.snap.terms.len();
         v.push((format!("Resume where you left off  ·  {n} running"), "r".to_string(), 'r'));
     }
-    v.push(("New: an agent or a shell".to_string(), "n".to_string(), 'n'));
-    v.push(("Open a folder".to_string(), "o".to_string(), 'o'));
+    v.push(("New session".to_string(), "n".to_string(), 'n'));
     v
 }
 
@@ -114,7 +113,7 @@ pub(in crate::client) fn draw_splash(app: &mut App, f: &mut Frame, area: Rect, t
     y += 3;
     let last = app.focused().and_then(|fo| find(&model, fo)).map(|(p, w, s)| (p.name.clone(), p.color, w.name.clone(), s.title.clone()));
     // A short list, one under the other: Resume (when there's something to go back to),
-    // New, Open a folder. ↑↓ choose, Enter or the letter picks.
+    // New. ↑↓ choose, Enter or the letter picks.
     let opts = splash_options(app);
     let wmax = opts.iter().map(|(l, ..)| l.width() as u16).max().unwrap_or(10) + 10;
     let x = center(wmax);

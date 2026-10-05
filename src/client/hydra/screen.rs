@@ -227,7 +227,7 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     // In a split, the split's row (its first pane's) is the open one, whichever side you're on.
     let focus = app.focused().map(|f| if shown.len() > 1 && shown.contains(&f) { shown[0] } else { f });
     let split = shown.iter().copied().find(|t| Some(*t) != focus && shown.len() > 1);
-    // PROJECTS, and "+ open o" on the right.
+    // PROJECTS.
     let sb = Style::default().bg(surf);
     let focused_side = app.mode == Mode::Side;
     put(buf, r.x + 2, r.y + 1, &[seg("PROJECTS", sb.fg(if focused_side { t.accent } else { t.muted }).add_modifier(Modifier::BOLD))], r.right());
@@ -239,13 +239,6 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
             }
         }
     }
-    let ok = k(app, &Action::OpenProject);
-    let open = vec![seg("+ open ", sb.fg(t.text)), seg(ok, sb.fg(t.accent).add_modifier(Modifier::BOLD))];
-    let ow = segs_width(&open);
-    let orr = Rect { x: r.right().saturating_sub(ow + 2), y: r.y + 1, width: ow, height: 1 };
-    let open: Vec<Seg> = if hovered(app, orr) { open.into_iter().map(|(x, st)| (x, st.bg(t.hov))).collect() } else { open };
-    put(buf, orr.x, orr.y, &open, r.right());
-    hit(app, orr, HyHit::OpenFolder);
     let r = Rect { y: r.y + 3, height: r.height.saturating_sub(3), ..r };
     let list_h = r.height.saturating_sub(3) as usize;
     // Keep the focused (or cursor) row in view when it changes; otherwise the wheel rules.
@@ -356,7 +349,7 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                     row_menu_button(app, buf, Rect { x: r.right().saturating_sub(2), y, width: 2, height: 1 }, bg, t, HyHit::RowMenuProj(*pi));
                     let plus = Rect { x: r.right().saturating_sub(5), y, width: 3, height: 1 };
                     put(buf, plus.x, y, &[seg(" + ", Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD))], r.right());
-                    hit(app, plus, HyHit::NewIn(*pi));
+                    hit(app, plus, HyHit::ShellIn(*pi));
                 }
             }
             Line::Sess(pi, wi, si) => {
@@ -513,7 +506,7 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     let by = r.bottom().saturating_sub(3);
     hline(buf, x0 + 2, by, w.saturating_sub(4), t, surf);
     let mut hx = x0 + 2;
-    for (key, label, h) in [(k(app, &Action::NewPane), "new", HyHit::NewPane), (k(app, &Action::GoTo), "go to", HyHit::GoTo), (k(app, &Action::Settings), "settings", HyHit::Settings)] {
+    for (key, label, h) in [(k(app, &Action::ShellHere), "new", HyHit::NewPane), (k(app, &Action::GoTo), "go to", HyHit::GoTo), (k(app, &Action::Settings), "settings", HyHit::Settings)] {
         let segs = vec![seg(key, plain.fg(t.accent).add_modifier(Modifier::BOLD)), seg(format!(" {label}"), plain.fg(t.text))];
         let sw = segs_width(&segs);
         // A narrow sidebar shows the hints that fit, whole.
@@ -548,8 +541,8 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         }
     }
     let Some(focus) = app.focused() else {
-        let nk = k(app, &Action::NewPane);
-        put(f.buffer_mut(), area.x + 4, area.y + 3, &[seg(format!("Nothing open. Press {} {nk} to start an agent or a shell.", app.keymap.prefix.to_string().replace("C-", "Ctrl+")), Style::default().fg(t.muted))], area.right());
+        let nk = k(app, &Action::ShellHere);
+        put(f.buffer_mut(), area.x + 4, area.y + 3, &[seg(format!("Nothing open. Press {} {nk} for a new session.", app.keymap.prefix.to_string().replace("C-", "Ctrl+")), Style::default().fg(t.muted))], area.right());
         return;
     };
     // Tabs, once there's more than one.
@@ -892,7 +885,6 @@ pub(in crate::client) fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, m
             (Action::GoTo, "go to"),
             (Action::Palette, "palette"),
             (Action::ShellHere, "new session"),
-            (Action::NewPane, "new agent"),
             (Action::SplitRight, "split"),
             (Action::Help, "all keys"),
         ] {

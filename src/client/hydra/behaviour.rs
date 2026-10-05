@@ -959,8 +959,7 @@ impl App {
         self.splash = false;
         self.hy.splash_sel = 0;
         match c {
-            'n' => self.hy_open_new_pane(false),
-            'o' => self.hy_open_finder(),
+            'n' => self.act(Action::ShellHere),
             ',' => self.hy_settings(),
             '?' => self.mode = Mode::Help { scroll: 0 },
             // r: resume, just the app as you left it.
@@ -978,8 +977,6 @@ impl App {
                     self.hy_side_set(SideItem::Proj(key));
                 }
             }
-            HyHit::NewIn(i) => self.hy_new(i, false),
-            HyHit::OpenFolder => self.hy_open_finder(),
             // Opens it, and the arrows keep walking the sidebar until you type or press Enter.
             HyHit::Session(t) => {
                 self.hy_focus(t);
@@ -988,7 +985,8 @@ impl App {
             HyHit::Talk(t) => self.hy_talk(t, false),
             HyHit::Settings => self.hy_settings(),
             HyHit::Jump => self.mode = Mode::Jump { sel: 0 },
-            HyHit::NewPane => self.hy_open_new_pane(false),
+            // The sidebar's "new": a shell where you are.
+            HyHit::NewPane => self.act(Action::ShellHere),
             // The ✕ on a pane: close it (after asking).
             HyHit::CloseSplit(t) => self.menu_act(crate::client::menu::Act::End(vec![t])),
             HyHit::Divider(i) => self.hy.drag = Some(Drag::Divider(i)),

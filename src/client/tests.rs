@@ -168,8 +168,8 @@ mod hydra_tests {
         assert!(!text.contains(">_ hydra") && !text.contains("Ctrl+Space"), "no logo, no keys buttons");
         let bottom = lines.iter().rev().find(|l| !l.trim().is_empty()).unwrap();
         assert!(bottom.contains("● 1 needs you") && !bottom.contains("›"), "the bottom bar: what needs you, no path (the pane's title has it): {bottom}");
-        assert!(lines[1].contains("PROJECTS") && lines[1].contains("+ open"), "the sidebar's header: {}", lines[1]);
-        assert!(text.contains("t new") && text.contains("g go to") && text.contains(", settings"), "quiet hints at the bottom of the sidebar");
+        assert!(lines[1].contains("PROJECTS") && !lines[1].contains("+ open"), "the sidebar's header, nothing to open: {}", lines[1]);
+        assert!(text.contains("n new") && text.contains("g go to") && text.contains(", settings"), "quiet hints at the bottom of the sidebar");
         // Projects and their sessions, nothing in between.
         assert!(text.contains("▾ ▌shop-api") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
         assert!(!text.contains("main folder"), "no 'main folder' wording");
@@ -215,10 +215,10 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains("⣿") && o.contains("██████"), "art and wordmark");
-        assert!(o.contains("while you were away") && o.contains("1 need you") && o.contains("Resume where you left off") && o.contains("Open a folder"));
+        assert!(o.contains("while you were away") && o.contains("1 need you") && o.contains("Resume where you left off") && o.contains("New session"));
         // Small windows drop the art but keep the rest.
         let o = draw(&mut app, 100, 30);
-        assert!(!o.contains("⣿") && o.contains("Open a folder"));
+        assert!(!o.contains("⣿") && o.contains("New session"));
     }
 
     #[test]
@@ -355,7 +355,7 @@ mod hydra_tests {
         show(&o);
         assert!(o.contains("↑↓ choose   Enter open"));
         app.on_key(key(KeyCode::Enter));
-        assert!(!app.splash && matches!(app.mode, Mode::HyPane(_)), "Enter picks the selected one (New)");
+        assert!(!app.splash && matches!(app.mode, Mode::Normal), "Enter picks the selected one (New: a shell, straight away)");
         app.mode = Mode::Normal;
 
         // Right-click menus.
@@ -662,7 +662,8 @@ mod hydra_tests {
         app.hy.tab = 0;
         let o = draw(&mut app, 200, 50);
         show(&o);
-        assert!(o.contains(" 1 ") && o.contains(" 2 ") && o.contains(" + "), "a tab bar");
+        assert!(o.contains(" 1 ") && o.contains(" 2 "), "a tab bar");
+        assert!(app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::TabNew)), "with a + for another tab");
     }
 
     #[test]
@@ -1133,7 +1134,7 @@ mod settings_splash_tests {
             println!("{splash}\n{settings}\n{keys}");
         }
         assert!(splash.contains("██████") && splash.contains("many heads, one body"));
-        assert!(splash.contains("Resume where you left off") && splash.contains("New: an agent or a shell") && splash.contains("Open a folder"));
+        assert!(splash.contains("Resume where you left off") && splash.contains("New session") && !splash.contains("Open a folder"));
         for page in ["General", "Sessions", "Appearance", "Agents", "Keys"] {
             assert!(settings.contains(page), "page {page}");
         }

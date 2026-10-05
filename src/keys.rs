@@ -345,7 +345,7 @@ impl Action {
             Action::Presets => "Run a preset".into(),
             Action::Branches => "Switch branch".into(),
             Action::Memory => "Memory used by each session".into(),
-            Action::ShellHere => "New shell here".into(),
+            Action::ShellHere => "New session (a shell here)".into(),
             Action::GoTo => "Go to a project or session".into(),
             Action::History => "What happened (notifications)".into(),
             Action::Find(0) => "Find a file".into(),
@@ -596,9 +596,7 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("space", "palette"),
     (":", "palette"),
     // Starting things
-    ("t", "new"),
     ("n", "shell-here"),
-    ("o", "open-project"),
     (".", "presets"),
     // Agents
     ("m", "talk"),

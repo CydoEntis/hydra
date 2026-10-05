@@ -671,9 +671,6 @@ fn session_title(t: &TermInfo, name: &str, top: &Path) -> String {
 pub(super) enum HyHit {
     /// Fold / unfold a project.
     ToggleProj(usize),
-    /// The + on a project row: new, in that project.
-    NewIn(usize),
-    OpenFolder,
     Session(TermId),
     Talk(TermId),
     Settings,

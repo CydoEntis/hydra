@@ -161,7 +161,7 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 | `g` | **go to** a project or session: type to find it |
 | `e` / `a` | focus the sidebar / jump to what needs you |
 | `p` (or Space) | **command palette**: type what you want |
-| `n` / `t` / `o` | new shell here / new agent (task box) / start a session in a folder you pick |
+| `n` | **new session**: a shell right where you are (run `claude`, `codex`, … in it; hydra sees the agent) |
 | `v` / `-` | split right / split down |
 | `h j k l` or arrows | focus the pane that way (left past the edge: the sidebar) |
 | `x` / `z` / `b` / `y` | close pane / zoom pane / show or hide the sidebar / select text with keys |
@@ -274,8 +274,8 @@ Shared: `config.toml` and `ideas.json`. Anything for one machine only (a shell p
 ## Splash and settings
 
 hydra opens on the splash: the hydra, what happened while you were away (`● 2 need you ⠹ 3 still
-working ● 1 finished`) and buttons: Open your last project (Enter), Jump to what needs you (`j`),
-Open a folder (`o`), Settings (`,`). Turn it off in Settings → General.
+working ● 1 finished`) and buttons: Resume where you left off (`r`), New session (`n`).
+Turn it off in Settings → General.
 
 `Ctrl+Space ,` opens **Settings**, with tabs (Tab cycles): General · Sessions · Appearance · Agents ·
 Projects · Keys. Values are chips you click (or ←→ / Enter). Appearance has the themes (Default,
