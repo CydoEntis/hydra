@@ -112,6 +112,8 @@ pub struct Term {
     pub win32_input: bool,
     /// "Done" arrived while subagents were still running: hold it until they finish.
     pub done_held: Option<Instant>,
+    /// When a subagent last showed signs of life (started, used a tool, asked something).
+    pub subagent_seen: Option<Instant>,
     /// The agent's progress indicator (OSC 9;4) went away: an Esc-cancel ends no turn by hook.
     pub progress_off: Option<Instant>,
     /// When a hook last said "working" (late duplicate permission pings are ignored).
@@ -380,6 +382,7 @@ impl Term {
             asleep: false,
             win32_input: false,
             done_held: None,
+            subagent_seen: None,
             progress_off: None,
             last_working_hook: None,
             blocked_at: None,

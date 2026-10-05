@@ -199,3 +199,37 @@ fn closing_the_last_pane_keeps_an_open_window() {
     d.handle(Ev::Disconnected(1));
     assert!(d.should_exit(), "everything closed and nobody's looking: exit");
 }
+
+#[test]
+fn a_turn_waiting_on_background_agents_stays_working() {
+    let (mut d, _rx) = daemon();
+    let t = pane(&mut d);
+    let hook = |status: HookStatus, event: &str, subagent: Option<Subagent>| {
+        let mut m = report(t, "", 0, status, event);
+        if let ClientMsg::Hook { subagent: s, .. } = &mut m {
+            *s = subagent;
+        }
+        m
+    };
+    let agent = |start: bool| Some(Subagent { id: "a1".into(), kind: "general-purpose".into(), start });
+    d.apply_hook(hook(HookStatus::Working, "UserPromptSubmit", None), Some(true), Vec::new());
+    d.apply_hook(hook(HookStatus::Working, "SubagentStart", agent(true)), Some(true), Vec::new());
+    // Claude's own turn ends ("waiting for 1 background agent"): still working.
+    d.apply_hook(hook(HookStatus::Done, "Stop", None), Some(true), Vec::new());
+    assert_eq!(d.terms[&t].status, Status::Working);
+    // Long past the old three minutes, the agent is still at it (its own tool use): still
+    // working, still listed once.
+    let ago = |mins: u64| Instant::now().checked_sub(Duration::from_secs(mins * 60)).unwrap();
+    d.terms.get_mut(&t).unwrap().done_held = Some(ago(20));
+    d.apply_hook(hook(HookStatus::Same, "PreToolUse", agent(true)), Some(true), Vec::new());
+    d.update_statuses();
+    assert_eq!(d.terms[&t].status, Status::Working, "held while the agent runs");
+    assert_eq!(d.terms[&t].subagents.len(), 1, "listed once");
+    // Nothing from it for over an hour: it died without saying; the turn is done.
+    let term = d.terms.get_mut(&t).unwrap();
+    (term.done_held, term.subagent_seen) = (Some(ago(70)), Some(ago(70)));
+    d.update_statuses();
+    assert_ne!(d.terms[&t].status, Status::Working, "not held forever");
+    let terms: Vec<TermId> = d.terms.keys().copied().collect();
+    close(&mut d, &terms);
+}

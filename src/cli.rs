@@ -762,13 +762,25 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
     let session = field(&["session_id", "thread-id", "thread_id", "conversation_id"]);
     let cwd = field(&["cwd"]).map(PathBuf::from);
     let mut event = field(&["hook_event_name"]).unwrap_or_default();
-    let subagent = matches!(event.as_str(), "SubagentStart" | "SubagentStop").then(|| Subagent {
-        id: field(&["agent_id", "subagent_id", "tool_use_id"]).unwrap_or_default(),
-        kind: field(&["agent_type", "subagent_type", "agent_name"]).unwrap_or_else(|| "subagent".into()),
-        start: event == "SubagentStart",
-    });
-    let prompt = field(&["prompt"]).map(|p| one_line(&p, 160));
     let transcript = field(&["transcript_path"]).map(PathBuf::from);
+    // A hook fired inside a subagent (it has an agent id, or its own agent-… transcript) is
+    // news about that subagent, not about the session: it keeps the subagent listed as
+    // running, and only a question it asks changes the session's state. Its transcript's
+    // name, model and last words aren't the session's.
+    let lifecycle = matches!(event.as_str(), "SubagentStart" | "SubagentStop");
+    let inner_id = field(&["agent_id"]).or_else(|| {
+        transcript.as_deref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned()).filter(|s| s.starts_with("agent-"))
+    });
+    let inner = !lifecycle && inner_id.is_some();
+    let status = if inner && status != HookStatus::Blocked { HookStatus::Same } else { status };
+    let subagent = (lifecycle || inner).then(|| Subagent {
+        id: field(&["agent_id", "subagent_id", "tool_use_id"]).or(inner_id).unwrap_or_default(),
+        kind: field(&["agent_type", "subagent_type", "agent_name"]).unwrap_or_else(|| "subagent".into()),
+        start: event != "SubagentStop",
+    });
+    let session_facts = !inner;
+    let prompt = field(&["prompt"]).filter(|_| session_facts).map(|p| one_line(&p, 160));
+    let transcript = transcript.filter(|_| session_facts);
     let (model, name) = transcript.as_deref().map(transcript_facts).unwrap_or_default();
     if event == "Notification"
         && let Some(kind) = field(&["notification_type"])
@@ -785,9 +797,11 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
     };
     let token = std::env::var("HYDRA_PANE_TOKEN").unwrap_or_default();
     let said = field(&["last_assistant_message", "last-assistant-message"])
-        .or_else(|| field(&["transcript_path"]).and_then(|p| last_assistant_text(std::path::Path::new(&p))))
+        .or_else(|| transcript.as_deref().and_then(last_assistant_text))
         .map(|s| s.trim().chars().take(2000).collect::<String>())
-        .filter(|s| !s.is_empty());
+        .filter(|s| !s.is_empty() && session_facts);
+    let session = session.filter(|_| session_facts);
+    let cwd = cwd.filter(|_| session_facts);
     block_on(async move {
         tokio::time::timeout(Duration::from_secs(2), async {
             let (_r, mut w) = ipc::open(false).await?;

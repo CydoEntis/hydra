@@ -35,8 +35,9 @@ pub(super) fn hook_thread(tx: mpsc::Sender<Ev>) -> std::sync::mpsc::Sender<HookJ
 /// How long after your last key, with the pane quiet, a question that's no longer on screen
 /// counts as dismissed.
 pub(super) const QUESTION_GONE_AFTER: Duration = Duration::from_secs(2);
-/// A "done" held while subagents run is let through after this, if they never report.
-const DONE_HELD_AT_MOST: Duration = Duration::from_secs(180);
+/// A "done" held while subagents run is let through once none has been heard from for this
+/// long (one died without saying so). Background agents can run, and wait on CI, for a while.
+const SUBAGENTS_QUIET_AT_MOST: Duration = Duration::from_secs(60 * 60);
 /// A permission ping this soon after a "working" is Claude repeating one already answered.
 const REPEATED_PROMPT_WITHIN: Duration = Duration::from_secs(5);
 /// The progress indicator gone this long with no turn-end: the turn was cancelled (Esc).
@@ -61,8 +62,13 @@ impl Daemon {
         }
                 if let Some(t) = self.terms.get_mut(&term) {
                     if let Some(sa) = subagent {
+                        t.subagent_seen = Some(Instant::now());
                         if sa.start {
-                            t.subagents.push((sa.id, sa.kind));
+                            // Its start, or news from one already running (listed once; one
+                            // missed while hydra was away joins the list here).
+                            if sa.id.is_empty() || !t.subagents.iter().any(|(id, _)| *id == sa.id) {
+                                t.subagents.push((sa.id, sa.kind));
+                            }
                         } else if let Some(i) = t.subagents.iter().position(|(id, _)| !sa.id.is_empty() && *id == sa.id) {
                             t.subagents.remove(i);
                         } else {
@@ -255,8 +261,11 @@ impl Daemon {
                 if t.status == Status::Done && Some(t.id) == focused {
                     changes.push((t.id, Status::Idle));
                 }
-                // Subagents never reported back: don't hold "done" forever.
-                if t.done_held.is_some_and(|h| h.elapsed() > DONE_HELD_AT_MOST) {
+                // Subagents went quiet for good (one died without reporting): don't hold "done"
+                // forever.
+                if t.done_held.is_some_and(|h| h.elapsed() > SUBAGENTS_QUIET_AT_MOST)
+                    && t.subagent_seen.is_none_or(|s| s.elapsed() > SUBAGENTS_QUIET_AT_MOST)
+                {
                     changes.push((t.id, if Some(t.id) == focused { Status::Idle } else { Status::Done }));
                 }
                 // A question dismissed with Esc sends no hook at all. Once you've typed since
