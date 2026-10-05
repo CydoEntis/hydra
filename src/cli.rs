@@ -470,10 +470,15 @@ pub fn doctor() -> Result<()> {
 
     // Claude: hooks and MCP
     if found.contains(&"claude") {
-        let dir = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().join(".claude"))).unwrap_or_default();
-        let settings = std::fs::read_to_string(dir.join("settings.json")).unwrap_or_default();
+        let settings = std::fs::read_to_string(claude_settings()).unwrap_or_default();
         let hooked = settings.contains("hook claude");
-        line(Some(hooked), "claude status hooks", if hooked { "installed".into() } else { "missing: `hydra integrate claude` (exact working / needs-you / done)".into() });
+        let stale = stale_claude_hooks();
+        match (hooked, stale.first()) {
+            (false, _) => line(Some(false), "claude status hooks", "missing: `hydra integrate claude` (exact working / needs-you / done)".into()),
+            // Another hydra can't talk to this one's server: every agent would look idle.
+            (true, Some(other)) => line(Some(false), "claude status hooks", format!("they run another hydra ({other}); `hydra integrate claude` (or restart the server) fixes it")),
+            (true, None) => line(Some(true), "claude status hooks", "installed".into()),
+        }
         let home = directories::BaseDirs::new().map(|d| d.home_dir().join(".claude.json"));
         let mcp = home.and_then(|p| std::fs::read_to_string(p).ok()).is_some_and(|s| s.contains("\"hydra\"") && s.contains("\"mcp\""));
         line(if mcp { Some(true) } else { None }, "hydra MCP for claude", if mcp { "registered".into() } else { "not set up: `hydra integrate mcp` lets agents see each other (optional)".into() });
@@ -721,48 +726,114 @@ fn is_ours(group: &Value) -> bool {
     ["_hydra", "_drover"].iter().any(|tag| group.get(*tag).and_then(Value::as_bool) == Some(true))
 }
 
+/// Claude Code's settings file, where its hooks live.
+fn claude_settings() -> PathBuf {
+    std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().join(".claude")).unwrap_or_default())
+        .join("settings.json")
+}
+
+/// This hydra, as hook commands name it.
+fn this_exe() -> Result<String> {
+    Ok(std::env::current_exe()?.to_string_lossy().replace('\\', "/"))
+}
+
+/// Add (or with `uninstall`, remove) hydra's hooks in Claude Code's settings.
+fn claude_hooks(uninstall: bool) -> Result<PathBuf> {
+    let exe = this_exe()?;
+    let path = claude_settings();
+    let mut root: Value = match std::fs::read_to_string(&path) {
+        Ok(s) if s.trim().is_empty() => json!({}),
+        Ok(s) => serde_json::from_str(&s).with_context(|| format!("{} isn't valid JSON; not touching it", path.display()))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
+        Err(e) => return Err(e.into()),
+    };
+    if path.exists() {
+        std::fs::copy(&path, path.with_extension("json.hydra-bak"))?;
+    }
+    let hooks = root
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("settings.json is not an object"))?
+        .entry("hooks")
+        .or_insert_with(|| json!({}));
+    let hooks = hooks.as_object_mut().ok_or_else(|| anyhow!("`hooks` is not an object"))?;
+    for (event, matcher) in CLAUDE_EVENTS {
+        let groups = hooks.entry(*event).or_insert_with(|| json!([]));
+        let Some(arr) = groups.as_array_mut() else { continue };
+        arr.retain(|g| !is_ours(g));
+        if !uninstall {
+            let mut g = json!({
+                "_hydra": true,
+                "hooks": [{ "type": "command", "command": format!("\"{exe}\" hook claude"), "timeout": 5 }],
+            });
+            if let Some(m) = matcher {
+                g["matcher"] = json!(m);
+            }
+            arr.push(g);
+        }
+    }
+    hooks.retain(|_, v| v.as_array().is_none_or(|a| !a.is_empty()));
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    crate::config::write_atomic(&path, serde_json::to_string_pretty(&root)? + "\n")?;
+    Ok(path)
+}
+
+/// The commands hydra's Claude hooks run that aren't this hydra (an older install, a copy
+/// that moved). Empty when they're right, or when there are none.
+pub fn stale_claude_hooks() -> Vec<String> {
+    let (Ok(exe), Ok(text)) = (this_exe(), std::fs::read_to_string(claude_settings())) else { return Vec::new() };
+    let Ok(root) = serde_json::from_str::<Value>(&text) else { return Vec::new() };
+    stale_in(&root, &format!("\"{exe}\" hook claude"))
+}
+
+/// Hydra's hook commands in Claude settings `root` other than `want`.
+fn stale_in(root: &Value, want: &str) -> Vec<String> {
+    let mut stale: Vec<String> = root
+        .get("hooks")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|h| h.values())
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter(|g| is_ours(g))
+        .filter_map(|g| g.get("hooks").and_then(Value::as_array))
+        .flatten()
+        .filter_map(|h| h.get("command").and_then(Value::as_str))
+        .filter(|c| *c != want)
+        .map(String::from)
+        .collect();
+    stale.sort();
+    stale.dedup();
+    stale
+}
+
+/// Point hydra's Claude hooks at this hydra if they name another one. A hook from a
+/// different version can't talk to this server, and hooks fail silently by design, so
+/// every agent would look idle. Run when the server starts.
+pub fn refresh_claude_hooks() {
+    // A side server (HYDRA_SOCKET) or a build in a source checkout mustn't take your
+    // hooks from the hydra you use.
+    let side = std::env::var("HYDRA_SOCKET").is_ok_and(|s| s != "default");
+    let dev_build = this_exe().is_ok_and(|e| e.contains("/target/debug/") || e.contains("/target/release/"));
+    if side || dev_build {
+        return;
+    }
+    if !stale_claude_hooks().is_empty() {
+        match claude_hooks(false) {
+            Ok(p) => tracing::info!("pointed hydra's Claude hooks in {} at this hydra", p.display()),
+            Err(e) => tracing::warn!("couldn't update hydra's Claude hooks: {e:#}"),
+        }
+    }
+}
+
 pub fn integrate(agent: &str, uninstall: bool) -> Result<()> {
-    let exe = std::env::current_exe()?.to_string_lossy().replace('\\', "/");
+    let exe = this_exe()?;
     match agent {
         "claude" => {
-            let dir = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).unwrap_or_else(|| {
-                directories::BaseDirs::new().map(|d| d.home_dir().join(".claude")).unwrap_or_default()
-            });
-            let path = dir.join("settings.json");
-            let mut root: Value = match std::fs::read_to_string(&path) {
-                Ok(s) if s.trim().is_empty() => json!({}),
-                Ok(s) => serde_json::from_str(&s)
-                    .with_context(|| format!("{} isn't valid JSON; not touching it", path.display()))?,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => json!({}),
-                Err(e) => return Err(e.into()),
-            };
-            if path.exists() {
-                std::fs::copy(&path, path.with_extension("json.hydra-bak"))?;
-            }
-            let hooks = root
-                .as_object_mut()
-                .ok_or_else(|| anyhow!("settings.json is not an object"))?
-                .entry("hooks")
-                .or_insert_with(|| json!({}));
-            let hooks = hooks.as_object_mut().ok_or_else(|| anyhow!("`hooks` is not an object"))?;
-            for (event, matcher) in CLAUDE_EVENTS {
-                let groups = hooks.entry(*event).or_insert_with(|| json!([]));
-                let Some(arr) = groups.as_array_mut() else { continue };
-                arr.retain(|g| !is_ours(g));
-                if !uninstall {
-                    let mut g = json!({
-                        "_hydra": true,
-                        "hooks": [{ "type": "command", "command": format!("\"{exe}\" hook claude"), "timeout": 5 }],
-                    });
-                    if let Some(m) = matcher {
-                        g["matcher"] = json!(m);
-                    }
-                    arr.push(g);
-                }
-            }
-            hooks.retain(|_, v| v.as_array().is_none_or(|a| !a.is_empty()));
-            std::fs::create_dir_all(&dir)?;
-            crate::config::write_atomic(&path, serde_json::to_string_pretty(&root)? + "\n")?;
+            let path = claude_hooks(uninstall)?;
             if uninstall {
                 println!("removed hydra hooks from {}", path.display());
             } else {
@@ -862,6 +933,22 @@ pub fn allow(dir: Option<std::path::PathBuf>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hooks_from_another_hydra_are_found() {
+        let want = "\"/home/me/.local/bin/hydra\" hook claude";
+        let settings = |cmd: &str| {
+            serde_json::json!({ "hooks": {
+                "Stop": [
+                    { "_hydra": true, "hooks": [{ "type": "command", "command": cmd }] },
+                    { "hooks": [{ "type": "command", "command": "someone-elses-hook" }] },
+                ],
+            }})
+        };
+        assert!(super::stale_in(&settings(want), want).is_empty(), "this hydra's hooks are fine; others' aren't ours to judge");
+        let old = "\"/home/me/.cargo/bin/hydra\" hook claude";
+        assert_eq!(super::stale_in(&settings(old), want), vec![old.to_string()]);
+    }
+
     #[test]
     fn model_and_name_from_a_transcript() {
         assert_eq!(super::short_model("claude-opus-4-5-20251101"), "opus 4.5");

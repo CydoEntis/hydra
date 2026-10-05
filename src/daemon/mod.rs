@@ -253,6 +253,10 @@ impl Daemon {
         if cfg.notify.desktop && !cfg!(test) {
             crate::reveal::register();
         }
+        // Hooks naming another hydra (an older install) can't reach this server.
+        if !cfg!(test) {
+            crate::cli::refresh_claude_hooks();
+        }
         let agents = cfg.agent_defs();
         let scan = Arc::new(Mutex::new(scan::Shared {
             roots: Vec::new(),
