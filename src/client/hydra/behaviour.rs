@@ -597,6 +597,30 @@ impl App {
             .unwrap_or_else(|| self.here_dir())
     }
 
+    /// Picking for a setting: save the folder and go back to Settings, on that row.
+    fn finder_chose(&mut self, fd: &Finder, p: PathBuf) -> bool {
+        let Some(path) = fd.for_setting else { return false };
+        self.save_setting(path, p.display().to_string().into());
+        self.back_to_setting(path);
+        true
+    }
+
+    /// Settings, on the row of `path`.
+    pub(in crate::client) fn back_to_setting(&mut self, path: &str) {
+        use crate::client::modal::Cat;
+        let (cat, sel) = Cat::ALL
+            .iter()
+            .enumerate()
+            .find_map(|(ci, c)| {
+                crate::client::design::settings_rows(*c)
+                    .iter()
+                    .position(|r| matches!(r, crate::client::design::SRow::Setting(s) if s.path == path))
+                    .map(|i| (ci, i))
+            })
+            .unwrap_or((0, 0));
+        self.mode = Mode::HySettings(Box::new(SView { cat, sel, editing: None, capturing: false, scroll: 0 }));
+    }
+
     pub(in crate::client) fn finder_enter(&mut self, mut fd: Finder) {
         let sep = std::path::MAIN_SEPARATOR;
         let rows = fd.rows();
@@ -605,13 +629,20 @@ impl App {
                 let (dir, part) = fd.split();
                 let p = dir.join(part);
                 if p.is_dir() {
+                    if self.finder_chose(&fd, p.clone()) {
+                        return;
+                    }
                     self.hy_open_project(p);
                 } else {
                     self.notify(format!("no folder {}", tilde(&p)), true);
                     self.mode = Mode::Finder(Box::new(fd));
                 }
             }
-            Some((n, p, repo)) if n == "." || repo => self.hy_open_project(p),
+            Some((n, p, repo)) if n == "." || repo => {
+                if !self.finder_chose(&fd, p.clone()) {
+                    self.hy_open_project(p);
+                }
+            }
             Some((_, p, _)) => {
                 fd.q = format!("{}{sep}", tilde(&p).trim_end_matches(sep));
                 fd.sel = 0;
@@ -626,7 +657,10 @@ impl App {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         match k.code {
             KeyCode::Esc => {
-                self.mode = Mode::Normal;
+                match fd.for_setting {
+                    Some(path) => self.back_to_setting(path),
+                    None => self.mode = Mode::Normal,
+                }
                 return;
             }
             KeyCode::Enter => return self.finder_enter(fd),

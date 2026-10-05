@@ -233,10 +233,7 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     // In a split, the split's row (its first pane's) is the open one, whichever side you're on.
     let focus = app.focused().map(|f| if shown.len() > 1 && shown.contains(&f) { shown[0] } else { f });
     let split = shown.iter().copied().find(|t| Some(*t) != focus && shown.len() > 1);
-    // SESSIONS.
-    let sb = Style::default().bg(surf);
     let focused_side = app.mode == Mode::Side;
-    put(buf, r.x + 2, r.y + 1, &[seg("SESSIONS", sb.fg(if focused_side { t.accent } else { t.muted }).add_modifier(Modifier::BOLD))], r.right());
     if focused_side {
         // The keys are here: an accent line along the sidebar's top too.
         for xx in r.x..r.right() {
@@ -245,7 +242,8 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
             }
         }
     }
-    let r = Rect { y: r.y + 3, height: r.height.saturating_sub(3), ..r };
+    // The sections name themselves: the list starts at the top.
+    let r = Rect { y: r.y + 1, height: r.height.saturating_sub(1), ..r };
     let list_h = r.height.saturating_sub(3) as usize;
     // Keep the focused (or cursor) row in view when it changes; otherwise the wheel rules.
     let mut scroll = app.hy.side_scroll as usize;
@@ -498,9 +496,19 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 );
                 hit(app, row, HyHit::ShellIn(*pi));
             }
+            // A quiet divider: ── Terminals 4 ─────────
             Line::Section(kind, n) => {
                 let st = Style::default().bg(surf);
-                put(buf, x0 + 2, y, &[seg(kind.heading(), st.fg(t.muted).add_modifier(Modifier::BOLD)), seg(format!("  {n}"), st.fg(t.muted))], r.right());
+                let label = format!(" {} {n} ", kind.heading());
+                let left = 2u16;
+                let rest = w.saturating_sub(left + label.width() as u16 + 2);
+                put(
+                    buf,
+                    x0 + 1,
+                    y,
+                    &[seg("─".repeat(left as usize), st.fg(t.line)), seg(label, st.fg(t.muted)), seg("─".repeat(rest as usize), st.fg(t.line))],
+                    r.right(),
+                );
             }
             Line::Gap => {}
         }

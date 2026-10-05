@@ -534,7 +534,15 @@ impl App {
             }
             KeyCode::Enter | KeyCode::Char(' ') => match &row {
                 Some(design::SRow::Setting(s)) => match s.kind {
-                    Kind::Text => {
+                    // A folder: pick it in the folder browser (Esc comes back here).
+                    Kind::Folder => {
+                        let cur = self.cfg.start_dir().or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())).unwrap_or_default();
+                        let mut fd = hydra::Finder::new(&cur);
+                        fd.for_setting = Some(s.path);
+                        self.mode = Mode::Finder(Box::new(fd));
+                        return true;
+                    }
+                    Kind::Text | Kind::Program(_) => {
                         let cur = modal::current(&self.cfg, s.path).and_then(|x| x.as_str().map(str::to_string)).unwrap_or_default();
                         v.editing = Some(cur);
                     }

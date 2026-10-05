@@ -274,6 +274,12 @@ pub(in crate::client) fn chips_for(app: &App, row: &SRow) -> Option<(Vec<String>
             let curs = cur.and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
             Some((opts.iter().map(|o| o.to_string()).collect(), opts.iter().position(|o| *o == curs)))
         }
+        Kind::Program(cands) => {
+            let curs = cur.and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+            let opts = crate::client::modal::program_options(cands, &curs);
+            let i = if curs.is_empty() { Some(0) } else { opts.iter().position(|o| *o == curs) };
+            Some((opts, i))
+        }
         _ => None,
     }
 }
@@ -292,6 +298,14 @@ pub(in crate::client) fn set_chip(app: &mut App, row: &SRow, vi: usize) {
             Some(o) => (*o).into(),
             None => return,
         },
+        Kind::Program(cands) => {
+            let curs = crate::client::modal::current(&app.cfg, s.path).and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+            match crate::client::modal::program_options(cands, &curs).get(vi) {
+                Some(o) if o == "default" => "".into(),
+                Some(o) => o.as_str().into(),
+                None => return,
+            }
+        }
         _ => return,
     };
     app.save_setting(s.path, v);
@@ -399,7 +413,7 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
                             SRow::Theme(_) => String::new(),
                         };
                         put(buf, lx, y, &[seg(truncate(&label, (vx - lx - 2) as usize), ls)], vx - 1);
-                        if let Some((opts, cur)) = chips_for(app, row) {
+                        if let Some((opts, cur)) = chips_for(app, row).filter(|_| !(sel && v.editing.is_some())) {
                             let mut cx = vx;
                             for (vi, o) in opts.iter().enumerate() {
                                 let on = Some(vi) == cur;

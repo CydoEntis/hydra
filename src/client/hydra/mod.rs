@@ -194,6 +194,8 @@ pub(super) struct Finder {
     /// The folder being listed and its subfolders: (name, is a git repo).
     pub dir: PathBuf,
     pub list: Vec<(String, bool)>,
+    /// Picking a folder for this setting (Settings → Start folder) instead of opening one.
+    pub for_setting: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -294,8 +296,8 @@ pub(super) enum Kind {
 impl Kind {
     pub fn heading(self) -> &'static str {
         match self {
-            Kind::Agents => "AGENTS",
-            Kind::Terminals => "TERMINALS",
+            Kind::Agents => "Agents",
+            Kind::Terminals => "Terminals",
             Kind::Ssh => "SSH",
         }
     }

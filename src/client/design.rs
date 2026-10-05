@@ -811,7 +811,7 @@ pub(super) fn control(app: &App, t: &Theme, row: &SRow, v: &SettingsView, select
                     let caps: Vec<Seg> = k.split('+').map(|p| keycap(t, p)).flat_map(|c| [c, seg("+", Style::default().fg(t.muted))]).collect();
                     caps[..caps.len().saturating_sub(1)].to_vec()
                 }
-                Kind::Text => {
+                Kind::Text | Kind::Folder | Kind::Program(_) => {
                     if selected && let Some(e) = &v.editing {
                         vec![seg(format!(" {e}"), Style::default().bg(t.card2).fg(t.strong)), seg("█ ", Style::default().bg(t.card2).fg(t.accent))]
                     } else {

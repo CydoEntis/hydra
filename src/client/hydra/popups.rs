@@ -195,7 +195,7 @@ pub(in crate::client) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: 
 impl Finder {
     pub fn new(start: &Path) -> Finder {
         let sep = std::path::MAIN_SEPARATOR;
-        let mut f = Finder { q: format!("{}{sep}", tilde(start)), sel: 0, dir: PathBuf::new(), list: Vec::new() };
+        let mut f = Finder { q: format!("{}{sep}", tilde(start)), sel: 0, dir: PathBuf::new(), list: Vec::new(), for_setting: None };
         f.refresh();
         f
     }
@@ -304,7 +304,8 @@ pub(in crate::client) fn normalize(p: &Path) -> PathBuf {
 pub(in crate::client) fn draw_finder(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, fd: &Finder) {
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let r = panel(app, buf, area, 92, 24, "Open a folder", &[], t);
+    let title = if fd.for_setting.is_some() { "Choose the start folder" } else { "Open a folder" };
+    let r = panel(app, buf, area, 92, 24, title, &[], t);
     let input = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: 1 };
     fill(buf, input, t.card2);
     let s = Style::default().bg(t.card2);

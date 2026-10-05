@@ -169,7 +169,7 @@ mod hydra_tests {
         assert!(!text.contains(">_ hydra") && !text.contains("Ctrl+Space"), "no logo, no keys buttons");
         let bottom = lines.iter().rev().find(|l| !l.trim().is_empty()).unwrap();
         assert!(bottom.contains("● 1 needs you") && !bottom.contains("›"), "the bottom bar: what needs you, no path (the pane's title has it): {bottom}");
-        assert!(lines[1].contains("SESSIONS") && !lines[1].contains("+ open"), "the sidebar's header, nothing to open: {}", lines[1]);
+        assert!(lines[1].contains("── Agents") && !lines[1].contains("+ open"), "the list starts at the top, with its first section: {}", lines[1]);
         assert!(text.contains("n new") && text.contains("g go to") && text.contains(", settings"), "quiet hints at the bottom of the sidebar");
         // Projects and their sessions, nothing in between.
         assert!(text.contains("▾ ▌shop-api") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
@@ -847,8 +847,9 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         let at = |s: &str| o.find(s).unwrap_or_else(|| panic!("{s} in the sidebar"));
-        assert!(at("AGENTS") < at("TERMINALS") && at("TERMINALS") < at("SSH"), "a heading per section, in order");
-        assert!(at("build-box") > at("SSH"));
+        assert!(at("── Agents 2 ─") < at("── Terminals 1 ─") && at("── Terminals 1 ─") < at("── SSH 1 ─"), "a divider per section, in order");
+        assert!(at("build-box") > at("── SSH"));
+        assert!(!o.contains("SESSIONS"), "no heading over them");
     }
 
     #[test]
@@ -996,6 +997,33 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains("GET AROUND") && o.contains("Go to a project or session") && o.contains("Command palette"));
+    }
+
+    #[test]
+    fn folders_and_programs_are_picked_not_typed() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let rows = design::settings_rows(modal::Cat::General);
+        let row_of = |p: &str| rows.iter().position(|r| matches!(r, design::SRow::Setting(s) if s.path == p)).unwrap();
+        // Editor and shell: chips of what's installed, "default" first.
+        app.mode = Mode::HySettings(Box::new(design::SettingsView { cat: 0, sel: row_of("editor"), editing: None, capturing: false, scroll: 0 }));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        let line = o.lines().find(|l| l.contains("Editor")).unwrap();
+        assert!(line.contains(" default "), "a choice, not a text box: {line}");
+        let editor = modal::SETTINGS.iter().find(|s| s.path == "editor").unwrap();
+        let opts = modal::program_options(modal::EDITORS, "");
+        if opts.len() > 1 {
+            assert_eq!(modal::step(&app.cfg, editor, 1).and_then(|v| v.as_str().map(String::from)).as_deref(), Some(opts[1].as_str()), "→ picks the next installed one");
+        }
+        // The start folder: Enter opens the folder browser for it; Esc goes back to the row.
+        let sf = row_of("ui.start_dir");
+        app.mode = Mode::HySettings(Box::new(design::SettingsView { cat: 0, sel: sf, editing: None, capturing: false, scroll: 0 }));
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(matches!(&app.mode, Mode::Finder(fd) if fd.for_setting == Some("ui.start_dir")), "the folder browser, picking for the setting");
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("Choose the start folder"));
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(matches!(&app.mode, Mode::HySettings(v) if v.sel == sf), "Esc: back to Settings, on that row");
     }
 
     #[test]

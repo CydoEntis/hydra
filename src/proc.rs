@@ -9,6 +9,14 @@ use std::process::Command;
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Don't open a console window for this program (Windows; nothing elsewhere).
+/// Whether a program is on PATH (with Windows' own extensions).
+pub fn on_path(tool: &str) -> bool {
+    let exts: &[&str] = if cfg!(windows) { &["exe", "cmd", "bat", "com"] } else { &[""] };
+    std::env::var_os("PATH").is_some_and(|p| {
+        std::env::split_paths(&p).any(|d| exts.iter().any(|e| if e.is_empty() { d.join(tool).is_file() } else { d.join(format!("{tool}.{e}")).is_file() }))
+    })
+}
+
 pub fn quiet(cmd: &mut Command) -> &mut Command {
     #[cfg(windows)]
     {

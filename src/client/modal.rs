@@ -88,6 +88,36 @@ pub enum Kind {
     Int { step: i64, min: i64, max: i64 },
     Text,
     Key,
+    /// A program: the ones of these installed here to pick from (and "default"); Enter
+    /// types any other.
+    Program(&'static [&'static str]),
+    /// A folder: Enter opens the folder browser to pick one.
+    Folder,
+}
+
+/// Editors hydra offers when they're installed.
+pub const EDITORS: &[&str] = &["code", "cursor", "zed", "nvim", "vim", "hx", "micro", "nano", "emacs", "subl", "notepad++", "notepad"];
+/// Shells hydra offers when they're installed.
+pub const SHELLS: &[&str] = &["pwsh", "powershell", "cmd", "bash", "zsh", "fish", "nu", "elvish", "xonsh"];
+
+/// The choices for a program setting: "default" first, then the candidates installed here,
+/// then the current value if it's something else. Looked up once per run (PATH doesn't
+/// change under us).
+pub fn program_options(cands: &'static [&'static str], current: &str) -> Vec<String> {
+    use std::sync::{Mutex, OnceLock};
+    static FOUND: OnceLock<Mutex<std::collections::HashMap<usize, Vec<String>>>> = OnceLock::new();
+    let key = cands.as_ptr() as usize;
+    let installed = FOUND
+        .get_or_init(Default::default)
+        .lock()
+        .map(|mut m| m.entry(key).or_insert_with(|| cands.iter().filter(|c| crate::proc::on_path(c)).map(|c| c.to_string()).collect()).clone())
+        .unwrap_or_default();
+    let mut out = vec!["default".to_string()];
+    out.extend(installed);
+    if !current.is_empty() && !out.iter().any(|o| o == current) {
+        out.push(current.to_string());
+    }
+    out
 }
 
 #[derive(Debug)]
@@ -133,9 +163,9 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "ui.mouse", label: "Mouse", kind: Kind::Bool, cat: Cat::General, help: "Click, hover, scroll and drag. Hold Shift to select text with your terminal instead." },
     Setting { path: "ui.which_key", label: "Keys after a pause", kind: Kind::Bool, cat: Cat::General, help: "After the leader key, show every shortcut if you pause." },
     Setting { path: "ui.sidebar_position", label: "Sidebar side", kind: Kind::Choice(&["left", "right"]), cat: Cat::General, help: "Which edge the sidebar sits on." },
-    Setting { path: "ui.start_dir", label: "Start folder", kind: Kind::Text, cat: Cat::General, help: "Where plain `hydra` opens (and the shell after you close everything). Empty: wherever you run it. ~ is home." },
-    Setting { path: "editor", label: "Editor", kind: Kind::Text, cat: Cat::General, help: "For open in editor (e). Empty: $VISUAL, $EDITOR, then code. nvim, hx, … open inside hydra." },
-    Setting { path: "shell", label: "Shell", kind: Kind::Text, cat: Cat::General, help: "The shell new sessions run. Empty: pwsh / powershell on Windows, $SHELL elsewhere." },
+    Setting { path: "ui.start_dir", label: "Start folder", kind: Kind::Folder, cat: Cat::General, help: "Where plain `hydra` opens (and the shell after you close everything). Empty: wherever you run it. ~ is home." },
+    Setting { path: "editor", label: "Editor", kind: Kind::Program(EDITORS), cat: Cat::General, help: "For open in editor (e). Empty: $VISUAL, $EDITOR, then code. nvim, hx, … open inside hydra." },
+    Setting { path: "shell", label: "Shell", kind: Kind::Program(SHELLS), cat: Cat::General, help: "The shell new sessions run. Empty: pwsh / powershell on Windows, $SHELL elsewhere." },
     Setting { path: "shell_integration", label: "PowerShell folder tracking", kind: Kind::Bool, cat: Cat::General, help: "Lets hydra see where PowerShell sessions cd to." },
     // Sessions
     Setting { path: "ui.attention_sort", label: "Sort sidebar by attention", kind: Kind::Bool, cat: Cat::Sessions, help: "Sessions that need you float to the top, then done, then working, then idle." },
@@ -202,7 +232,14 @@ pub fn step(cfg: &Config, s: &Setting, dir: i64) -> Option<toml_edit::Value> {
             ((v.clamp(min, max) * 100.0).round() / 100.0).into()
         }
         Kind::Int { step, min, max } => (cur.as_integer().unwrap_or(0) + step * dir).clamp(min, max).into(),
-        Kind::Text | Kind::Key => return None,
+        Kind::Program(cands) => {
+            let now = cur.as_str().unwrap_or_default().to_string();
+            let opts = program_options(cands, &now);
+            let i = opts.iter().position(|o| *o == now).unwrap_or(0) as i64;
+            let next = &opts[((i + dir).rem_euclid(opts.len() as i64)) as usize];
+            (if next == "default" { "" } else { next.as_str() }).into()
+        }
+        Kind::Text | Kind::Key | Kind::Folder => return None,
     })
 }
 
