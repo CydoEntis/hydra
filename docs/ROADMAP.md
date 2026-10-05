@@ -12,7 +12,7 @@ which ones need you, jump to them, and keep them running when you leave. See
 ## Now
 
 Active phase: **7 — test-week feedback** (collecting: the user runs Hydra for a week)
-Next unblocked: #25 (agent coverage, rest)
+Next unblocked: #25 (hooks for more harnesses)
 
 ## Phases
 
@@ -50,18 +50,18 @@ notification history, `hydra doctor`, more agent types, BEL tracking.
 What a week of daily use turns up. Bugs found were fixed straight away (0.3.1–0.6.6). #19 is
 done. Chosen 2026-10-05 after comparing with tuios, in this order:
 
-1. #20 Sidebar: agents, terminals and ssh sessions in their own sections — done (0.7.0)
-2. #25 Agent coverage: any agent from config; hooks for more harnesses
-3. #21 Inbox: everything waiting on you, answerable from one list — done (0.7.5)
-4. #22 Claude Code agent teams as hydra panes — done (0.7.7)
-5. #24 Agent-to-agent: ask-human, messages, ask-agent, pane permissions
-6. #31 Install from package managers (AUR first)
-7. #28 Scrollback: jump between commands, multi-pane copy
-8. #26 Layouts: tiling, scrolling, master-stack, workspaces, popups
-9. #23 More machines: named hosts, remote panes and agents
-10. #27 Graphics: kitty images, sixel, kitty keyboard
-11. #29 Extras: launcher, layout templates, record/replay, screenshots, key display
-12. #30 Remote access: web terminal, SSH server mode
+Done: #20 sidebar sections (0.7.0), #21 Inbox (0.7.5), #22 Claude Code agent teams (0.7.7);
+#25 teach an agent / Codex setup / DeepSeek built in (0.7.1, 0.7.6); #24 ask-human (0.7.8).
+
+Next, in order:
+
+1. #25 (rest) Hooks for Gemini, opencode, Qwen in one command
+2. #24 (rest) Per-pane permissions for what an agent may do through hydra
+3. #28 Scrollback: jump between commands, multi-pane copy
+4. #26 Layouts: tiling, scrolling, master-stack, workspaces, popups
+
+On hold (2026-10-05, the user's call): #31 package managers (AUR name and account to decide),
+#23 more machines, #27 graphics, #29 extras, #30 web terminal and SSH server mode.
 
 ## In scope
 
