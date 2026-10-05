@@ -2,7 +2,7 @@
 
 Source of truth for scope, order, decisions and rules. Tickets hold the detail.
 Read this before starting work. If work conflicts with it, stop and say so.
-Last reconciled: 2026-10-04 at `0aba78f` on `dev`.
+Last reconciled: 2026-10-05 at `9cfde2c` on `dev`.
 Verify: `cargo test && cargo clippy --all-targets -- -D warnings && cargo check --target x86_64-unknown-linux-gnu && cargo check --target aarch64-apple-darwin`
 
 Hydra is a terminal multiplexer built for running many coding agents at once: see
@@ -11,8 +11,8 @@ which ones need you, jump to them, and keep them running when you leave. See
 
 ## Now
 
-Active phase: **none — phase 6 is done; the next phase hasn't been chosen**
-Next unblocked: none (no open tickets)
+Active phase: **7 — test-week feedback** (collecting: the user runs Hydra for a week)
+Next unblocked: #19
 
 ## Phases
 
@@ -44,6 +44,12 @@ notification history, `hydra doctor`, more agent types, BEL tracking.
 ### 6 — Clean code: one layout's worth of code, in files a person can read · complete 2026-10-04 at `0aba78f`
 
 #13, #14, #15, #16, #17, #18
+
+### 7 — Test-week feedback · collecting
+
+What a week of daily use turns up. Bugs found so far were fixed straight away (0.3.1–0.3.4:
+closing the last pane, splits in the sidebar, a home shell when everything closes).
+#19
 
 ## In scope
 
@@ -88,6 +94,9 @@ Everything below is shipped on `dev` unless marked.
 **Extras**
 - Extensions (manifest, commands, hooks) — shipped — `src/ext.rs`
 - Desktop alerts and sounds, notification history — shipped — `src/alert.rs`
+- Click a notification to jump to its session — planned — #19
+- Releases and installers (Windows, macOS, Linux; checksums), `hydra update` and a daily update check — shipped — `.github/workflows/release.yml`, `install.sh`, `install.ps1`, `src/update.rs`
+- CI: test and clippy on Linux and Windows, a macOS check — shipped — `.github/workflows/ci.yml`
 - Config sync across machines (local file never synced) — shipped — `src/sync.rs`
 - `hydra doctor` — shipped — `src/cli.rs`
 
@@ -97,8 +106,7 @@ Everything below is shipped on `dev` unless marked.
 
 ## Later
 
-- Published releases / installers — deferred 2026-10-03: installed from source for now. Comes back when others start using Hydra.
-- CI (build, test, clippy, cross-checks on push) — deferred 2026-10-03: the gate is run by hand. Comes back when a second contributor arrives or a regression slips through.
+- none.
 
 ## Decisions
 
