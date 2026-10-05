@@ -313,6 +313,8 @@ pub struct App {
     theme: Theme,
     keymap: Keymap,
     notice: Option<(String, Instant, bool)>,
+    /// The session the note is about (an agent finished or needs you): clicking it goes there.
+    notice_term: Option<TermId>,
     /// What happened lately, newest last: (unix secs, pane, kind, text). Kinds: '!' needs
     /// you, '✓' finished, '♪' bell, 'i' a message, 'x' an error.
     pub(super) history: std::collections::VecDeque<(u64, Option<TermId>, char, String)>,
@@ -462,6 +464,7 @@ impl App {
             keymap,
             cfg,
             notice: None,
+            notice_term: None,
             history: Default::default(),
             exts: if cfg!(test) { Vec::new() } else { crate::ext::load_all().0 },
             ext_labels: HashMap::new(),
@@ -588,6 +591,7 @@ impl App {
     fn notify(&mut self, msg: String, error: bool) {
         self.remember(None, if error { 'x' } else { 'i' }, msg.clone());
         self.notice = Some((msg, Instant::now(), error));
+        self.notice_term = None;
         self.dirty = true;
     }
 

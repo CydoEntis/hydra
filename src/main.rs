@@ -16,6 +16,7 @@ mod protocol;
 mod sync;
 mod theme;
 mod update;
+mod reveal;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -96,6 +97,9 @@ enum Cmd {
     },
     /// Focus a pane (switches workspace and tab).
     Focus { pane: protocol::TermId },
+    /// Go to a session and bring hydra's window forward: what clicking a notification runs.
+    /// Takes a hydra:// link or a pane number.
+    Reveal { target: String },
     /// Close a pane.
     Close { pane: Option<protocol::TermId> },
     /// Report agent lifecycle from an agent's hook. Reads the hook JSON from stdin.
@@ -249,6 +253,7 @@ fn main() {
         Some(Cmd::Split { pane, down, command }) => cli::split(pane, down, command),
         Some(Cmd::New { path, name, command }) => cli::new_workspace(path, name, command),
         Some(Cmd::Focus { pane }) => cli::focus(pane),
+        Some(Cmd::Reveal { target }) => reveal::run(&target),
         Some(Cmd::Close { pane }) => cli::close(pane),
         Some(Cmd::Hook { agent, status, payload }) => {
             // Hooks run inline in the agent's turn: never fail, never print.
@@ -284,7 +289,12 @@ fn main() {
             let (cfg, _) = config::Config::load_or_default();
             println!("notification: {}", if cfg.notify.desktop { "on" } else { "off (notify.desktop)" });
             if cfg.notify.desktop {
-                alert::notify("claude needs you", "hydra · this is a test");
+                // With a server running, clicking it goes to the session you're on.
+                let link = cli::focused_pane().map(reveal::link);
+                if link.is_some() {
+                    println!("click the notification to go to the session you're on");
+                }
+                alert::notify("claude needs you", "hydra · this is a test", link.as_deref());
             }
             for (what, sound) in [("needs you", &cfg.notify.sound_needs), ("done", &cfg.notify.sound_done)] {
                 match alert::sound_file(sound) {

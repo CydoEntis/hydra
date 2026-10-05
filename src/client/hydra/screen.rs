@@ -830,19 +830,22 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
 
 /// A note (copied, saved, couldn't …) as a small pop-up just above the bottom bar, centred
 /// over the panes; it goes after a few seconds (errors stay a little longer).
-pub(in crate::client) fn draw_toast(app: &App, buf: &mut Buffer, panes: Rect, t: &Theme) {
-    let Some((msg, at, err)) = &app.notice else { return };
-    if at.elapsed().as_millis() > if *err { 4500 } else { 2500 } {
+pub(in crate::client) fn draw_toast(app: &mut App, buf: &mut Buffer, panes: Rect, t: &Theme) {
+    let Some((msg, at, err)) = app.notice.clone() else { return };
+    // About a session: it stays a little longer, and a click goes there.
+    let about = app.notice_term.filter(|t| app.snap.terms.contains_key(t));
+    if at.elapsed().as_millis() > if err { 4500 } else if about.is_some() { 6000 } else { 2500 } {
         return;
     }
-    let text = truncate(msg, panes.width.saturating_sub(12) as usize);
-    let w = text.width() as u16 + 7;
+    let hint = if about.is_some() { "   click to open" } else { "" };
+    let text = truncate(&msg, (panes.width.saturating_sub(12) as usize).saturating_sub(hint.width()));
+    let w = text.width() as u16 + hint.width() as u16 + 7;
     if panes.height < 4 || panes.width < w + 2 {
         return;
     }
     let r = Rect { x: panes.x + (panes.width - w) / 2, y: panes.bottom().saturating_sub(4), width: w, height: 3 };
     fill(buf, r, t.card2);
-    let edge = Style::default().fg(if *err { t.err } else { t.done }).bg(t.card2);
+    let edge = Style::default().fg(if err { t.err } else { t.done }).bg(t.card2);
     for y in r.top()..r.bottom() {
         if let Some(px) = buf.cell_mut((r.x, y)) {
             px.set_symbol("▌").set_style(edge);
@@ -853,9 +856,16 @@ pub(in crate::client) fn draw_toast(app: &App, buf: &mut Buffer, panes: Rect, t:
         buf,
         r.x + 2,
         r.y + 1,
-        &[seg(if *err { "✕ " } else { "✓ " }, st.fg(if *err { t.err } else { t.done }).add_modifier(Modifier::BOLD)), seg(text, st.fg(t.strong).add_modifier(Modifier::BOLD))],
+        &[
+            seg(if err { "✕ " } else { "✓ " }, st.fg(if err { t.err } else { t.done }).add_modifier(Modifier::BOLD)),
+            seg(text, st.fg(t.strong).add_modifier(Modifier::BOLD)),
+            seg(hint, st.fg(t.muted)),
+        ],
         r.right() - 1,
     );
+    if let Some(term) = about {
+        hit(app, r, HyHit::Session(term));
+    }
 }
 
 pub(in crate::client) fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {

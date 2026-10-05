@@ -777,6 +777,21 @@ mod hydra_tests {
     }
 
     #[test]
+    fn a_note_about_a_session_is_a_way_there() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let term = *app.snap.terms.keys().next().unwrap();
+        app.notify("claude finished".into(), false);
+        app.notice_term = Some(term);
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("claude finished") && o.contains("click to open"));
+        assert!(app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::Session(term))), "clicking it opens the session");
+        // Any other note isn't.
+        app.notify("saved".into(), false);
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("saved") && !o.contains("click to open"));
+    }
+
+    #[test]
     fn a_split_is_one_session_and_others_open_full_size() {
         let (_, mut app) = super::design_tests::render_with(200, 50);
         let a = app.focused().unwrap();

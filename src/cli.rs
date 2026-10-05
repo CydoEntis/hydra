@@ -303,6 +303,17 @@ pub fn focus(pane: TermId) -> Result<()> {
     command(Command::FocusPane { term: pane })
 }
 
+/// The session you're on, if a server is running.
+pub fn focused_pane() -> Option<TermId> {
+    let s = snapshot().ok()?;
+    s.workspaces.iter().find(|w| Some(w.id) == s.active_ws)?.tab().map(|t| t.focus)
+}
+
+/// Focus a pane and bring hydra's window forward (what clicking a notification does).
+pub fn reveal(pane: TermId) -> Result<()> {
+    command(Command::Reveal { term: pane })
+}
+
 pub fn close(pane: Option<TermId>) -> Result<()> {
     command(Command::ClosePane { term: resolve_pane(pane)? })
 }

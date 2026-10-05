@@ -204,6 +204,11 @@ A desktop notification and a sound when an agent you're not looking at needs you
 also when no hydra window is open (the server sends it). Sounds: glass, ping, chime, pop, off,
 or a path to your own file (`[notify] sound_needs`, `sound_done`). `hydra test-alert` tries them.
 
+Click a notification to go to its session: hydra comes to the front on it (its split too).
+That works for the note inside hydra and the desktop pop-ups on Windows and Linux (on
+Omarchy / Hyprland the window is brought forward too); on macOS, install
+`terminal-notifier` for clickable ones.
+
 ## Sleep
 
 `sleep_after = "1h"` (Settings → Sessions) stops agents that have sat finished or idle that long,

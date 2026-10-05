@@ -249,6 +249,10 @@ impl Daemon {
     /// A daemon with no panes yet; its process scanner and hook thread are running.
     fn new(cfg: Config, tx: mpsc::Sender<Ev>) -> Daemon {
         contain::children_die_with_us();
+        // Clicking a notification opens its hydra:// link (Windows needs to be told how).
+        if cfg.notify.desktop && !cfg!(test) {
+            crate::reveal::register();
+        }
         let agents = cfg.agent_defs();
         let scan = Arc::new(Mutex::new(scan::Shared {
             roots: Vec::new(),

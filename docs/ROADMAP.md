@@ -12,7 +12,7 @@ which ones need you, jump to them, and keep them running when you leave. See
 ## Now
 
 Active phase: **7 — test-week feedback** (collecting: the user runs Hydra for a week)
-Next unblocked: #19
+Next unblocked: none (no open tickets)
 
 ## Phases
 
@@ -94,7 +94,7 @@ Everything below is shipped on `dev` unless marked.
 **Extras**
 - Extensions (manifest, commands, hooks) — shipped — `src/ext.rs`
 - Desktop alerts and sounds, notification history — shipped — `src/alert.rs`
-- Click a notification to jump to its session — planned — #19
+- Click a notification to jump to its session — shipped — `src/reveal.rs`, `src/alert.rs` (#19)
 - Releases and installers (Windows, macOS, Linux; checksums), `hydra update` and a daily update check — shipped — `.github/workflows/release.yml`, `install.sh`, `install.ps1`, `src/update.rs`
 - CI: test and clippy on Linux and Windows, a macOS check — shipped — `.github/workflows/ci.yml`
 - Config sync across machines (local file never synced) — shipped — `src/sync.rs`

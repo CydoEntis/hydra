@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 20;
+pub const PROTOCOL_VERSION: u32 = 21;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -69,6 +69,9 @@ pub enum Command {
     ClosePane { term: TermId },
     /// Focus a pane anywhere: switches workspace and tab as needed.
     FocusPane { term: TermId },
+    /// Focus a pane and bring the windows showing hydra to the front (a notification for it
+    /// was clicked).
+    Reveal { term: TermId },
     /// You've seen a finished agent (the cursor rested on it): done → idle.
     MarkSeen { term: TermId },
     /// Name a pane yourself (empty: back to the automatic name).
@@ -156,6 +159,8 @@ pub enum ServerMsg {
     Clipboard { term: TermId, text: String },
     /// An agent started in a new repo, which became a workspace (undoable).
     AutoWorkspace(String),
+    /// Come to the front: a notification for one of this server's sessions was clicked.
+    Raise,
     Bye,
 }
 
@@ -425,6 +430,7 @@ mod tests {
             ClientMsg::Command(Command::NewWorkspace { cwd: Some(PathBuf::from("/code")), name: None, cmd: Some("claude".into()) }),
             ClientMsg::Command(Command::Split { term: 3, dir: crate::layout::Dir::Down, cmd: None, cwd: None }),
             ClientMsg::Command(Command::ClosePane { term: 3 }),
+            ClientMsg::Command(Command::Reveal { term: 3 }),
             ClientMsg::Command(Command::RenamePane { term: 3, name: "x".into() }),
             ClientMsg::Command(Command::MoveToWorktree { term: 3, branch: Some("feat/x".into()) }),
         ];
@@ -443,6 +449,7 @@ mod tests {
             ServerMsg::Notice("saved".into()),
             ServerMsg::Clipboard { term: 3, text: "copied".into() },
             ServerMsg::AutoWorkspace("api".into()),
+            ServerMsg::Raise,
             ServerMsg::Bye,
         ];
         for m in &servers {

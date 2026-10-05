@@ -90,7 +90,7 @@ impl App {
                 }
                 let (title, body) = self.alert_text(term, status);
                 let kind = if status == Status::Blocked { crate::alert::Kind::Needs } else { crate::alert::Kind::Done };
-                crate::alert::alert(&self.cfg.notify, kind, &title, &body);
+                crate::alert::alert(&self.cfg.notify, kind, &title, &body, Some(crate::reveal::link(term)));
                 if self.focused() == Some(term) {
                     return;
                 }
@@ -102,6 +102,7 @@ impl App {
                 let who = self.describe_term(term);
                 let what = if status == Status::Blocked { "needs you" } else { "finished" };
                 self.notify(format!("{who} {what}"), false);
+                self.notice_term = Some(term);
             }
             ServerMsg::Clipboard { term, text } => {
                 let n = text.chars().count();
@@ -122,6 +123,7 @@ impl App {
                     *at = Instant::now() + Duration::from_secs(10);
                 }
             }
+            ServerMsg::Raise => crate::reveal::raise_window(),
             ServerMsg::Bye => self.quit = Some("server exited".into()),
             ServerMsg::Reply(Reply::Worktrees(list)) => {
                 if let Mode::Worktrees { items, .. } = &mut self.mode {

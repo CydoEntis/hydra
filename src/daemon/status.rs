@@ -198,7 +198,7 @@ impl Daemon {
                 let summary = t.summary.trim();
                 let body = if summary.is_empty() { place } else { format!("{place} · {summary}") };
                 let (kind, what) = if new == Status::Blocked { (crate::alert::Kind::Needs, "needs you") } else { (crate::alert::Kind::Done, "finished") };
-                crate::alert::alert(&self.cfg.notify, kind, &format!("{agent} {what}"), &body);
+                crate::alert::alert(&self.cfg.notify, kind, &format!("{agent} {what}"), &body, Some(crate::reveal::link(term)));
             }
         }
     }

@@ -235,6 +235,10 @@ impl Daemon {
                     t.bell = false;
                 }
             }
+            Command::Reveal { term } => {
+                self.command(client, Command::FocusPane { term })?;
+                self.broadcast(|c| c.attach, ServerMsg::Raise);
+            }
             Command::FocusPane { term } if self.terms.get(&term).is_some_and(|t| t.asleep) => {
                 self.wake(term);
             }
