@@ -40,7 +40,26 @@
   <a href="#script-it">Script it</a>
 </p>
 
-<!-- MEDIA -->
+<p align="center"><img src="docs/media/demo.gif" alt="hydra: jumping to the agent that needs you, splitting a pane, keys and settings" width="900"></p>
+
+<table>
+  <tr>
+    <td><img src="docs/media/02-main.png" alt="An agent asking a question, with one-key answers"></td>
+    <td><img src="docs/media/03-go-to.png" alt="Go to: find any session by typing"></td>
+  </tr>
+  <tr>
+    <td align="center">An agent needs you: answer with one key</td>
+    <td align="center">Go to any session by typing</td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/05-split.png" alt="An agent and a shell side by side"></td>
+    <td><img src="docs/media/06-keys.png" alt="Every key on one screen"></td>
+  </tr>
+  <tr>
+    <td align="center">Split panes</td>
+    <td align="center">Every key on one screen</td>
+  </tr>
+</table>
 
 Run Claude Code, Codex, Gemini and friends side by side, see which ones need you, jump to them,
 and keep them running when you close the window. Native on Windows, macOS and Linux (Omarchy
