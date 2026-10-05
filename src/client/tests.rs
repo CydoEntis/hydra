@@ -954,6 +954,39 @@ mod hydra_tests {
     }
 
     #[test]
+    fn the_split_line_drags_again_and_again() {
+        let (_, mut app) = super::design_tests::render_with(200, 50);
+        let a = app.focused().unwrap();
+        let b = app.snap.terms.keys().copied().find(|t| *t != a).unwrap();
+        app.hy.tabs.clear();
+        app.hy_place(a, None);
+        app.hy.pending_split = Some((a, Instant::now()));
+        app.hy_place(b, Some(a));
+        let mouse = |app: &mut App, kind: MouseEventKind, x: u16, y: u16| {
+            app.on_mouse(MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE });
+            draw(app, 200, 50);
+        };
+        let line_x = |app: &App| app.hits.iter().find_map(|(r, h)| matches!(h, Hit::Hy(hydra::HyHit::Divider(_))).then_some(r.x));
+        // Both programs want the mouse (full-screen agents do).
+        for t in [a, b] {
+            let mut p = vt100::Parser::new(40, 90, 0);
+            p.process(b"\x1b[?1002h\x1b[?1006h");
+            app.parsers.insert(t, p);
+        }
+        draw(&mut app, 200, 50);
+        let mut at = line_x(&app).expect("a divider");
+        for (n, to) in [at - 30, at + 20, at - 10].into_iter().enumerate() {
+            let y = 20;
+            mouse(&mut app, MouseEventKind::Down(MouseButton::Left), at, y);
+            mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), to, y);
+            mouse(&mut app, MouseEventKind::Up(MouseButton::Left), to, y);
+            let now = line_x(&app).expect("still a divider");
+            assert!(now.abs_diff(to) <= 1, "drag {n}: the line follows the mouse to {to}, it's at {now}");
+            at = now;
+        }
+    }
+
+    #[test]
     fn a_finished_agent_is_a_green_dot_even_if_it_rang() {
         let (_, mut app) = super::design_tests::render_with(120, 30);
         // codex finished and rang the bell (it does both), and you're on another session.
