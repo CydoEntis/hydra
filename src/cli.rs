@@ -19,7 +19,7 @@ pub(crate) fn block_on<T>(f: impl std::future::Future<Output = Result<T>>) -> Re
 
 /// Send one message and wait for the reply.
 pub(crate) async fn request(msg: ClientMsg) -> Result<Reply> {
-    let (mut r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "no hydra server running" })?;
+    let (mut r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the hydra server" })?;
     ipc::send(&mut w, &msg).await?;
     loop {
         match ipc::recv_server(&mut r).await? {
@@ -251,7 +251,7 @@ fn wait_print(term: TermId, regex: Option<String>, timeout: u64, just_sent: bool
 pub fn send(pane: Option<TermId>, text: String, enter: bool) -> Result<()> {
     let term = resolve_pane(pane)?;
     block_on(async move {
-        let (_r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "no hydra server running" })?;
+        let (_r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the hydra server" })?;
         let data = if text.contains('\n') { format!("\x1b[200~{text}\x1b[201~") } else { text };
         ipc::send(&mut w, &ClientMsg::Input { term, data: data.into_bytes() }).await?;
         if enter {
@@ -274,7 +274,7 @@ pub fn send_keys(pane: Option<TermId>, keys: Vec<String>) -> Result<()> {
         chunks.push(crate::keys::encode(&ev, false));
     }
     block_on(async move {
-        let (_r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "no hydra server running" })?;
+        let (_r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the hydra server" })?;
         for data in chunks {
             ipc::send(&mut w, &ClientMsg::Input { term, data }).await?;
             // One key per beat, like a person typing; lets modes change between keys.
@@ -319,7 +319,96 @@ pub fn close(pane: Option<TermId>) -> Result<()> {
 }
 
 pub fn kill_server(forget: bool) -> Result<()> {
-    command(Command::KillServer { forget })
+    match command(Command::KillServer { forget }) {
+        // Another version can't be asked to stop: stop its process instead.
+        Err(e) if e.chain().any(|c| c.is::<ipc::OtherVersion>()) => {
+            let pid = stop_server_process()?;
+            if forget {
+                crate::daemon::forget_session();
+            }
+            println!("stopped the server (another hydra version, process {pid})");
+            Ok(())
+        }
+        r => r,
+    }
+}
+
+/// Stop this socket's server by its process, for when it's a version that can't be talked
+/// to. Its saved session stays, as with `kill-server`.
+fn stop_server_process() -> Result<u32> {
+    let pid = server_pid().ok_or_else(|| {
+        anyhow!("couldn't find the server's process; stop it yourself (on Linux/macOS: pkill -f \"hydra daemon\"; on Windows: end hydra.exe in Task Manager)")
+    })?;
+    let killed = if cfg!(windows) {
+        crate::proc::run(std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]))
+    } else {
+        crate::proc::run(std::process::Command::new("kill").arg(pid.to_string()))
+    };
+    killed.map_err(|e| anyhow!("couldn't stop the server (process {pid}): {e}"))?;
+    // Wait for it to let go of its socket, so the next start doesn't find it.
+    for _ in 0..40 {
+        if block_on(ipc::connect()).is_err() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = std::fs::remove_file(ipc::pid_file());
+    Ok(pid)
+}
+
+/// This socket's server process: from the id it noted, or (servers too old to note it) the
+/// one running `hydra daemon` for this socket.
+fn server_pid() -> Option<u32> {
+    if let Some(pid) = std::fs::read_to_string(ipc::pid_file()).ok().and_then(|s| s.trim().parse().ok()) {
+        return Some(pid);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let label = std::env::var("HYDRA_SOCKET").unwrap_or_else(|_| "default".into());
+        let me = std::process::id();
+        for entry in std::fs::read_dir("/proc").ok()?.flatten() {
+            let Some(pid) = entry.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else { continue };
+            if pid == me {
+                continue;
+            }
+            let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else { continue };
+            let args: Vec<&[u8]> = cmdline.split(|b| *b == 0).collect();
+            let is_daemon = args.first().is_some_and(|a| a.ends_with(b"hydra")) && args.get(1) == Some(&b"daemon".as_slice());
+            if !is_daemon {
+                continue;
+            }
+            // Its socket: HYDRA_SOCKET in its environment, else the default one.
+            let env = std::fs::read(entry.path().join("environ")).unwrap_or_default();
+            let theirs = env
+                .split(|b| *b == 0)
+                .find_map(|kv| kv.strip_prefix(b"HYDRA_SOCKET="))
+                .map(|v| String::from_utf8_lossy(v).into_owned())
+                .unwrap_or_else(|| "default".into());
+            if theirs == label {
+                return Some(pid);
+            }
+        }
+    }
+    // Elsewhere a server's socket can't be read off its process: only when there's exactly
+    // one, and it's the default server you mean.
+    #[cfg(not(target_os = "linux"))]
+    if std::env::var("HYDRA_SOCKET").is_err() {
+        let list = if cfg!(windows) {
+            crate::proc::run(std::process::Command::new("powershell").args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-CimInstance Win32_Process -Filter \"Name='hydra.exe'\" | Where-Object { $_.CommandLine -match '\\sdaemon\\s*$' } | ForEach-Object { $_.ProcessId }",
+            ]))
+        } else {
+            crate::proc::run(std::process::Command::new("pgrep").args(["-f", "hydra daemon$"]))
+        };
+        let pids: Vec<u32> = list.unwrap_or_default().split_whitespace().filter_map(|p| p.parse().ok()).filter(|p| *p != std::process::id()).collect();
+        if let [pid] = pids[..] {
+            return Some(pid);
+        }
+    }
+    None
 }
 
 /// The workspace this command runs in (via its pane), else the active one.
@@ -537,7 +626,7 @@ pub fn move_to_worktree(branch: String) -> Result<()> {
         .ok_or_else(|| anyhow!("run this from inside a hydra pane (an agent running in hydra)"))?;
     let branch = Some(branch.trim().to_string()).filter(|b| !b.is_empty());
     block_on(async move {
-        let (mut r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "no hydra server running" })?;
+        let (mut r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the hydra server" })?;
         ipc::send(&mut w, &ClientMsg::Command(Command::MoveToWorktree { term, branch })).await?;
         loop {
             match ipc::recv_server(&mut r).await? {
@@ -871,7 +960,7 @@ pub fn integrate(agent: &str, uninstall: bool) -> Result<()> {
 /// Debugging: the colours a pane's program is drawing (rows with a background colour).
 pub fn debug_colors(pane: TermId) -> Result<()> {
     block_on(async move {
-        let (mut r, _w) = ipc::open(true).await.context("no hydra server running")?;
+        let (mut r, _w) = ipc::open(true).await.context("couldn't reach the hydra server")?;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
         while let Ok(Ok(Some(msg))) = tokio::time::timeout_at(deadline, ipc::recv_server(&mut r)).await {
             if let ServerMsg::Replay { term, cols, rows, data } = msg

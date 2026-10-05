@@ -20,6 +20,30 @@ type Halves = (RecvHalf, SendHalf);
 
 const MAX_FRAME: usize = 64 * 1024 * 1024;
 
+/// The running server is another hydra version: the two can't talk (see PROTOCOL_VERSION).
+#[derive(Debug)]
+pub struct OtherVersion {
+    pub daemon: u32,
+}
+
+impl std::fmt::Display for OtherVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the running server is another hydra version (protocol v{}, this one v{}); `hydra kill-server` stops it, then run hydra again",
+            self.daemon,
+            protocol::PROTOCOL_VERSION
+        )
+    }
+}
+
+impl std::error::Error for OtherVersion {}
+
+/// Where the server notes its process id, so a hydra of another version can still stop it.
+pub fn pid_file() -> std::path::PathBuf {
+    crate::config::data_dir().join(format!("{}.pid", socket_id()))
+}
+
 /// Server identity. `HYDRA_SOCKET` picks a separate server (like `tmux -L`).
 pub fn socket_id() -> String {
     let label = std::env::var("HYDRA_SOCKET").unwrap_or_else(|_| "default".into());
@@ -242,10 +266,7 @@ pub async fn open(attach: bool) -> Result<(Reader, Writer)> {
     }
     match first {
         Some(ServerMsg::Welcome { version }) if version == protocol::PROTOCOL_VERSION => Ok((r, w)),
-        Some(ServerMsg::Welcome { version }) => bail!(
-            "daemon speaks protocol v{version}, this binary v{}; run `hydra kill-server` and retry",
-            protocol::PROTOCOL_VERSION
-        ),
+        Some(ServerMsg::Welcome { version }) => Err(OtherVersion { daemon: version }.into()),
         Some(ServerMsg::Error(e)) => bail!(e),
         _ => bail!("unexpected handshake from daemon"),
     }

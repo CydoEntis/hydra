@@ -160,6 +160,8 @@ pub fn run() -> Result<()> {
         }
         let listener = ipc::listen()?;
         tracing::info!("daemon listening on {}", ipc::socket_id());
+        // Lets `hydra kill-server` from another version stop it (it can't talk to this one).
+        let _ = std::fs::write(ipc::pid_file(), std::process::id().to_string());
         let (tx, rx) = mpsc::channel::<Ev>(4096);
 
         let accept_tx = tx.clone();
@@ -243,6 +245,11 @@ async fn serve(id: ClientId, stream: interprocess::local_socket::tokio::Stream, 
     }
     let _ = ev.send(Ev::Disconnected(id)).await;
     writer.abort();
+}
+
+/// Discard the saved session (for `kill-server --forget` when the server couldn't be asked).
+pub fn forget_session() {
+    persist::forget();
 }
 
 impl Daemon {
@@ -337,6 +344,7 @@ impl Daemon {
                 }
                 self.broadcast(|_| true, ServerMsg::Bye);
                 tokio::time::sleep(Duration::from_millis(100)).await;
+                let _ = std::fs::remove_file(ipc::pid_file());
                 std::process::exit(0);
             }
         }
