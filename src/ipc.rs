@@ -255,7 +255,15 @@ pub async fn open(attach: bool) -> Result<(Reader, Writer)> {
         Some(host) => connect_remote(&host).await?,
         None => framed(connect().await?),
     };
-    send(&mut w, &ClientMsg::Hello { version: protocol::PROTOCOL_VERSION, attach }).await?;
+    // A command run inside a pane says which (with the pane's secret): what it may do is
+    // that pane's to say. hydra's own window is you.
+    let from = (!attach)
+        .then(|| {
+            let term = std::env::var("HYDRA_TERM_ID").ok()?.parse().ok()?;
+            Some((term, std::env::var("HYDRA_PANE_TOKEN").unwrap_or_default()))
+        })
+        .flatten();
+    send(&mut w, &ClientMsg::Hello { version: protocol::PROTOCOL_VERSION, attach, from }).await?;
     let first = match recv_server(&mut r).await {
         Ok(m) => m,
         Err(e) if remote().is_some() => return Err(e.context(ssh_failure())),

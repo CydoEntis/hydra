@@ -181,7 +181,7 @@ mod hydra_tests {
         assert!(text.contains("↳ Explore"), "subagents under their agent");
         assert!(text.contains("⠋ ◇ rate") && text.contains("rate-limit · 2m"), "a worktree's session is named after it");
         assert!(!text.contains("Rate limit /login"), "under a session only its question, as in the redesign");
-        assert!(text.contains("›   shell") && !text.contains("shell 2"), "a shell in the project's folder is just 'shell', no age");
+        assert!(text.contains("\u{f489}   shell") && !text.contains("shell 2"), "a shell in the project's folder is just 'shell' (a terminal icon), no age");
         assert!(!text.contains("session"), "no 'session' wording on screen");
         for part in ["● answer", " Yes 1 ", " Always 2 ", " No 3"] {
             assert!(text.contains(part), "the answer bar has {part:?}");
@@ -838,6 +838,62 @@ mod hydra_tests {
         assert!(labels.contains(&"dst is an agent…"), "{labels:?}");
         assert!(!labels.iter().any(|l| l.starts_with("Message")), "no messaging a program that isn't an agent: {labels:?}");
         assert!(!title.contains('🐋'), "titled by the program, not its window title: {title}");
+    }
+
+    #[test]
+    fn x_closes_and_x_confirms() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        app.menu_act(menu::Act::End(vec![3]));
+        assert!(matches!(app.mode, Mode::Confirm(_)), "closing asks first");
+        app.on_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert!(matches!(app.mode, Mode::Normal), "x (as you asked to close) says yes");
+        app.menu_act(menu::Act::End(vec![3]));
+        app.on_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE));
+        assert!(matches!(app.mode, Mode::Normal), "so does Delete");
+    }
+
+    #[test]
+    fn groups_drag_to_a_new_place_and_click_to_fold() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        // A second group of terminals: the shell (pane 3) in another folder, like "notes".
+        let mut notes = app.snap.terms[&3].clone();
+        (notes.id, notes.root, notes.top, notes.branch) = (4, None, None, None);
+        notes.cwd = PathBuf::from(if cfg!(windows) { r"C:\notes" } else { "/notes" });
+        app.snap.terms.insert(4, notes);
+        let mut other = app.snap.terms[&3].clone();
+        (other.id, other.root, other.top, other.branch) = (5, None, None, None);
+        other.cwd = PathBuf::from(if cfg!(windows) { r"C:\api" } else { "/api" });
+        app.snap.terms.insert(5, other);
+        for (id, t) in [(30, 4), (40, 5)] {
+            let mut ws = app.snap.workspaces[0].clone();
+            ws.id = id;
+            ws.tabs = vec![crate::protocol::TabInfo { id: id + 1, name: String::new(), layout: crate::layout::Node::Leaf(t), focus: t }];
+            ws.active_tab = id + 1;
+            app.snap.workspaces.push(ws);
+        }
+        app.hy_fresh();
+        draw(&mut app, 160, 45);
+        let names = |app: &mut App| app.hy_model().iter().filter(|p| p.kind == hydra::Kind::Terminals).map(|p| p.name.clone()).collect::<Vec<_>>();
+        let before = names(&mut app);
+        assert_eq!(before.len(), 3, "shop-api's shell, notes, api: {before:?}");
+        let header = |app: &App, name_idx: usize| {
+            app.hits.iter().find_map(|(r, h)| matches!(h, Hit::Hy(hydra::HyHit::ToggleProj(i)) if app.hy.proj_keys.get(*i).is_some_and(|k| app.hy_model().iter().any(|p| p.key == *k && p.name == before[name_idx]))).then_some((r.x + 4, r.y)))
+        };
+        let (from, to) = (header(&app, 2).unwrap(), header(&app, 1).unwrap());
+        let mouse = |app: &mut App, kind: MouseEventKind, (x, y): (u16, u16)| {
+            app.on_mouse(MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE });
+            draw(app, 160, 45);
+        };
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), from);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), to);
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), to);
+        assert_eq!(names(&mut app), vec![before[0].clone(), before[2].clone(), before[1].clone()], "dragged above the other");
+        assert!(!app.hy.saved.closed.iter().any(|k| k.starts_with("p:")), "a drag doesn't fold");
+        // A click (no move) folds it.
+        let at = header(&app, 0).unwrap();
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), at);
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), at);
+        assert!(app.hy.saved.closed.iter().any(|k| k.starts_with("p:")), "a click folds");
     }
 
     #[test]

@@ -116,6 +116,8 @@ pub(super) struct Hy {
     pub pending_recipe: Option<(String, Vec<String>, Instant)>,
     /// Dragging the sidebar edge or the split divider.
     pub drag: Option<Drag>,
+    /// The group being dragged in the sidebar (its key).
+    pub drag_key: Option<String>,
     /// The splash's selected button.
     pub splash_sel: usize,
     /// The scrollbar being dragged: (pane, track, lines of history).
@@ -149,6 +151,9 @@ pub(super) enum Drag {
     Divider(usize),
     /// A pane's scrollbar.
     Scroll(TermId),
+    /// A group's header in the sidebar (its index when pressed; moved yet?): dragged onto
+    /// another group it takes that place, released where it was it folds.
+    Group(usize, bool),
 }
 
 /// The sidebar's width limits.

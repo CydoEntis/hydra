@@ -156,6 +156,9 @@ beside a session stays with it.
   worktree with an agent.
 - `#412 ✓` / `#412 ✕±`: the branch's pull request, its checks, and review state. Click it.
 - Things that need you sort to the top. Agents asleep (see Settings) show `☾ asleep`.
+- Drag a group's name up or down to reorder; click it to fold. With the sidebar focused
+  (`Ctrl+Space e`), a row's menu letters work directly: `x` (or Delete) closes, `r` renames,
+  `m` messages. The bottom-left says which hydra you're on.
 
 The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 
@@ -411,6 +414,8 @@ these sources, in order:
 1. **Hooks**, which are exact. `hydra integrate claude` adds hooks to `~/.claude/settings.json`.
    They stay inert outside hydra panes and are tagged so a re-run or `--uninstall` replaces them cleanly.
    Any tool can report its own state with `hydra hook <name> --status working|blocked|done|idle`.
+   `hydra integrate gemini` and `hydra integrate qwen` do the same for Gemini CLI and Qwen Code;
+   `hydra integrate opencode` writes a small opencode plugin that tells hydra what it's doing.
    For Codex, `hydra integrate codex` sets hydra as its `notify` (in `~/.codex/config.toml`;
    another program's notify is left alone).
 2. **Screen patterns**: regexes matched against the bottom of the screen, such as "esc to interrupt".
@@ -434,6 +439,15 @@ hydra ask-human "Deploy to staging?" -o Yes -o "Not yet"   # prints the answer y
 
 The pane shows **needs you** (with a notification), the question is in the Inbox and on the
 pane's answer bar, and a number or click answers. Without `-o` the answers are Yes / No.
+
+## What agents may do
+
+A command an agent runs in its pane (the `hydra` CLI, or `hydra mcp`) acts as that pane, and a
+pane may by default **read** other panes, **write** (type) into them and **start** sessions. To
+also **respond** (answer another agent's prompt or question) or **admin** (close other panes,
+stop hydra), grant it: `hydra grant 4 read,write,start,respond` (`hydra grant 4 default` puts it
+back), or change the default in `[mcp] grants`. Only you can grant: not from inside a pane. These
+are guardrails for agents that behave, not a sandbox.
 
 ## Claude Code agent teams
 

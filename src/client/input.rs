@@ -110,6 +110,11 @@ impl App {
                     self.mode = Mode::Normal;
                     self.confirm_done(Some(c.act));
                 }
+                // Closing: x (as you asked to close) or Delete says yes too.
+                KeyCode::Char('x') | KeyCode::Delete if matches!(c.act, crate::client::menu::Act::End(_) | crate::client::menu::Act::CloseProject(_)) => {
+                    self.mode = Mode::Normal;
+                    self.confirm_done(Some(c.act));
+                }
                 KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('q') => {
                     self.mode = Mode::Normal;
                     self.confirm_done(None);
@@ -408,6 +413,28 @@ impl App {
                                 self.scroll_to(term, v.min(total));
                             }
                         }
+                        hydra::Drag::Group(pi, _) => {
+                            let over = self.hits.iter().rev().find(|(r, h)| r.contains(pos) && matches!(h, Hit::Hy(hydra::HyHit::ToggleProj(_)))).map(|(_, h)| *h);
+                            if let Some(Hit::Hy(hydra::HyHit::ToggleProj(to))) = over
+                                && let Some(from) = self.hy.drag_key.clone()
+                                && let Some(target) = self.hy.proj_keys.get(to).cloned()
+                                && target != from
+                            {
+                                // Every group in today's order, then this one moved to the
+                                // other's place.
+                                let mut order: Vec<String> = self.hy.proj_keys.clone();
+                                order.retain(|k| *k != from);
+                                let at = order.iter().position(|k| *k == target).unwrap_or(order.len());
+                                let at = if to > pi { at + 1 } else { at };
+                                order.insert(at.min(order.len()), from);
+                                // Groups not on screen keep their place after these.
+                                let rest: Vec<String> = self.hy.saved.order.iter().filter(|k| !order.contains(k)).cloned().collect();
+                                order.extend(rest);
+                                self.hy.saved.order = order;
+                                self.hy.drag = Some(hydra::Drag::Group(to, true));
+                                self.hy_fresh();
+                            }
+                        }
                         hydra::Drag::Divider(i) => {
                             if let Some((r, horizontal, path)) = self.hy.dividers.get(i).cloned() {
                                 // The line sits two columns in from the left part's edge (the
@@ -428,7 +455,16 @@ impl App {
                     return;
                 }
                 MouseEventKind::Up(_) => {
+                    // A group header pressed and let go where it was: fold or open it.
+                    if let hydra::Drag::Group(pi, false) = d {
+                        self.hy.drag = None;
+                        self.hy.drag_key = None;
+                        self.on_hy_hit(hydra::HyHit::ToggleProj(pi), false);
+                        self.dirty = true;
+                        return;
+                    }
                     self.hy.drag = None;
+                    self.hy.drag_key = None;
                     self.hy.save();
                     self.dirty = true;
                     return;
@@ -470,6 +506,14 @@ impl App {
         }
         if m.kind == MouseEventKind::Down(MouseButton::Left) {
             let hit = self.hits.iter().rev().find(|(r, _)| r.contains(pos)).map(|(_, h)| *h);
+            // A group's header: it may be dragged to a new place; a plain click folds it (on
+            // release).
+            if let Some(Hit::Hy(hydra::HyHit::ToggleProj(pi))) = hit {
+                self.hy.drag = Some(hydra::Drag::Group(pi, false));
+                self.hy.drag_key = self.hy.proj_keys.get(pi).cloned();
+                self.dirty = true;
+                return;
+            }
             if let Some(h @ Hit::Hy(hh)) = hit {
                 let double = self.last_click.is_some_and(|(prev, at)| prev == h && at.elapsed() < DOUBLE_CLICK);
                 self.last_click = Some((h, Instant::now()));

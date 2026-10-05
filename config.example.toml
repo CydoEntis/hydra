@@ -69,7 +69,7 @@ working = "⠹"
 blocked = "●"
 done = "●"                  # same as blocked, told apart by colour (green)
 idle = "○"
-shell = "›"
+shell = ""                  # a terminal (Nerd Font); ">" or "$" without one
 branch = "\ue0a0 "          # Nerd Font branch glyph; use "" or "on " without one
 
 [notify]

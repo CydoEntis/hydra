@@ -309,6 +309,18 @@ pub fn focused_pane() -> Option<TermId> {
     s.workspaces.iter().find(|w| Some(w.id) == s.active_ws)?.tab().map(|t| t.focus)
 }
 
+/// `hydra grant <pane> read,write,…|default`.
+pub fn grant(term: TermId, grants: &str) -> Result<()> {
+    let list = (grants.trim() != "default").then(|| grants.split(',').map(|g| g.trim().to_lowercase()).filter(|g| !g.is_empty()).collect::<Vec<_>>());
+    command(Command::Grant { term, grants: list.clone() })?;
+    match list {
+        Some(l) if l.is_empty() => println!("pane {term} may do nothing through hydra but its own work"),
+        Some(l) => println!("pane {term} may: {}", l.join(", ")),
+        None => println!("pane {term} is back to the default grants ([mcp] grants in config)"),
+    }
+    Ok(())
+}
+
 /// `hydra ask-human "…?" -o Yes -o No`: ask the person, wait, print the answer.
 pub fn ask_human(text: String, options: Vec<String>) -> Result<()> {
     let term = resolve_pane(None).context("run it in a hydra pane (the question shows there)")?;
@@ -686,13 +698,16 @@ pub fn status_from_hook(payload: &Value) -> Option<HookStatus> {
     Some(match event {
         "PreToolUse" if tool == "AskUserQuestion" => HookStatus::Blocked,
         "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "SubagentStart" => HookStatus::Working,
+        // Gemini CLI.
+        "BeforeAgent" | "BeforeTool" | "AfterTool" => HookStatus::Working,
+        "AfterAgent" => HookStatus::Done,
         "SubagentStop" => HookStatus::Same,
         "PermissionRequest" => HookStatus::Blocked,
         "Notification" => {
             let kind = payload.get("notification_type").and_then(Value::as_str).unwrap_or("");
             let msg = payload.get("message").and_then(Value::as_str).unwrap_or("").to_lowercase();
             match kind {
-                "permission_prompt" | "elicitation_dialog" => HookStatus::Blocked,
+                "permission_prompt" | "elicitation_dialog" | "ToolPermission" => HookStatus::Blocked,
                 "idle_prompt" => HookStatus::Done,
                 _ if msg.contains("permission") => HookStatus::Blocked,
                 _ => return None,
@@ -701,6 +716,21 @@ pub fn status_from_hook(payload: &Value) -> Option<HookStatus> {
         "Stop" => HookStatus::Done,
         "SessionStart" => HookStatus::Idle,
         "SessionEnd" => HookStatus::Gone,
+        // opencode (its plugin passes the event).
+        "" if payload.get("type").and_then(Value::as_str).is_some_and(|t| t.contains('.')) => {
+            let ty = payload.get("type").and_then(Value::as_str).unwrap_or("");
+            let state = payload.pointer("/properties/status/type").and_then(Value::as_str).unwrap_or("");
+            match ty {
+                "session.status" if state == "busy" || state == "retry" => HookStatus::Working,
+                "session.status" if state == "idle" => HookStatus::Done,
+                "session.idle" => HookStatus::Done,
+                "permission.asked" | "permission.updated" | "question.asked" => HookStatus::Blocked,
+                "permission.replied" => HookStatus::Working,
+                "session.created" => HookStatus::Idle,
+                "session.deleted" => HookStatus::Gone,
+                _ => return None,
+            }
+        }
         // Codex `notify`.
         _ if payload.get("type").and_then(Value::as_str) == Some("agent-turn-complete") => HookStatus::Done,
         _ => return None,
@@ -832,6 +862,52 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
     })
 }
 
+/// Gemini CLI's hook events (its settings.json takes Claude's shape, with its own names).
+const GEMINI_EVENTS: &[(&str, Option<&str>)] = &[
+    ("BeforeAgent", None),
+    ("BeforeTool", None),
+    ("AfterTool", None),
+    ("Notification", None),
+    ("AfterAgent", None),
+    ("SessionStart", None),
+    ("SessionEnd", None),
+];
+
+/// A tool's settings.json under the home folder (`.gemini`, `.qwen`), or `$<env>/…`.
+fn home_settings(env: &str, dir: &str) -> PathBuf {
+    std::env::var_os(env)
+        .map(|h| PathBuf::from(h).join(dir))
+        .unwrap_or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().join(dir)).unwrap_or_default())
+        .join("settings.json")
+}
+
+/// opencode has no command hooks: a plugin hands each event to `hydra hook opencode`.
+fn opencode_plugin(uninstall: bool) -> Result<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().join(".config")).unwrap_or_default());
+    let path = base.join("opencode").join("plugins").join("hydra.js");
+    if uninstall {
+        let _ = std::fs::remove_file(&path);
+        return Ok(path);
+    }
+    let exe = this_exe()?;
+    let js = format!(
+        "// Written by `hydra integrate opencode`: tells hydra what opencode is doing (inert outside hydra).\n\
+export const Hydra = async ({{ $, directory }}) => ({{\n\
+  event: async ({{ event }}) => {{\n\
+    if (!process.env.HYDRA_TERM_ID) return\n\
+    await $`{exe} hook opencode ${{JSON.stringify({{ ...event, cwd: directory }})}}`.quiet().nothrow()\n\
+  }},\n\
+}})\n"
+    );
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    crate::config::write_atomic(&path, js)?;
+    Ok(path)
+}
+
 const CLAUDE_EVENTS: &[(&str, Option<&str>)] = &[
     ("UserPromptSubmit", None),
     ("PreToolUse", None),
@@ -864,8 +940,15 @@ fn this_exe() -> Result<String> {
 
 /// Add (or with `uninstall`, remove) hydra's hooks in Claude Code's settings.
 fn claude_hooks(uninstall: bool) -> Result<PathBuf> {
+    json_hooks(&claude_settings(), "claude", CLAUDE_EVENTS, 5, uninstall)
+}
+
+/// Add (or remove) hydra's hooks in a Claude-style settings.json (Claude Code, Gemini CLI,
+/// Qwen Code): one tagged group per event running `hydra hook <agent>`, `timeout` in the
+/// tool's own unit. The rest of the file is kept, with a backup beside it.
+fn json_hooks(path: &std::path::Path, agent: &str, events: &[(&str, Option<&str>)], timeout: u64, uninstall: bool) -> Result<PathBuf> {
     let exe = this_exe()?;
-    let path = claude_settings();
+    let path = path.to_path_buf();
     let mut root: Value = match std::fs::read_to_string(&path) {
         Ok(s) if s.trim().is_empty() => json!({}),
         Ok(s) => serde_json::from_str(&s).with_context(|| format!("{} isn't valid JSON; not touching it", path.display()))?,
@@ -881,14 +964,14 @@ fn claude_hooks(uninstall: bool) -> Result<PathBuf> {
         .entry("hooks")
         .or_insert_with(|| json!({}));
     let hooks = hooks.as_object_mut().ok_or_else(|| anyhow!("`hooks` is not an object"))?;
-    for (event, matcher) in CLAUDE_EVENTS {
+    for (event, matcher) in events {
         let groups = hooks.entry(*event).or_insert_with(|| json!([]));
         let Some(arr) = groups.as_array_mut() else { continue };
         arr.retain(|g| !is_ours(g));
         if !uninstall {
             let mut g = json!({
                 "_hydra": true,
-                "hooks": [{ "type": "command", "command": format!("\"{exe}\" hook claude"), "timeout": 5 }],
+                "hooks": [{ "type": "command", "command": format!("\"{exe}\" hook {agent}"), "timeout": timeout }],
             });
             if let Some(m) = matcher {
                 g["matcher"] = json!(m);
@@ -1031,6 +1114,23 @@ pub fn integrate(agent: &str, uninstall: bool) -> Result<()> {
             println!("prompts is up to you: hydra Settings → Agents (never, by default).");
             Ok(())
         }
+        "gemini" | "qwen" => {
+            let (path, events, timeout) = if agent == "gemini" {
+                // Gemini counts its timeout in milliseconds.
+                (home_settings("GEMINI_CLI_HOME", ".gemini"), GEMINI_EVENTS, 5000)
+            } else {
+                // Qwen Code copies Claude's events (and seconds).
+                (home_settings("QWEN_HOME", ".qwen"), CLAUDE_EVENTS, 10)
+            };
+            let path = json_hooks(&path, agent, events, timeout, uninstall)?;
+            println!("{} hydra hooks {} {}", if uninstall { "removed" } else { "installed" }, if uninstall { "from" } else { "into" }, path.display());
+            Ok(())
+        }
+        "opencode" => {
+            let path = opencode_plugin(uninstall)?;
+            println!("{} hydra's opencode plugin: {}", if uninstall { "removed" } else { "wrote" }, path.display());
+            Ok(())
+        }
         "codex" => {
             let path = codex_config();
             match codex_notify(&path, &exe, uninstall)? {
@@ -1113,6 +1213,20 @@ pub fn allow(dir: Option<std::path::PathBuf>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn gemini_qwen_and_opencode_events_mean_states() {
+        use crate::protocol::HookStatus as H;
+        let st = |v: serde_json::Value| super::status_from_hook(&v);
+        assert_eq!(st(serde_json::json!({"hook_event_name": "BeforeAgent"})), Some(H::Working), "gemini: a turn starts");
+        assert_eq!(st(serde_json::json!({"hook_event_name": "AfterAgent"})), Some(H::Done));
+        assert_eq!(st(serde_json::json!({"hook_event_name": "Notification", "notification_type": "ToolPermission"})), Some(H::Blocked));
+        assert_eq!(st(serde_json::json!({"hook_event_name": "Stop"})), Some(H::Done), "qwen speaks claude's events");
+        assert_eq!(st(serde_json::json!({"type": "session.status", "properties": {"status": {"type": "busy"}}})), Some(H::Working), "opencode");
+        assert_eq!(st(serde_json::json!({"type": "permission.asked", "properties": {}})), Some(H::Blocked));
+        assert_eq!(st(serde_json::json!({"type": "session.idle", "properties": {}})), Some(H::Done));
+        assert_eq!(st(serde_json::json!({"type": "agent-turn-complete"})), Some(H::Done), "codex unchanged");
+    }
+
     #[test]
     fn codex_notify_is_set_and_others_kept() {
         let file = std::env::temp_dir().join(format!("hydra-codex-{}.toml", std::process::id()));

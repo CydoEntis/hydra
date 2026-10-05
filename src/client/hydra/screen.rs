@@ -537,6 +537,12 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
         hit(app, hr, h);
         hx += sw + 4;
     }
+    // Which hydra this is (and a newer one, if the daily check found it).
+    let mut ver = vec![seg(format!("hydra {}", env!("CARGO_PKG_VERSION")), plain.fg(t.muted))];
+    if let Some(v) = &app.update_available {
+        ver.push(seg(format!(" · {v} is out"), plain.fg(t.accent)));
+    }
+    put(buf, x0 + 2, by + 2, &ver, r.right().saturating_sub(1));
 }
 
 pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme) {

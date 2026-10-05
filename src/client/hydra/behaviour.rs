@@ -542,6 +542,12 @@ impl App {
             },
             KeyCode::Esc => self.hy_side_leave(),
             _ if spec == self.keymap.prefix => self.mode = Mode::Prefix { since: Instant::now() },
+            // Delete closes the row, like x.
+            KeyCode::Delete => {
+                if let Some((_, act)) = self.cursor_items().into_iter().find(|(_, a)| matches!(a, crate::client::menu::Act::End(_) | crate::client::menu::Act::CloseProject(_))) {
+                    self.menu_act(act);
+                }
+            }
             // A letter from the row's menu does that (x close, r rename, m message, …).
             KeyCode::Char(c) if plain && crate::client::menu::menu_keys(&self.cursor_items()).contains(&Some(c)) => {
                 let items = self.cursor_items();

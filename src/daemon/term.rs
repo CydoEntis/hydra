@@ -126,6 +126,8 @@ pub struct Term {
     pub trusted: std::collections::HashSet<u32>,
     /// A secret only this pane's processes have (HYDRA_PANE_TOKEN).
     pub token: String,
+    /// What it may do through hydra, if you set it for this pane (else `[mcp] grants`).
+    pub grants: Option<Vec<String>>,
     /// Finished and not seen before a restart: stays "done" once it's back.
     pub restore_unseen: bool,
     /// Typed while it was asleep: delivered once it's back up (or after a few seconds).
@@ -386,6 +388,7 @@ impl Term {
             win32_input: false,
             done_held: None,
             subagent_seen: None,
+            grants: None,
             progress_off: None,
             last_working_hook: None,
             blocked_at: None,

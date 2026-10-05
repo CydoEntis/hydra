@@ -241,6 +241,13 @@ impl App {
                     self.menu_act(a);
                 }
             }
+            // Delete: its close item, like x.
+            KeyCode::Delete if m.items.iter().any(|(_, a)| matches!(a, Act::End(_) | Act::CloseProject(_))) => {
+                self.mode = Mode::Normal;
+                if let Some((_, a)) = m.items.iter().find(|(_, a)| matches!(a, Act::End(_) | Act::CloseProject(_))).cloned() {
+                    self.menu_act(a);
+                }
+            }
             // An item's key picks it.
             KeyCode::Char(c) if menu_keys(&m.items).contains(&Some(c.to_ascii_lowercase())) => {
                 let i = menu_keys(&m.items).iter().position(|k| *k == Some(c.to_ascii_lowercase())).unwrap_or(0);

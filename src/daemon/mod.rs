@@ -49,6 +49,8 @@ const MASS_EXIT_WINDOW: Duration = Duration::from_secs(5);
 #[allow(clippy::large_enum_variant)]
 pub enum Ev {
     Connected(ClientId, mpsc::Sender<ServerMsg>, bool),
+    /// The connection's request comes from inside this pane (with this secret).
+    From(ClientId, TermId, String),
     Msg(ClientId, ClientMsg),
     Disconnected(ClientId),
     Output(TermId, Vec<u8>),
@@ -92,6 +94,9 @@ fn same_path(a: &std::path::Path, b: &std::path::Path) -> bool {
 struct Client {
     tx: mpsc::Sender<ServerMsg>,
     attach: bool,
+    /// The pane it acts from (its secret checked): what it may do is that pane's grants.
+    /// None: you (hydra's window, or a terminal outside hydra).
+    from: Option<TermId>,
     /// Its queue filled up (a stalled terminal, a slow SSH link): it's dropped, and can
     /// attach again for a fresh copy of everything.
     behind: std::cell::Cell<bool>,
@@ -222,8 +227,8 @@ fn init_logging() {
 
 async fn serve(id: ClientId, stream: interprocess::local_socket::tokio::Stream, ev: mpsc::Sender<Ev>) {
     let (mut r, mut w) = ipc::framed(stream);
-    let attach = match ipc::recv_client(&mut r).await {
-        Ok(Some(ClientMsg::Hello { attach, .. })) => attach,
+    let (attach, from) = match ipc::recv_client(&mut r).await {
+        Ok(Some(ClientMsg::Hello { attach, from, .. })) => (attach, from),
         _ => return,
     };
     if ipc::send(&mut w, &ServerMsg::Welcome { version: PROTOCOL_VERSION }).await.is_err() {
@@ -231,6 +236,11 @@ async fn serve(id: ClientId, stream: interprocess::local_socket::tokio::Stream, 
     }
     let (tx, mut rx) = mpsc::channel::<ServerMsg>(CLIENT_QUEUE);
     if ev.send(Ev::Connected(id, tx, attach)).await.is_err() {
+        return;
+    }
+    if let Some((term, token)) = from
+        && ev.send(Ev::From(id, term, token)).await.is_err()
+    {
         return;
     }
     let writer = tokio::spawn(async move {
@@ -248,6 +258,78 @@ async fn serve(id: ClientId, stream: interprocess::local_socket::tokio::Stream, 
     }
     let _ = ev.send(Ev::Disconnected(id)).await;
     writer.abort();
+}
+
+/// What a pane may do through hydra (see `[mcp] grants`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Grant {
+    Read,
+    Write,
+    Start,
+    Respond,
+    Admin,
+}
+
+impl Grant {
+    fn name(self) -> &'static str {
+        match self {
+            Grant::Read => "read",
+            Grant::Write => "write",
+            Grant::Start => "start",
+            Grant::Respond => "respond",
+            Grant::Admin => "admin",
+        }
+    }
+    fn says(self) -> &'static str {
+        match self {
+            Grant::Read => "read other panes",
+            Grant::Write => "type into other panes",
+            Grant::Start => "start sessions",
+            Grant::Respond => "answer another agent's prompt or question",
+            Grant::Admin => "close other panes or stop hydra",
+        }
+    }
+}
+
+impl Daemon {
+    /// May this connection do `g` (to pane `target`)? You always may; a pane may do anything
+    /// to itself, and the rest per its grants.
+    pub(super) fn may(&self, client: ClientId, g: Grant, target: Option<TermId>) -> anyhow::Result<()> {
+        let Some(from) = self.clients.get(&client).and_then(|c| c.from) else { return Ok(()) };
+        if target == Some(from) && g != Grant::Admin {
+            return Ok(());
+        }
+        let grants = self.terms.get(&from).and_then(|t| t.grants.clone()).unwrap_or_else(|| self.cfg.mcp.grants.clone());
+        // Letting agents approve prompts (Settings → Agents) is letting them respond.
+        let respond_by_setting = g == Grant::Respond && self.cfg.mcp.approve != "never";
+        if respond_by_setting || grants.iter().any(|x| x == g.name()) {
+            return Ok(());
+        }
+        anyhow::bail!("this pane may not {} through hydra (hydra grant {from} {} allows it)", g.says(), g.name())
+    }
+
+    /// The grant a command needs.
+    fn may_command(&self, client: ClientId, cmd: &Command) -> anyhow::Result<()> {
+        match cmd {
+            Command::NewWorkspace { .. } | Command::NewTab { .. } | Command::Split { .. } | Command::NewWorktree { .. } | Command::Dev { .. } => {
+                self.may(client, Grant::Start, None)
+            }
+            Command::ClosePane { term } => self.may(client, Grant::Admin, Some(*term)).or_else(|e| {
+                // Closing itself is fine.
+                if self.clients.get(&client).and_then(|c| c.from) == Some(*term) { Ok(()) } else { Err(e) }
+            }),
+            Command::CloseWorkspace { .. } | Command::CloseTab { .. } | Command::RemoveWorktree { .. } | Command::KillServer { .. } => self.may(client, Grant::Admin, None),
+            Command::AnswerHuman { id, .. } => {
+                let asker = self.questions.iter().find(|(q, ..)| q.id == *id).map(|(q, ..)| q.term);
+                self.may(client, Grant::Respond, asker.filter(|_| false))
+            }
+            // Only you hand out grants.
+            Command::Grant { .. } if self.clients.get(&client).is_some_and(|c| c.from.is_some()) => {
+                anyhow::bail!("grants are yours to give: run hydra grant outside hydra's panes, or use the pane's menu")
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 /// Discard the saved session (for `kill-server --forget` when the server couldn't be asked).
@@ -446,7 +528,7 @@ impl Daemon {
         self.drop_lagging_clients();
         match ev {
             Ev::Connected(id, tx, attach) => {
-                let c = Client { tx, attach, behind: std::cell::Cell::new(false) };
+                let c = Client { tx, attach, from: None, behind: std::cell::Cell::new(false) };
                 if attach {
                     c.push(ServerMsg::State(self.snapshot()));
                     for t in self.terms.values() {
@@ -454,6 +536,15 @@ impl Daemon {
                     }
                 }
                 self.clients.insert(id, c);
+            }
+            Ev::From(id, term, token) => {
+                // Only with the pane's secret: anything else can't claim to be it.
+                let ok = self.terms.get(&term).is_some_and(|t| term::same_secret(&t.token, &token));
+                if let Some(c) = self.clients.get_mut(&id) {
+                    // A wrong secret still marks it as from a pane (it gets a pane's default
+                    // grants), never as you.
+                    c.from = Some(if ok { term } else { TermId::MAX });
+                }
             }
             Ev::Disconnected(id) => {
                 self.clients.remove(&id);
@@ -697,6 +788,12 @@ impl Daemon {
         match msg {
             ClientMsg::Hello { .. } => {}
             ClientMsg::Input { term, data } => {
+                // Typing into another pane needs write; into one that's asking, respond.
+                let asking = self.terms.get(&term).is_some_and(|t| t.status == Status::Blocked);
+                if let Err(e) = self.may(client, Grant::Write, Some(term)).and_then(|_| if asking { self.may(client, Grant::Respond, Some(term)) } else { Ok(()) }) {
+                    self.send(client, ServerMsg::Error(format!("{e:#}")));
+                    return;
+                }
                 if self.terms.get(&term).is_some_and(|t| t.asleep) {
                     // Wake it, and hand over what was typed once it's ready.
                     if let Some(new) = self.wake(term)
@@ -732,6 +829,10 @@ impl Daemon {
                 }
             }
             ClientMsg::Command(cmd) => {
+                if let Err(e) = self.may_command(client, &cmd) {
+                    self.send(client, ServerMsg::Error(format!("{e:#}")));
+                    return;
+                }
                 match self.command(client, cmd) {
                     Ok(true) => self.send(client, ServerMsg::Reply(Reply::Ok)),
                     Ok(false) => {} // answered when the background work finishes
@@ -742,6 +843,9 @@ impl Daemon {
             ClientMsg::Query(q) => {
                 let reply = match q {
                     Query::List => ServerMsg::Reply(Reply::List(self.snapshot())),
+                    Query::Read { term } if self.may(client, Grant::Read, Some(term)).is_err() => {
+                        ServerMsg::Error(format!("{:#}", self.may(client, Grant::Read, Some(term)).unwrap_err()))
+                    }
                     Query::Read { term } => match self.terms.get(&term) {
                         Some(t) => ServerMsg::Reply(Reply::Text(t.parser.screen().contents())),
                         None => ServerMsg::Error(format!("no pane {term}")),

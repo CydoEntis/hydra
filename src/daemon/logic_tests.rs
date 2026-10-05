@@ -254,3 +254,33 @@ fn an_agent_asks_you_and_gets_your_answer() {
     let terms: Vec<TermId> = d.terms.keys().copied().collect();
     close(&mut d, &terms);
 }
+
+#[test]
+fn a_pane_does_what_its_grants_allow() {
+    let (mut d, _rx) = daemon();
+    let (a, b) = (pane(&mut d), pane(&mut d));
+    // An agent in pane a, with a's secret.
+    let (tx, mut out) = mpsc::channel(16);
+    d.handle(Ev::Connected(7, tx, false));
+    let token = d.terms[&a].token.clone();
+    d.handle(Ev::From(7, a, token));
+    let err = |out: &mut mpsc::Receiver<ServerMsg>| matches!(out.try_recv(), Ok(ServerMsg::Error(_)));
+    // Reading another pane: allowed by default.
+    d.message(7, ClientMsg::Query(Query::Read { term: b }));
+    assert!(matches!(out.try_recv(), Ok(ServerMsg::Reply(Reply::Text(_)))), "read is a default grant");
+    // Answering b's prompt: not without respond.
+    d.terms.get_mut(&b).unwrap().status = Status::Blocked;
+    d.message(7, ClientMsg::Input { term: b, data: b"1".to_vec() });
+    assert!(err(&mut out), "respond isn't a default grant");
+    // Closing b: not without admin; and it can't grant itself more.
+    d.message(7, ClientMsg::Command(Command::ClosePane { term: b }));
+    assert!(err(&mut out) && d.terms.contains_key(&b), "admin isn't a default grant");
+    d.message(7, ClientMsg::Command(Command::Grant { term: a, grants: Some(vec!["admin".into()]) }));
+    assert!(err(&mut out), "grants are yours to give");
+    // You give it admin: now it may.
+    d.message(0, ClientMsg::Command(Command::Grant { term: a, grants: Some(vec!["admin".into()]) }));
+    d.message(7, ClientMsg::Command(Command::ClosePane { term: b }));
+    assert!(!d.terms.contains_key(&b), "closed once allowed");
+    let terms: Vec<TermId> = d.terms.keys().copied().collect();
+    close(&mut d, &terms);
+}

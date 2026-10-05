@@ -156,6 +156,11 @@ pub struct Mcp {
     pub safe: Vec<String>,
     /// project: only sessions in the calling agent's repo; all: every session.
     pub scope: String,
+    /// What an agent's pane may do through hydra by default (`hydra grant` changes one
+    /// pane): read (other panes' screens), write (type into them), start (new sessions),
+    /// respond (answer another agent's prompt or question), admin (close other panes, stop
+    /// the server).
+    pub grants: Vec<String>,
 }
 
 impl Default for Mcp {
@@ -169,6 +174,7 @@ impl Default for Mcp {
             .map(String::from)
             .to_vec(),
             scope: "project".into(),
+            grants: ["read", "write", "start"].map(String::from).to_vec(),
         }
     }
 }
@@ -499,6 +505,8 @@ impl Default for Worktree {
 
 /// The "done" icon before it became a green dot.
 const OLD_DONE_ICON: &str = "✓";
+/// The shell icon before it became a terminal.
+const OLD_SHELL_ICON: &str = "›";
 
 impl Default for Icons {
     fn default() -> Self {
@@ -508,7 +516,8 @@ impl Default for Icons {
             // Filled like "needs you", told apart by colour: green.
             done: "●".into(),
             idle: "○".into(),
-            shell: "›".into(),
+            // A terminal (Nerd Font); set it to ">" or "$" without one.
+            shell: "\u{f489}".into(),
             active_workspace: "▌".into(),
             branch: "\u{e0a0} ".into(),
         }
@@ -726,6 +735,9 @@ impl Config {
         // green dot now (any other choice is kept).
         if cfg.icons.done == OLD_DONE_ICON {
             cfg.icons.done = Icons::default().done;
+        }
+        if cfg.icons.shell == OLD_SHELL_ICON {
+            cfg.icons.shell = Icons::default().shell;
         }
         Ok(cfg)
     }

@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 26;
+pub const PROTOCOL_VERSION: u32 = 27;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -19,7 +19,14 @@ pub type TabId = u32;
 #[allow(clippy::large_enum_variant)]
 pub enum ClientMsg {
     /// First frame of every connection. `attach` clients get replays and live output.
-    Hello { version: u32, attach: bool },
+    /// `from`: the pane this request comes from (its id and secret), for a command run
+    /// inside a pane (an agent); the server checks what that pane may do.
+    Hello {
+        version: u32,
+        attach: bool,
+        #[serde(default)]
+        from: Option<(TermId, String)>,
+    },
     Command(Command),
     Input { term: TermId, #[serde(with = "serde_bytes")] data: Vec<u8> },
     Resize { term: TermId, cols: u16, rows: u16 },
@@ -117,6 +124,9 @@ pub enum Command {
     AskHuman { term: TermId, text: String, options: Vec<String> },
     /// Your answer (index into its options) to question `id`.
     AnswerHuman { id: u64, choice: usize },
+    /// What a pane may do through hydra (read, write, start, respond, admin); None goes back
+    /// to the default from config. Only you can (not from inside a pane).
+    Grant { term: TermId, grants: Option<Vec<String>> },
     /// `forget`: also discard the saved session, so the next start is a clean slate.
     KillServer { forget: bool },
 }
@@ -429,7 +439,7 @@ mod tests {
     #[test]
     fn every_message_round_trips() {
         let clients = vec![
-            ClientMsg::Hello { version: PROTOCOL_VERSION, attach: true },
+            ClientMsg::Hello { version: PROTOCOL_VERSION, attach: true, from: Some((3, "00ff".into())) },
             ClientMsg::Input { term: 3, data: b"ls\r".to_vec() },
             ClientMsg::Resize { term: 3, cols: 120, rows: 40 },
             ClientMsg::Hook {
@@ -458,6 +468,7 @@ mod tests {
             ClientMsg::Command(Command::TeachAgent { term: 3 }),
             ClientMsg::Command(Command::AskHuman { term: 3, text: "Deploy?".into(), options: vec!["Yes".into(), "No".into()] }),
             ClientMsg::Command(Command::AnswerHuman { id: 1, choice: 0 }),
+            ClientMsg::Command(Command::Grant { term: 3, grants: Some(vec!["read".into()]) }),
             ClientMsg::Command(Command::RenamePane { term: 3, name: "x".into() }),
             ClientMsg::Command(Command::MoveToWorktree { term: 3, branch: Some("feat/x".into()) }),
         ];

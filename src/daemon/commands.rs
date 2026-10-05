@@ -418,6 +418,13 @@ impl Daemon {
                 self.set_status(q.term, Status::Working);
                 self.dirty = true;
             }
+            Command::Grant { term, grants } => {
+                let known = ["read", "write", "start", "respond", "admin"];
+                if let Some(bad) = grants.iter().flatten().find(|g| !known.contains(&g.as_str())) {
+                    anyhow::bail!("no such grant: {bad} (read, write, start, respond, admin)");
+                }
+                self.terms.get_mut(&term).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?.grants = grants;
+            }
             Command::ReloadConfig => {
                 self.exts = crate::ext::load_all().0;
                 self.cfg = Config::load()?;
