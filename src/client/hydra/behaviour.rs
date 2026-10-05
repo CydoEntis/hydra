@@ -140,44 +140,14 @@ impl App {
     }
 
     /// Start a session in `cwd` running `cmd` (None: a shell), beside the focused one or
-    /// on its own. It goes in the project of `cwd`; one beside another goes where that is.
+    /// on its own.
     pub(in crate::client) fn hy_new_session(&mut self, cwd: PathBuf, cmd: Option<String>, beside: bool) {
-        self.hy_start(cwd, cmd, beside, Home::Auto);
-    }
-
-    /// Start a session outside projects: it stays there wherever it goes.
-    pub(in crate::client) fn hy_new_loose(&mut self, cwd: PathBuf, cmd: Option<String>) {
-        self.hy_start(cwd, cmd, false, Home::Loose);
-    }
-
-    fn hy_start(&mut self, cwd: PathBuf, cmd: Option<String>, beside: bool, mut home: Home) {
         if beside && let Some(f) = self.focused() {
             self.hy.pending_split = Some((f, Instant::now()));
-            // A split belongs with the session it's split from.
-            if let Some(h) = self.home_of(f).filter(|h| *h != Home::Auto) {
-                home = h;
-            }
         }
         self.hy.cursor = None;
         self.mode = Mode::Normal;
-        self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd, home });
-    }
-
-    /// Where the workspace holding `term` belongs.
-    pub(in crate::client) fn home_of(&self, term: TermId) -> Option<Home> {
-        self.snap.workspaces.iter().find(|w| w.tabs.iter().any(|t| t.layout.contains(term))).map(|w| w.home.clone())
-    }
-
-    /// A shell outside projects, in the folder of the session you're on (else your home).
-    pub(in crate::client) fn hy_quick_shell(&mut self) {
-        let dir = self
-            .focused()
-            .and_then(|t| self.snap.terms.get(&t))
-            .map(|t| t.cwd.clone())
-            .filter(|d| d.is_dir())
-            .or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()))
-            .unwrap_or_else(std::env::temp_dir);
-        self.hy_new_loose(dir, None);
+        self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd });
     }
 
     /// A new worktree of a project running `cmd`: on `branch` if given (an existing one),
@@ -218,10 +188,6 @@ impl App {
         let existing = model.iter().find(|p| p.key == key);
         let found = existing.and_then(|p| p.sessions().min_by_key(|s| (rank(s.status), s.term)).map(|s| (p.name.clone(), s.term)));
         let is_new = existing.is_none();
-        if !self.hy.saved.known.iter().any(|k| path_key(k) == key) {
-            self.hy.saved.known.push(root.clone());
-            self.hy.save();
-        }
         self.hy.proj = Some(key.clone());
         match found {
             Some((name, term)) => {
@@ -358,13 +324,6 @@ impl App {
             Action::Settings => self.hy_settings(),
             Action::NewPane => self.hy_open_new_pane(false),
             // A plain shell in the project's own folder (the repo itself, not a worktree).
-            // Outside projects, it's another session out there, in that one's folder.
-            Action::ShellHere if self.hy.cursor.or(self.focused()).and_then(|t| self.home_of(t)) == Some(Home::Loose) => {
-                let dir = self.hy.cursor.or(self.focused()).and_then(|t| self.snap.terms.get(&t)).map(|t| t.cwd.clone()).unwrap_or_else(|| self.here_dir());
-                self.hy.cursor = None;
-                self.hy_new_loose(dir, None);
-            }
-            Action::QuickShell => self.hy_quick_shell(),
             Action::ShellHere => {
                 let dir = self
                     .hy
@@ -716,14 +675,6 @@ impl App {
             self.run_recipe(&p, recipe);
             return;
         }
-        if p.loose {
-            // Outside projects: where the session you're on is, else your home folder.
-            let dir = self.focused().filter(|f| self.home_of(*f) == Some(Home::Loose)).and_then(|f| self.snap.terms.get(&f)).map(|t| t.cwd.clone()).unwrap_or(main);
-            if np.beside {
-                return self.hy_new_session(dir, cmd, true);
-            }
-            return self.hy_new_loose(dir, cmd);
-        }
         if !p.git {
             return self.hy_new_session(main, cmd, np.beside);
         }
@@ -896,7 +847,7 @@ impl App {
                 match model.get(pi) {
                     Some(proj) if proj.git => self.hy_new_worktree(proj, cmd, false, None),
                     Some(proj) => self.hy_new_session(proj.path.clone(), cmd, false),
-                    None => self.notify("open a project first".into(), true),
+                    None => self.notify("start a session first (o opens a folder)".into(), true),
                 }
             }
             (_, Some(_), Some((top, _))) => {
@@ -1017,14 +968,6 @@ impl App {
         }
     }
 
-    /// Forget a project the user opened (sessions in it keep running).
-    pub(in crate::client) fn hy_forget(&mut self, p: &Path) {
-        let key = path_key(p);
-        self.hy.saved.known.retain(|k| path_key(k) != key);
-        self.hy.save();
-        self.notify(format!("forgot {}", folder_name(p)), false);
-    }
-
     /// Clicks on this layout's chips, rows and buttons.
     pub(in crate::client) fn on_hy_hit(&mut self, h: HyHit, double: bool) {
         match h {
@@ -1052,11 +995,7 @@ impl App {
             HyHit::ShellIn(pi) => {
                 if let Some(p) = self.hy_model().get(pi) {
                     let dir = p.wts.iter().find(|w| w.main).map(|w| w.path.clone()).unwrap_or_else(|| p.path.clone());
-                    if p.loose {
-                        self.hy_new_loose(dir, None);
-                    } else {
-                        self.hy_new_session(dir, None, false);
-                    }
+                    self.hy_new_session(dir, None, false);
                 }
             }
             HyHit::RowMenuSess(t) => {
@@ -1156,11 +1095,10 @@ impl App {
                 let again = v.sel == i;
                 v.sel = i;
                 let cat = crate::client::modal::Cat::ALL[v.cat.min(5)];
-                let row = crate::client::design::settings_rows(self, cat).get(i).cloned();
+                let row = crate::client::design::settings_rows(cat).get(i).cloned();
                 let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
                 match (h, row) {
                     (HyHit::SetVal(_, vi), Some(row @ SRow::Setting(_))) if vi != usize::MAX && chips_for(self, &row).is_some() => set_chip(self, &row, vi),
-                    (HyHit::SetVal(..), Some(SRow::Project(p))) => self.hy_forget(&p),
                     (HyHit::SetVal(..), Some(_)) => self.hy_settings_key(&enter),
                     (HyHit::SetRow(_), Some(_)) if again || double => self.hy_settings_key(&enter),
                     _ => {}

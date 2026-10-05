@@ -649,9 +649,8 @@ pub(super) fn key_rows() -> Vec<(&'static str, Vec<(&'static str, Vec<crate::key
             "START & TALK",
             vec![
                 ("New session (a shell here)", vec![A::ShellHere]),
-                ("Quick shell, outside projects", vec![A::QuickShell]),
                 ("New agent", vec![A::NewPane]),
-                ("Open a project", vec![A::OpenProject]),
+                ("Open a folder", vec![A::OpenProject]),
                 ("Message an agent", vec![A::Talk]),
                 ("Reply to the focused agent", vec![A::Reply]),
                 ("Rename session", vec![A::RenameWorkspace]),
@@ -694,8 +693,6 @@ pub(super) fn key_rows() -> Vec<(&'static str, Vec<(&'static str, Vec<crate::key
 pub(super) enum SRow {
     Setting(&'static super::modal::Setting),
     Bind { label: &'static str, acts: Vec<crate::keys::Action> },
-    /// A project the user opened (Settings → Projects).
-    Project(std::path::PathBuf),
     /// One theme (Settings → Appearance): index into theme::BUILTIN.
     Theme(usize),
 }
@@ -704,7 +701,6 @@ pub(super) enum SRow {
 pub(super) fn settings_group(row: &SRow) -> &'static str {
     match row {
         SRow::Theme(_) => "THEME",
-        SRow::Project(_) => "PROJECTS",
         SRow::Bind { label, .. } => key_rows().into_iter().find(|(_, items)| items.iter().any(|(l, _)| l == label)).map(|(g, _)| g).unwrap_or("KEYS"),
         SRow::Setting(s) => match s.path {
             "prefix" | "ui.mouse" | "ui.which_key" => "INPUT",
@@ -736,7 +732,7 @@ pub(super) fn theme_label(name: &str) -> String {
 }
 
 /// The rows of one settings page.
-pub(super) fn settings_rows(app: &App, cat: super::modal::Cat) -> Vec<SRow> {
+pub(super) fn settings_rows(cat: super::modal::Cat) -> Vec<SRow> {
     let mut rows: Vec<SRow> = super::modal::in_cat(cat)
         .into_iter()
         .flat_map(|s| {
@@ -757,9 +753,6 @@ pub(super) fn settings_rows(app: &App, cat: super::modal::Cat) -> Vec<SRow> {
     });
     let order: Vec<&str> = ["INPUT", "LAYOUT", "SHELL"].into_iter().filter(|g| order.contains(g)).chain(order.iter().copied().filter(|g| !["INPUT", "LAYOUT", "SHELL"].contains(g))).collect();
     rows.sort_by_key(|r| order.iter().position(|g| *g == settings_group(r)).unwrap_or(99));
-    if cat == super::modal::Cat::Projects {
-        rows.extend(app.hy.saved.known.iter().cloned().map(SRow::Project));
-    }
     if cat == super::modal::Cat::Keys {
         for (_, items) in key_rows() {
             for (label, acts) in items {
@@ -788,7 +781,6 @@ pub(super) fn control(app: &App, t: &Theme, row: &SRow, v: &SettingsView, select
     }
     match row {
         SRow::Theme(_) => vec![],
-        SRow::Project(_) => vec![seg(" forget ", Style::default().bg(t.btn).fg(t.text))],
         SRow::Bind { acts, .. } => {
             let keys = key_text(app, acts);
             if keys.is_empty() {

@@ -123,12 +123,13 @@ From source (any platform with Rust): `cargo install --git https://github.com/Cy
 ## Use
 
 ```sh
-hydra            # attach (starts the server if needed); a quick shell where you are
-hydra ~/code/api # open that directory as a project (or switch to it)
+hydra            # attach (starts the server if needed); opens the current dir
+hydra ~/code/api # open or switch to that directory
 ```
 
-The sidebar is one tree of your **projects** (git repos, found from where things run plus any
-folder you open with `o`):
+The sidebar groups your sessions by **where they are working now**: the git repo they're in (a
+subfolder counts as its repo), or the folder itself outside git. Nothing to open or set up: `cd`
+somewhere and the session moves to that group. A pane split beside a session stays with it.
 
 ```
 ▾ ▌shop-api                       ●1 ⠹1
@@ -142,7 +143,6 @@ folder you open with `o`):
        Allow running npm test?
    BRANCHES ▸ 6
 ▸ ▌web-shop                         ●1
-  + open a project  o
 ```
 
 - **main folder** is the repo itself on whatever branch it's on; shells open here.
@@ -153,10 +153,6 @@ folder you open with `o`):
   worktree with an agent.
 - `#412 ✓` / `#412 ✕±`: the branch's pull request, its checks, and review state. Click it.
 - Things that need you sort to the top. Agents asleep (see Settings) show `☾ asleep`.
-- A session stays where you started it: everything started in a project (shells, agents,
-  splits) is listed there even after it `cd`s elsewhere.
-- **outside projects**, at the bottom: quick shells (`s`), each named by the folder it's in now.
-  They stay out of every project, even when you start an agent in one or `cd` into a repo.
 
 The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 
@@ -165,8 +161,7 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 | `g` | **go to** a project or session: type to find it |
 | `e` / `a` | focus the sidebar / jump to what needs you |
 | `p` (or Space) | **command palette**: type what you want |
-| `n` / `t` / `o` | new shell in this project / new agent (task box) / open a project |
-| `s` | quick shell, outside projects (in the folder you're in) |
+| `n` / `t` / `o` | new shell here / new agent (task box) / start a session in a folder you pick |
 | `v` / `-` | split right / split down |
 | `h j k l` or arrows | focus the pane that way (left past the edge: the sidebar) |
 | `x` / `z` / `b` / `y` | close pane / zoom pane / show or hide the sidebar / select text with keys |

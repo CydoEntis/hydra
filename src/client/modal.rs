@@ -107,12 +107,11 @@ pub enum Cat {
     Sessions,
     Appearance,
     Agents,
-    Projects,
     Keys,
 }
 
 impl Cat {
-    pub const ALL: [Cat; 6] = [Cat::General, Cat::Sessions, Cat::Appearance, Cat::Agents, Cat::Projects, Cat::Keys];
+    pub const ALL: [Cat; 5] = [Cat::General, Cat::Sessions, Cat::Appearance, Cat::Agents, Cat::Keys];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -120,7 +119,6 @@ impl Cat {
             Cat::Sessions => "Sessions",
             Cat::Appearance => "Appearance",
             Cat::Agents => "Agents",
-            Cat::Projects => "Projects",
             Cat::Keys => "Keys",
         }
     }

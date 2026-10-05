@@ -318,7 +318,7 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
     }
     hline(buf, r.x + 3, r.y + 3, r.width.saturating_sub(6), t, t.card);
     let cat = Cat::ALL[v.cat.min(Cat::ALL.len() - 1)];
-    let rows = crate::client::design::settings_rows(app, cat);
+    let rows = crate::client::design::settings_rows(cat);
     let lx = r.x + 5;
     let vx = r.x + 34;
     // What the selected row does (shown under it).
@@ -326,7 +326,6 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
         Some(SRow::Setting(s)) => s.help.to_string(),
         Some(SRow::Bind { acts, .. }) if acts.len() > 1 => "Several keys; change them in the config file (o).".into(),
         Some(SRow::Bind { .. }) => "Enter, then press the new key.".into(),
-        Some(SRow::Project(_)) => "Forget this project (its sessions keep running).".into(),
         Some(SRow::Theme(_)) | None => String::new(),
     };
     // Lines: headings, rows with a blank between them, a wider gap between groups. The
@@ -397,7 +396,6 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
                         let label = match row {
                             SRow::Setting(s) => s.label.to_string(),
                             SRow::Bind { label, .. } => label.to_string(),
-                            SRow::Project(p) => tilde(p),
                             SRow::Theme(_) => String::new(),
                         };
                         put(buf, lx, y, &[seg(truncate(&label, (vx - lx - 2) as usize), ls)], vx - 1);
@@ -414,9 +412,6 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
                                 hit(app, Rect { x: cx, y, width: txt.width() as u16, height: 1 }, HyHit::SetVal(*i, vi));
                                 cx += txt.width() as u16 + 1;
                             }
-                        } else if let SRow::Project(_) = row {
-                            put(buf, vx, y, &[seg(" forget ", Style::default().bg(t.btn).fg(t.text))], r.right() - 1);
-                            hit(app, Rect { x: vx, y, width: 8, height: 1 }, HyHit::SetVal(*i, 0));
                         } else {
                             let ctrl: Vec<Seg> = crate::client::design::control(app, t, row, v, sel).into_iter().map(|(x, s)| (x, if s.bg.is_none() { s.bg(bg) } else { s })).collect();
                             put(buf, vx, y, &ctrl, r.right() - 1);
@@ -428,8 +423,7 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
         }
     }
     if rows.is_empty() {
-        let msg = if cat == Cat::Projects { "No projects opened yet. Press o to open one." } else { "Nothing to change here." };
-        put(buf, lx, top, &[seg(msg, c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right());
+        put(buf, lx, top, &[seg("Nothing to change here.", c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right());
     }
     if cat == Cat::Appearance {
         let y = (top + lines.len() as u16 + 1).min(r.bottom().saturating_sub(8));
@@ -482,8 +476,7 @@ pub(in crate::client) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: 
             vec![
                 (vec![Action::NewPane], "new agent"),
                 (vec![Action::ShellHere], "new shell"),
-                (vec![Action::QuickShell], "quick shell"),
-                (vec![Action::OpenProject], "open project"),
+                (vec![Action::OpenProject], "open folder"),
                 (vec![Action::Talk], "message"),
                 (vec![Action::Reply], "reply"),
                 (vec![Action::RenameWorkspace], "rename"),

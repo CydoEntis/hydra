@@ -240,7 +240,7 @@ pub(in crate::client) fn draw_map(app: &mut App, buf: &mut Buffer, area: Rect, t
     let model = app.hy_model();
     fill(buf, area, t.bg);
     let Some(p) = map_project(app, &model, v).cloned() else {
-        put(buf, area.x + 2, area.y + 2, &[seg("Open a project first (o).", Style::default().fg(t.muted))], area.right());
+        put(buf, area.x + 2, area.y + 2, &[seg("Start a session first (o opens a folder).", Style::default().fg(t.muted))], area.right());
         return;
     };
     crate::client::design::title_bar(

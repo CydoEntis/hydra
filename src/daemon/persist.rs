@@ -28,8 +28,6 @@ pub struct SavedWs {
     pub color: Option<u8>,
     #[serde(default)]
     pub group: Option<String>,
-    #[serde(default)]
-    pub home: crate::protocol::Home,
     pub tabs: Vec<SavedTab>,
     pub active_tab: usize,
 }

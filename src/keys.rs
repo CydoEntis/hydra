@@ -256,9 +256,6 @@ pub enum Action {
     Memory,
     /// A shell in the folder of the session you're on, straight away.
     ShellHere,
-    /// A shell outside projects (in the folder you're in): a quick terminal that stays out
-    /// of every project, whatever it becomes.
-    QuickShell,
     /// The switcher: every project and session, type to find one.
     GoTo,
     /// What happened lately: who finished, who asked, bells, messages.
@@ -336,7 +333,7 @@ impl Action {
             Action::OpenFolder => "open folder".into(),
             Action::StopAgent => "stop agent (Ctrl+C)".into(),
             Action::Jump => "Jump to what needs you".into(),
-            Action::OpenProject => "Open a project (folder)".into(),
+            Action::OpenProject => "Open a folder (start a session there)".into(),
             Action::NewSession => "+ new, beside this one".into(),
             Action::CloseSplit => "close the split".into(),
             Action::PullRequest => "Pull request (checks, reviews, diff)".into(),
@@ -349,7 +346,6 @@ impl Action {
             Action::Branches => "Switch branch".into(),
             Action::Memory => "Memory used by each session".into(),
             Action::ShellHere => "New shell here".into(),
-            Action::QuickShell => "Quick shell (outside projects)".into(),
             Action::GoTo => "Go to a project or session".into(),
             Action::History => "What happened (notifications)".into(),
             Action::Find(0) => "Find a file".into(),
@@ -430,7 +426,6 @@ impl Action {
             Action::Branches => "switch-branch".into(),
             Action::Memory => "memory".into(),
             Action::ShellHere => "shell-here".into(),
-            Action::QuickShell => "quick-shell".into(),
             Action::GoTo => "go-to".into(),
             Action::History => "history".into(),
             Action::Find(0) => "find-file".into(),
@@ -532,7 +527,6 @@ impl FromStr for Action {
             "switch-branch" => Action::Branches,
             "memory" => Action::Memory,
             "shell-here" => Action::ShellHere,
-            "quick-shell" => Action::QuickShell,
             "go-to" => Action::GoTo,
             "history" => Action::History,
             "find-file" => Action::Find(0),
@@ -604,7 +598,6 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     // Starting things
     ("t", "new"),
     ("n", "shell-here"),
-    ("s", "quick-shell"),
     ("o", "open-project"),
     (".", "presets"),
     // Agents

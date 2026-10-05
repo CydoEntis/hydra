@@ -442,7 +442,7 @@ impl App {
     pub(super) fn on_settings_view_key(&mut self, v: &mut design::SettingsView, k: &KeyEvent) -> bool {
         use modal::{Cat, Kind};
         let cat = Cat::ALL[v.cat.min(Cat::ALL.len() - 1)];
-        let rows = design::settings_rows(self, cat);
+        let rows = design::settings_rows(cat);
         let row = rows.get(v.sel).cloned();
         // Waiting for a key: the new leader, or a new key for a shortcut.
         if v.capturing {
@@ -543,10 +543,6 @@ impl App {
                 },
                 Some(design::SRow::Bind { acts, .. }) if acts.len() == 1 => v.capturing = true,
                 Some(design::SRow::Bind { .. }) => self.notify("that row has several keys: change them in the config file (o)".into(), false),
-                Some(design::SRow::Project(p)) => {
-                    let p = p.clone();
-                    self.hy_forget(&p);
-                }
                 Some(design::SRow::Theme(_)) => step(self, 1),
                 None => {}
             },
@@ -701,7 +697,7 @@ impl App {
             PromptKind::NewWorkspace => {
                 // A group starts with a shell where you are.
                 let name = (!input.is_empty()).then_some(input);
-                self.cmd(Command::NewWorkspace { cwd: Some(self.here_dir()), name, cmd: None, home: crate::protocol::Home::Auto });
+                self.cmd(Command::NewWorkspace { cwd: Some(self.here_dir()), name, cmd: None });
             }
             _ => {}
         }
@@ -735,6 +731,6 @@ impl App {
             return;
         }
         let name = if w.main { w.repo.clone() } else { format!("{}:{}", w.repo, w.branch) };
-        self.cmd(Command::NewWorkspace { cwd: Some(w.path.clone()), name: Some(name), cmd, home: crate::protocol::Home::Auto });
+        self.cmd(Command::NewWorkspace { cwd: Some(w.path.clone()), name: Some(name), cmd });
     }
 }

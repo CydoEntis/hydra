@@ -42,7 +42,6 @@ impl Daemon {
                 worktree: w.worktree,
                 color: Some(w.color),
                 group: w.group.clone(),
-                home: w.home.clone(),
                 active_tab: w.tabs.iter().position(|t| t.id == w.active_tab).unwrap_or(0),
                 tabs: w
                     .tabs
@@ -133,7 +132,6 @@ impl Daemon {
                 color,
                 is_new: false,
                 group: sw.group.clone(),
-                home: sw.home.clone(),
             });
         }
         self.active_ws = self.workspaces.get(saved.active).or(self.workspaces.first()).map(|w| w.id);

@@ -1,4 +1,4 @@
-//! Popups: shared panel helpers, jump, open project, palette, go to, history, memory.
+//! Popups: shared panel helpers, jump, open a folder, palette, go to, history, memory.
 
 use super::*;
 
@@ -190,7 +190,7 @@ pub(in crate::client) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: 
     put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("1-9", "jump"), ("Enter", "jump"), ("↑↓", "choose"), ("Esc", "close")]), r.right());
 }
 
-// Open a project -----------------------------------------------------------------------------
+// Open a folder ------------------------------------------------------------------------------
 
 impl Finder {
     pub fn new(start: &Path) -> Finder {
@@ -304,7 +304,7 @@ pub(in crate::client) fn normalize(p: &Path) -> PathBuf {
 pub(in crate::client) fn draw_finder(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, fd: &Finder) {
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let r = panel(app, buf, area, 92, 24, "Open a project", &[], t);
+    let r = panel(app, buf, area, 92, 24, "Open a folder", &[], t);
     let input = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: 1 };
     fill(buf, input, t.card2);
     let s = Style::default().bg(t.card2);
@@ -354,7 +354,7 @@ pub(in crate::client) fn draw_finder(app: &mut App, f: &mut Frame, area: Rect, t
         }
         put(buf, r.x + 3, y, &[seg(icon, st.fg(if *repo || n == "." { t.accent } else { t.muted })), seg(label, ls)], r.right() - 30);
         let tag = if open {
-            "open project"
+            "has sessions"
         } else if n == "." {
             if *repo { "git repo · opens as a project" } else { "opens as a project" }
         } else if *repo {

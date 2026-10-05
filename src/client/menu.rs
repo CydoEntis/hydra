@@ -334,7 +334,7 @@ impl App {
                     self.cmd(Command::FocusPane { term: t });
                 }
                 self.hy.pending_split = Some((t, std::time::Instant::now()));
-                self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd: None, home: crate::protocol::Home::Auto });
+                self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd: None });
             }
             Act::GitInit(dir) => {
                 self.notify("making it a git repo…".into(), false);
@@ -363,8 +363,6 @@ impl App {
                     for s in p.sessions() {
                         self.cmd(Command::ClosePane { term: s.term });
                     }
-                    let path = p.path.clone();
-                    self.hy_forget(&path);
                 }
             }
             Act::NewWorktree(pi) => {

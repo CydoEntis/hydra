@@ -296,7 +296,7 @@ pub fn split(pane: Option<TermId>, down: bool, command: Vec<String>) -> Result<(
 
 pub fn new_workspace(path: Option<PathBuf>, name: Option<String>, cmd: Vec<String>) -> Result<()> {
     let cwd = path.or_else(|| std::env::current_dir().ok()).map(|p| p.canonicalize().unwrap_or(p));
-    command(Command::NewWorkspace { cwd, name, cmd: join_command(cmd), home: crate::protocol::Home::Auto })
+    command(Command::NewWorkspace { cwd, name, cmd: join_command(cmd) })
 }
 
 pub fn focus(pane: TermId) -> Result<()> {

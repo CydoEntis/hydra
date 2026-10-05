@@ -6,9 +6,8 @@ impl Daemon {
     /// Apply a command. `Ok(false)` means the reply is sent later (background git work).
     pub(super) fn command(&mut self, client: ClientId, cmd: Command) -> Result<bool> {
         match cmd {
-            Command::NewWorkspace { cwd, name, cmd, home: start_home } => {
+            Command::NewWorkspace { cwd, name, cmd } => {
                 let cwd = cwd.map(clean_path).filter(|p| p.is_dir()).unwrap_or_else(home);
-                let start_home = settle_home(start_home, &cwd);
                 let (cols, rows) = self.guess_size();
                 let term = self.spawn(cmd.as_deref(), &cwd, cols, rows)?;
                 let id = self.next();
@@ -27,7 +26,6 @@ impl Daemon {
                     color,
                     is_new: false,
                     group: None,
-                    home: start_home,
                 });
                 self.active_ws = Some(id);
                 self.poll_git_soon();
@@ -114,16 +112,9 @@ impl Daemon {
                 let cwd = self.terms.get(&term).map(|t| t.cwd.clone()).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?;
                 let name = cwd.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| cwd.display().to_string());
                 let alone = self.ws_mut(ws)?.tabs.iter().map(|t| t.layout.leaves().len()).sum::<usize>() == 1;
-                // You asked for it to live where it is now: that folder's project (a pane
-                // outside projects stays outside).
-                let to_home = match self.ws_mut(ws)?.home {
-                    Home::Loose => Home::Loose,
-                    _ => settle_home(Home::Auto, &cwd),
-                };
                 if alone {
                     // Nothing to move: the workspace simply moves to where its pane is.
                     let w = self.ws_mut(ws)?;
-                    w.home = to_home;
                     w.cwd = cwd;
                     w.name = name;
                     w.git = None;
@@ -144,7 +135,6 @@ impl Daemon {
                         color,
                         is_new: false,
                         group: None,
-                        home: to_home,
                     });
                     self.active_ws = Some(id);
                 }
@@ -203,7 +193,6 @@ impl Daemon {
                             color,
                             is_new: false,
                             group: None,
-                            home: settle_home(Home::Auto, &dir),
                         });
                     }
                 }
@@ -349,7 +338,6 @@ impl Daemon {
                     return Ok(true);
                 }
                 let cwd = self.terms.get(&term).map(|t| t.cwd.clone()).unwrap_or_else(home);
-                let from_home = self.ws_mut(from_ws)?.home.clone();
                 self.detach(term);
                 match to.filter(|id| self.workspaces.iter().any(|w| w.id == *id)) {
                     // Into an existing group: beside its focused pane.
@@ -391,7 +379,6 @@ impl Daemon {
                             color,
                             is_new: false,
                             group: None,
-                            home: from_home,
                         });
                         self.active_ws = Some(id);
                     }
@@ -500,7 +487,6 @@ impl Daemon {
                     color,
                     is_new: true,
                     group: None,
-                    home: Home::Project(repo.clone()),
                 });
                 self.active_ws = Some(id);
                 self.auto_undo = Some(AutoUndo::Moved { term, from_ws: ws, from_tab: tab, beside });
@@ -554,14 +540,5 @@ impl Daemon {
         }
         self.poll_git_soon();
         Ok(())
-    }
-}
-
-/// A new workspace's home: as asked, or (Auto) the project of the folder it starts in, the
-/// repository's main checkout for a git folder.
-pub(super) fn settle_home(home: Home, cwd: &std::path::Path) -> Home {
-    match home {
-        Home::Auto => Home::Project(crate::gitfs::head(cwd).map(|h| h.main_root).unwrap_or_else(|| cwd.to_path_buf())),
-        h => h,
     }
 }

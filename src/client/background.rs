@@ -144,10 +144,8 @@ impl App {
             }
         }
         if self.snap.workspaces.is_empty() || open.is_some() {
-            // `hydra <dir>` opens a project; plain `hydra` a quick shell where you are.
-            let home = if open.is_some() { crate::protocol::Home::Auto } else { crate::protocol::Home::Loose };
             let cwd = open.or_else(|| std::env::current_dir().ok());
-            self.cmd(Command::NewWorkspace { cwd, name: None, cmd: None, home });
+            self.cmd(Command::NewWorkspace { cwd, name: None, cmd: None });
         }
     }
 

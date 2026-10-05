@@ -448,7 +448,7 @@ impl App {
                 save_ideas(&v.ideas);
                 let project = idea.project.clone().or_else(|| self.current_project().map(|p| p.path));
                 let Some(project) = project else {
-                    self.notify("open a project first (o)".into(), true);
+                    self.notify("start a session first (o opens a folder)".into(), true);
                     return;
                 };
                 let agent = self.hy_agent();
@@ -705,7 +705,7 @@ impl App {
         } else {
             // The last one started gets the focus, so start the first command last.
             for c in rest.iter().rev() {
-                self.cmd(Command::NewWorkspace { cwd: Some(main.clone()), name: None, cmd: Some(c.clone()), home: crate::protocol::Home::Auto });
+                self.cmd(Command::NewWorkspace { cwd: Some(main.clone()), name: None, cmd: Some(c.clone()) });
             }
             self.hy_new_session(main, Some(first), false);
         }
@@ -723,7 +723,7 @@ impl App {
         let Some(w) = model.iter().flat_map(|p| p.wts.iter()).find(|w| w.branch == branch && !w.sessions.is_empty()).cloned() else { return };
         self.hy.pending_recipe = None;
         for c in rest {
-            self.cmd(Command::NewWorkspace { cwd: Some(w.path.clone()), name: None, cmd: Some(c), home: crate::protocol::Home::Auto });
+            self.cmd(Command::NewWorkspace { cwd: Some(w.path.clone()), name: None, cmd: Some(c) });
         }
         if let Some(first) = w.sessions.first() {
             self.cmd(Command::FocusPane { term: first.term });
@@ -950,7 +950,7 @@ pub(super) fn draw_race_new(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
     let what = match proj {
         Some(p) if p.git => format!("{n} agents, each in its own worktree of {}. Then compare and keep the best.", p.name),
         Some(p) => format!("{} isn't a git repo; races need worktrees.", p.name),
-        None => "Open a project first.".into(),
+        None => "Start a session first (o opens a folder).".into(),
     };
     put(buf, r.x + 3, r.y + 7, &[seg(what, c.fg(t.text))], r.right() - 2);
     let gx = btn(app, buf, r.x + 3, r.bottom() - 2, "Start the race", "Enter", BtnKind::Primary, HyHit::RaceGo, r.right());

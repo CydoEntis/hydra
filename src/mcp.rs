@@ -298,7 +298,7 @@ impl Server {
             let branch = if before.terms.values().any(|t| t.branch.as_deref() == Some(branch.as_str())) { format!("{branch}-{}", had.len()) } else { branch.clone() };
             Command::NewWorktree { ws, branch, base: None, cmd: Some(cmd), split: None, from: Some(self.root.clone()) }
         } else {
-            Command::NewWorkspace { cwd: Some(self.root.clone()), name: None, cmd: Some(cmd), home: crate::protocol::Home::Auto }
+            Command::NewWorkspace { cwd: Some(self.root.clone()), name: None, cmd: Some(cmd) }
         };
         cli::block_on(cli::request(ClientMsg::Command(c))).map_err(|e| format!("{e:#}"))?;
         // Wait for it to appear, then give the user back the session they were on.

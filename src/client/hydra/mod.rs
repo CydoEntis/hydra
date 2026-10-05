@@ -1,7 +1,7 @@
 //! The Hydra layout, from the design handoff: projects (git repos) in the sidebar, each
 //! project's worktrees with the sessions running in them, and the focused session full size
 //! (optionally split with a second). Everything else is a centred overlay over a dimmed
-//! screen: jump, open a project, new pane, talk, settings and keys.
+//! screen: jump, open a folder, new pane, talk, settings and keys.
 //!
 //! The daemon only knows workspaces, tabs and terminals. Here every terminal is a session;
 //! its project and worktree come from where it runs (`TermInfo::root` / `top`), so a shell
@@ -14,7 +14,7 @@ use super::design::{
 use super::render::{blend, render_screen, truncate};
 use super::{App, Hit, Mode};
 use crate::keys::Action;
-use crate::protocol::{Home, Status, TermId, TermInfo};
+use crate::protocol::{Status, TermId, TermInfo};
 use crate::theme::Theme;
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
@@ -33,13 +33,11 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 // ---- state ---------------------------------------------------------------------------------
 
-/// What the user chose that the daemon doesn't track: projects they opened, the colour
-/// order, folded rows. Saved to `hydra-ui.json` in the data folder.
+/// What the user chose that the daemon doesn't track: the colour order, folded rows.
+/// Saved to `hydra-ui.json` in the data folder.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub(super) struct Saved {
-    /// Folders opened as projects (they stay even with nothing running).
-    pub known: Vec<PathBuf>,
     /// Project keys in the order they were first seen; a project's colour is its index.
     pub order: Vec<String>,
     /// Folded sidebar rows ("p:<project key>").
@@ -278,12 +276,7 @@ pub(super) struct Proj {
     pub branches: Vec<String>,
     /// Your open pull requests here.
     pub prs: Vec<super::pr::PrBrief>,
-    /// Not a project: the sessions started outside projects (quick shells).
-    pub loose: bool,
 }
-
-/// The key of the group of sessions outside projects (never a folder's: those are paths).
-pub(super) const LOOSE_KEY: &str = ":outside";
 
 impl Proj {
     pub fn sessions(&self) -> impl Iterator<Item = &Session> {
@@ -425,7 +418,6 @@ impl App {
                 git,
                 branches: Vec::new(),
                 prs: Vec::new(),
-                loose: false,
             });
             projs.len() - 1
         };
@@ -444,44 +436,19 @@ impl App {
             let leaves: Vec<TermId> = w.tabs.iter().flat_map(|t| t.layout.leaves()).collect();
             for id in &leaves {
                 let Some(t) = self.snap.terms.get(id) else { continue };
-                let cwd = if t.cwd.as_os_str().is_empty() { w.cwd.clone() } else { t.cwd.clone() };
                 let (root, top, branch, main, git) = match (&t.root, &t.top) {
                     (Some(r), Some(tp)) => {
                         let main = path_key(r) == path_key(tp);
                         (r.clone(), tp.clone(), t.branch.clone().unwrap_or_default(), main, true)
                     }
-                    _ => (cwd.clone(), cwd.clone(), String::new(), true, false),
-                };
-                // Filed where it was started, not where it has wandered to.
-                let (pi, wi, name) = match &w.home {
-                    Home::Loose => {
-                        let pi = match projs.iter().position(|p| p.loose) {
-                            Some(i) => i,
-                            None => {
-                                projs.push(loose_group(&self.theme));
-                                projs.len() - 1
-                            }
-                        };
-                        (pi, 0, loose_row_name(t, &cwd))
-                    }
-                    // It moved out of its project: still listed there, under the project's own folder.
-                    Home::Project(p) if path_key(p) != path_key(&root) => {
-                        let git = crate::gitfs::head(p).is_some();
-                        let pi = add_proj(&mut projs, p, git);
-                        let wi = add_wt(&mut projs[pi], p, String::new(), true);
-                        let name = if t.label.trim().is_empty() {
-                            format!("{} · {}", t.agent.clone().unwrap_or_else(|| "shell".into()), folder_name(&cwd))
-                        } else {
-                            t.label.trim().to_string()
-                        };
-                        (pi, wi, name)
-                    }
                     _ => {
-                        let pi = add_proj(&mut projs, &root, git);
-                        let wi = add_wt(&mut projs[pi], &top, branch, main);
-                        (pi, wi, row_name(t, &root, &top, main, git))
+                        let cwd = if t.cwd.as_os_str().is_empty() { w.cwd.clone() } else { t.cwd.clone() };
+                        (cwd.clone(), cwd, String::new(), true, false)
                     }
                 };
+                let name = row_name(t, &root, &top, main, git);
+                let pi = add_proj(&mut projs, &root, git);
+                let wi = add_wt(&mut projs[pi], &top, branch, main);
                 let title = session_title(t, if leaves.len() == 1 { &w.name } else { "" }, &top);
                 let question = (t.status == Status::Blocked).then(|| self.parsers.get(id).and_then(question)).flatten();
                 projs[pi].wts[wi].sessions.push(Session {
@@ -513,22 +480,10 @@ impl App {
                 }
             }
         }
-        for k in &self.hy.saved.known {
-            let head = crate::gitfs::head(k);
-            let root = head.as_ref().map(|h| h.main_root.clone()).unwrap_or_else(|| k.clone());
-            let pi = add_proj(&mut projs, &root, head.is_some());
-            if projs[pi].wts.is_empty() {
-                match head {
-                    Some(h) => add_wt(&mut projs[pi], &h.top, h.branch, true),
-                    None => add_wt(&mut projs[pi], k, String::new(), true),
-                };
-            }
-        }
-        let had: Vec<String> = projs.iter().filter(|p| p.sessions().next().is_some()).map(|p| p.key.clone()).collect();
         fold_splits(&mut projs, &self.hy.tabs);
-        // A project that was only listed for a pane now inside a split goes (unless you opened it).
-        let known: Vec<String> = self.hy.saved.known.iter().map(|k| path_key(k)).collect();
-        projs.retain(|p| p.sessions().next().is_some() || !had.contains(&p.key) || known.iter().any(|k| *k == p.key || p.wts.iter().any(|w| w.key == *k)));
+        // Groups come from where sessions are: one left with none (its only pane is inside a
+        // split elsewhere) goes.
+        projs.retain(|p| p.sessions().next().is_some());
         for p in &mut projs {
             if sort {
                 for w in &mut p.wts {
@@ -544,8 +499,6 @@ impl App {
         projs.sort_by_key(|p| order.iter().position(|k| *k == p.key).unwrap_or(usize::MAX));
         // Attention first: a project with something that needs you goes to the top.
         projs.sort_by_key(|p| !p.sessions().any(|s| s.status == Status::Blocked));
-        // Sessions outside projects sit below the projects.
-        projs.sort_by_key(|p| p.loose);
         // The same name twice in a project: number them (shell 1, shell 2), oldest first.
         for p in &mut projs {
             let mut seen: HashMap<String, Vec<TermId>> = HashMap::new();
@@ -572,7 +525,7 @@ impl App {
         let focus = self.focused();
         let model = self.hy_model();
         let mut changed = false;
-        for p in model.iter().filter(|p| !p.loose) {
+        for p in &model {
             if !self.hy.saved.order.contains(&p.key) {
                 self.hy.saved.order.push(p.key.clone());
                 changed = true;
@@ -587,7 +540,7 @@ impl App {
             self.hy.last_focus = None;
             self.splash = false;
             let home = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()).unwrap_or_else(std::env::temp_dir);
-            self.hy_new_loose(home, None);
+            self.hy_new_session(home, None, false);
             return;
         }
         let proj_of = |t: TermId| model.iter().find(|p| p.sessions().any(|s| s.term == t)).map(|p| p.key.clone());
@@ -654,35 +607,6 @@ impl App {
 /// shell is (inside its worktree), else the program.
 /// A session's row name: what you renamed it to; else the worktree it's in; else the
 /// folder under the project it's in; else (the project's own folder) its agent or "shell".
-/// The group of sessions started outside projects.
-fn loose_group(theme: &Theme) -> Proj {
-    let home = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()).unwrap_or_default();
-    Proj {
-        key: LOOSE_KEY.to_string(),
-        path: home.clone(),
-        name: "outside projects".to_string(),
-        color: theme.muted,
-        wts: vec![Wt { key: LOOSE_KEY.to_string(), path: home, name: String::new(), branch: String::new(), main: true, sessions: Vec::new() }],
-        fresh: false,
-        git: false,
-        branches: Vec::new(),
-        prs: Vec::new(),
-        loose: true,
-    }
-}
-
-/// A session outside projects goes by the folder it's in now (and what runs there).
-fn loose_row_name(t: &TermInfo, cwd: &Path) -> String {
-    if !t.label.trim().is_empty() {
-        return t.label.trim().to_string();
-    }
-    let here = if cwd.as_os_str().is_empty() { "~".to_string() } else { folder_name(cwd) };
-    match &t.agent {
-        Some(a) => format!("{a} · {here}"),
-        None => here,
-    }
-}
-
 fn row_name(t: &TermInfo, root: &Path, top: &Path, main: bool, git: bool) -> String {
     if !t.label.trim().is_empty() {
         return t.label.trim().to_string();
