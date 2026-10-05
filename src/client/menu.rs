@@ -490,33 +490,16 @@ pub(super) fn draw_menu(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, m: 
     let r = Rect { x, y, width: w, height: h + 1 };
     // Clicking anywhere else closes it.
     hit(app, area, HyHit::Close);
-    // Its own surface and an outline, so it stands off whatever is under it.
-    let bgm = t.card2;
+    // The same look as the other panels (Go to, the palette): the card ground, an accent
+    // title bar with Esc on the right.
+    let bgm = t.card;
     fill(buf, r, bgm);
-    let edge = Style::default().fg(super::render::blend(t.line, t.text, 0.35)).bg(bgm);
-    for xx in r.x..r.right() {
-        if let Some(px) = buf.cell_mut((xx, r.y)) {
-            px.set_symbol("─").set_style(edge);
-        }
-        if let Some(px) = buf.cell_mut((xx, r.bottom() - 1)) {
-            px.set_symbol("─").set_style(edge);
-        }
-    }
-    for yy in r.y..r.bottom() {
-        if let Some(px) = buf.cell_mut((r.x, yy)) {
-            px.set_symbol("│").set_style(edge);
-        }
-        if let Some(px) = buf.cell_mut((r.right() - 1, yy)) {
-            px.set_symbol("│").set_style(edge);
-        }
-    }
-    for (cx, cy, g) in [(r.x, r.y, "╭"), (r.right() - 1, r.y, "╮"), (r.x, r.bottom() - 1, "╰"), (r.right() - 1, r.bottom() - 1, "╯")] {
-        if let Some(px) = buf.cell_mut((cx, cy)) {
-            px.set_symbol(g).set_style(edge);
-        }
-    }
     hit(app, r, HyHit::Noop);
-    put(buf, r.x + 2, r.y, &[seg(format!(" {} ", truncate(&m.title, (w - 6) as usize)), Style::default().fg(t.text).bg(bgm).add_modifier(Modifier::BOLD))], r.right() - 2);
+    let bar = Rect { height: 1, ..r };
+    fill(buf, bar, t.accent);
+    let ink = Style::default().fg(t.acc_ink).bg(t.accent);
+    put(buf, r.x + 2, r.y, &[seg(truncate(&m.title, (w - 9) as usize), ink.add_modifier(Modifier::BOLD))], r.right().saturating_sub(6));
+    put(buf, r.right().saturating_sub(5), r.y, &[seg("Esc", ink.add_modifier(Modifier::BOLD))], r.right());
     let mut yy = r.y + 2;
     for (i, (label, act)) in m.items.iter().enumerate() {
         if gap && danger(act) && i + 1 == m.items.len() {
