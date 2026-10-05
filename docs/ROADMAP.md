@@ -12,7 +12,7 @@ which ones need you, jump to them, and keep them running when you leave. See
 ## Now
 
 Active phase: **7 — test-week feedback** (collecting: the user runs Hydra for a week)
-Next unblocked: none (no open tickets)
+Next unblocked: #20 (sidebar sections by type)
 
 ## Phases
 
@@ -45,11 +45,23 @@ notification history, `hydra doctor`, more agent types, BEL tracking.
 
 #13, #14, #15, #16, #17, #18
 
-### 7 — Test-week feedback · collecting
+### 7 — Test-week feedback · in progress
 
-What a week of daily use turns up. Bugs found so far were fixed straight away (0.3.1–0.3.4:
-closing the last pane, splits in the sidebar, a home shell when everything closes).
-#19
+What a week of daily use turns up. Bugs found were fixed straight away (0.3.1–0.6.6). #19 is
+done. Chosen 2026-10-05 after comparing with tuios, in this order:
+
+1. #20 Sidebar: agents, terminals and ssh sessions in their own sections
+2. #25 Agent coverage: any agent from config; hooks for more harnesses
+3. #21 Inbox: everything waiting on you, answerable from one list
+4. #22 Claude Code agent teams as hydra panes
+5. #24 Agent-to-agent: ask-human, messages, ask-agent, pane permissions
+6. #31 Install from package managers (AUR first)
+7. #28 Scrollback: jump between commands, multi-pane copy
+8. #26 Layouts: tiling, scrolling, master-stack, workspaces, popups
+9. #23 More machines: named hosts, remote panes and agents
+10. #27 Graphics: kitty images, sixel, kitty keyboard
+11. #29 Extras: launcher, layout templates, record/replay, screenshots, key display
+12. #30 Remote access: web terminal, SSH server mode
 
 ## In scope
 
