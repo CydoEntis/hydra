@@ -96,19 +96,20 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
 **macOS, Linux, Omarchy / Arch:**
 
 ```sh
-gh api -H "Accept: application/vnd.github.raw" repos/CydoEntis/hydra/contents/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/CydoEntis/hydra/main/install.sh | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-gh api -H "Accept: application/vnd.github.raw" repos/CydoEntis/hydra/contents/install.ps1 | Out-String | iex
+irm https://raw.githubusercontent.com/CydoEntis/hydra/main/install.ps1 | iex
 ```
 
-The repo is private for now, so the installers download through the [GitHub CLI](https://cli.github.com)
-(run `gh auth login` once). They pick the build for your machine, check its checksum, put it in
+The installers pick the build for your machine, check its checksum, put it in
 `~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\hydra`, added to your PATH) and tell you if
-another `hydra` comes first. `HYDRA_VERSION=v0.1.0` picks a version; `HYDRA_INSTALL_DIR` a folder.
+another `hydra` comes first. No admin rights needed. `HYDRA_VERSION=v0.3.0` picks a version;
+`HYDRA_INSTALL_DIR` a folder. If scripts are blocked (a locked-down work PC), download the archive
+for your machine from [Releases](https://github.com/CydoEntis/hydra/releases) and put `hydra` on your PATH.
 To update later: `hydra update` (or `hydra update --check` to just look). Hydra also checks
 once a day and says on the splash when a newer version is out; turn that off in Settings
 (Check for updates).

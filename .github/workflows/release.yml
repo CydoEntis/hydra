@@ -107,14 +107,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-14, windows-latest]
     env:
-      GH_TOKEN: ${{ github.token }}
       HYDRA_VERSION: ${{ github.event.inputs.tag || github.ref_name }}
-    # The installers as users get them: from main, through the GitHub CLI.
+    # The installers as users get them: the public one-liners, no GitHub CLI sign-in.
     steps:
       - name: install.sh
         if: runner.os != 'Windows'
         run: |
-          gh api -H "Accept: application/vnd.github.raw" "repos/$GITHUB_REPOSITORY/contents/install.sh" | sh
+          curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/install.sh" | sh
           ~/.local/bin/hydra --version
           ~/.local/bin/hydra update --check
           ~/.local/bin/hydra doctor || true
@@ -122,6 +121,6 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          gh api -H "Accept: application/vnd.github.raw" "repos/$env:GITHUB_REPOSITORY/contents/install.ps1" | Out-String | iex
+          irm "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/main/install.ps1" | iex
           & "$env:LOCALAPPDATA\Programs\hydra\hydra.exe" --version
           & "$env:LOCALAPPDATA\Programs\hydra\hydra.exe" update --check
