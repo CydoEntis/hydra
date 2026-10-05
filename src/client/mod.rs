@@ -328,6 +328,11 @@ pub struct App {
     snap: Snapshot,
     got_state: bool,
     parsers: HashMap<TermId, vt100::Parser>,
+    /// The pane copy mode was on when it yanked (for joining with `copy_set`).
+    copy_term: Option<TermId>,
+    /// Selections kept from other panes while copying across a split (Tab in copy mode):
+    /// (pane, text), copied together with the current one.
+    copy_set: Vec<(TermId, String)>,
     /// Where commands started in each pane's history (see `marks`).
     marks: HashMap<TermId, marks::Marks>,
     scroll: HashMap<TermId, usize>,
@@ -476,6 +481,8 @@ impl App {
             got_state: false,
             parsers: HashMap::new(),
             marks: HashMap::new(),
+            copy_set: Vec::new(),
+            copy_term: None,
             scroll: HashMap::new(),
             sizes: HashMap::new(),
             mode: Mode::Normal,
@@ -707,6 +714,23 @@ impl App {
 
     fn yank(&mut self, text: String) {
         self.mode = Mode::Normal;
+        // Copying across panes: each one's piece under its name, in the order taken.
+        let text = if self.copy_set.is_empty() {
+            text
+        } else {
+            let last = self.copy_term.take();
+            let mut parts = std::mem::take(&mut self.copy_set);
+            if let Some(t) = last.filter(|_| !text.is_empty()) {
+                parts.retain(|(p, _)| *p != t);
+                parts.push((t, text));
+            }
+            let n = parts.len();
+            let named: Vec<(String, String)> =
+                parts.into_iter().map(|(t, s)| (self.snap.terms.get(&t).map(|i| i.display_name()).unwrap_or_else(|| format!("pane {t}")), s)).collect();
+            let _ = copy::to_clipboard(&copy::join_pieces(&named));
+            self.notify(format!("Copied from {n} panes"), false);
+            return;
+        };
         if text.is_empty() {
             return;
         }

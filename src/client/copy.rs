@@ -27,6 +27,11 @@ pub struct Copy {
     pub message: Option<String>,
 }
 
+/// Pieces copied from several panes, one after another under each pane's name.
+pub fn join_pieces(pieces: &[(String, String)]) -> String {
+    pieces.iter().map(|(name, text)| format!("── {name} ──\n{}", text.trim_end())).collect::<Vec<_>>().join("\n\n")
+}
+
 pub enum Outcome {
     Stay,
     Exit,
@@ -175,6 +180,11 @@ impl Copy {
         let Some(q) = self.query.as_deref().filter(|q| !q.is_empty()) else { return Vec::new() };
         let Some(text) = self.lines.get(line) else { return Vec::new() };
         find_all(text, q, Self::insensitive(q))
+    }
+
+    /// Jump to the next match of the current search, if there is one.
+    pub fn search_next(&mut self) {
+        self.search(false);
     }
 
     /// Jump to the next match in the current direction (reversed by `flip`). Wraps around.

@@ -65,10 +65,40 @@ impl App {
             return;
         }
         if let Mode::Copy(c) = &mut self.mode {
+            // Tab / Shift+Tab: keep this pane's selection and go on to the next pane of the
+            // split, the same search there; y copies them all.
+            if matches!(k.code, KeyCode::Tab | KeyCode::BackTab) && c.input.is_none() {
+                let (term, query) = (c.term, c.query.clone());
+                let picked = c.anchor.is_some().then(|| c.selected_text()).filter(|s| !s.trim().is_empty());
+                let panes: Vec<TermId> = self.hy.tabs.get(self.hy.tab).map(|t| t.layout.leaves()).unwrap_or_default();
+                if panes.len() > 1 && let Some(i) = panes.iter().position(|p| *p == term) {
+                    if let Some(text) = picked {
+                        self.copy_set.retain(|(p, _)| *p != term);
+                        self.copy_set.push((term, text));
+                    }
+                    let n = panes.len();
+                    let next = panes[if k.code == KeyCode::Tab { (i + 1) % n } else { (i + n - 1) % n }];
+                    if self.enter_copy(next)
+                        && let Mode::Copy(c) = &mut self.mode
+                    {
+                        c.query = query;
+                        c.search_next();
+                        c.message = Some(format!("{} kept · Tab next pane · y copy all", self.copy_set.len()));
+                    }
+                }
+                return;
+            }
+            let term = c.term;
             match c.key(&k) {
                 copy::Outcome::Stay => {}
-                copy::Outcome::Exit => self.mode = Mode::Normal,
-                copy::Outcome::Yank(text) => self.yank(text),
+                copy::Outcome::Exit => {
+                    self.copy_set.clear();
+                    self.mode = Mode::Normal;
+                }
+                copy::Outcome::Yank(text) => {
+                    self.copy_term = Some(term);
+                    self.yank(text);
+                }
             }
             return;
         }

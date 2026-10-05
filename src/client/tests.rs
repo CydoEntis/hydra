@@ -908,6 +908,44 @@ mod hydra_tests {
     }
 
     #[test]
+    fn copy_from_several_panes_at_once() {
+        let (_, mut app) = super::design_tests::render_with(200, 50);
+        let (a, b) = (1, 2);
+        app.hy.tabs.clear();
+        app.hy_place(a, None);
+        app.hy.pending_split = Some((a, Instant::now()));
+        app.hy_place(b, Some(a));
+        for (t, word) in [(a, "alpha"), (b, "beta")] {
+            let mut p = vt100::Parser::new(20, 80, 100);
+            p.process(format!("ERROR {word} failed\r\nok\r\n").as_bytes());
+            app.parsers.insert(t, p);
+        }
+        draw(&mut app, 200, 50);
+        assert!(app.enter_copy(a));
+        let key = |app: &mut App, c: KeyCode| app.on_key(KeyEvent::new(c, KeyModifiers::NONE));
+        // Search, select the line, Tab to the other pane: the selection is kept and the
+        // same search runs there.
+        key(&mut app, KeyCode::Char('/'));
+        for ch in "ERROR".chars() {
+            key(&mut app, KeyCode::Char(ch));
+        }
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Char('V'));
+        key(&mut app, KeyCode::Tab);
+        assert_eq!(app.copy_set.len(), 1, "a's piece kept");
+        assert!(app.copy_set[0].1.contains("ERROR alpha failed"), "{:?}", app.copy_set);
+        let Mode::Copy(c) = &app.mode else { panic!("still copying") };
+        assert_eq!((c.term, c.query.as_deref()), (b, Some("ERROR")), "on b, the same search");
+        assert_eq!(c.lines[c.cur.0].trim_end(), "ERROR beta failed", "at its match");
+        // How it reads once copied together.
+        let joined = copy::join_pieces(&[("claude".into(), "ERROR alpha failed".into()), ("codex".into(), "ERROR beta failed\n".into())]);
+        assert_eq!(joined, "── claude ──\nERROR alpha failed\n\n── codex ──\nERROR beta failed");
+        // Esc: nothing kept.
+        key(&mut app, KeyCode::Esc);
+        assert!(app.copy_set.is_empty());
+    }
+
+    #[test]
     fn x_closes_and_x_confirms() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         app.menu_act(menu::Act::End(vec![3]));

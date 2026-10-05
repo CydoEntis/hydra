@@ -404,6 +404,7 @@ to start an agent in every new worktree.
 | `v` / `V` | select characters / lines |
 | `y`, `Enter` | copy selection (or the current line) and leave |
 | `/` `?` then `n` `N` | search forward / backward (smart case) |
+| `Tab` / `Shift+Tab` | keep this selection and go to the next / previous pane of the split, the same search there; `y` then copies them all, each under its pane's name |
 | `q`, `Esc` | leave |
 
 Copies go to the system clipboard and, through OSC 52, to your outer terminal (works over SSH).

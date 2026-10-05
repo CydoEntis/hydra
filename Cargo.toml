@@ -1,6 +1,6 @@
 [package]
 name = "hydra"
-version = "0.9.0"
+version = "0.9.1"
 edition = "2024"
 description = "A customizable, agent-aware terminal multiplexer (herdr-style) for Windows, macOS and Linux"
 license = "MIT"
