@@ -256,6 +256,8 @@ pub enum Action {
     Memory,
     /// A shell in the folder of the session you're on, straight away.
     ShellHere,
+    /// The next way of laying out this tab's panes (split, grid, main and stack, columns).
+    Arrange,
     /// Scroll to the command before (or after) the one at the top of the view.
     PrevPrompt,
     NextPrompt,
@@ -349,6 +351,7 @@ impl Action {
             Action::Branches => "Switch branch".into(),
             Action::Memory => "Memory used by each session".into(),
             Action::ShellHere => "New session (a shell here)".into(),
+            Action::Arrange => "Arrange panes: split, grid, main and stack, columns".into(),
             Action::PrevPrompt => "Jump to the previous command in history".into(),
             Action::NextPrompt => "Jump to the next command in history".into(),
             Action::GoTo => "Go to a project or session".into(),
@@ -431,6 +434,7 @@ impl Action {
             Action::Branches => "switch-branch".into(),
             Action::Memory => "memory".into(),
             Action::ShellHere => "shell-here".into(),
+            Action::Arrange => "arrange".into(),
             Action::PrevPrompt => "prev-prompt".into(),
             Action::NextPrompt => "next-prompt".into(),
             Action::GoTo => "go-to".into(),
@@ -534,6 +538,7 @@ impl FromStr for Action {
             "switch-branch" => Action::Branches,
             "memory" => Action::Memory,
             "shell-here" => Action::ShellHere,
+            "arrange" | "next-layout" => Action::Arrange,
             "prev-prompt" => Action::PrevPrompt,
             "next-prompt" => Action::NextPrompt,
             "go-to" => Action::GoTo,
@@ -582,6 +587,7 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("L", "resize-right"),
     ("y", "copy-mode"),
     ("pageup", "scroll-up"),
+    ("=", "arrange"),
     ("{", "prev-prompt"),
     ("}", "next-prompt"),
     ("pagedown", "scroll-down"),

@@ -101,6 +101,12 @@ enum Cmd {
     /// The program in a pane (default: this one) is an agent: hydra learns it, by its
     /// program (any alias) or, run by node / python, by its script.
     Teach { pane: Option<protocol::TermId> },
+    /// Run a command in a floating pane over everything (it closes when the command exits):
+    /// `hydra popup -- fzf`, `hydra popup -- lazygit`.
+    Popup {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        cmd: Vec<String>,
+    },
     /// What a pane's agent may do through hydra: a comma list of read, write, start, respond,
     /// admin (`hydra grant 4 read,write`), or `default` for the config's ([mcp] grants).
     Grant { pane: protocol::TermId, grants: String },
@@ -283,6 +289,7 @@ fn main() {
         Some(Cmd::TmuxShim { cmd }) => tmux_shim::run(cmd),
         Some(Cmd::AskHuman { question, options }) => cli::ask_human(question, options),
         Some(Cmd::Grant { pane, grants }) => cli::grant(pane, &grants),
+        Some(Cmd::Popup { cmd }) => cli::popup(cmd),
         Some(Cmd::Close { pane }) => cli::close(pane),
         Some(Cmd::Hook { agent, status, payload }) => {
             // Hooks run inline in the agent's turn: never fail, never print.

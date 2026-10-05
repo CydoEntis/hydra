@@ -642,6 +642,16 @@ impl App {
         self.active_tab().map(|t| t.focus)
     }
 
+    /// A floating pane (`hydra popup`) open now: it has the keys until it closes.
+    fn popup(&self) -> Option<TermId> {
+        self.snap.terms.values().filter(|t| t.popup).map(|t| t.id).max()
+    }
+
+    /// Where typing goes: an open popup, else the pane you're on.
+    fn typing_to(&self) -> Option<TermId> {
+        self.popup().or_else(|| self.focused())
+    }
+
     fn new_parser(&self, rows: u16, cols: u16) -> vt100::Parser {
         vt100::Parser::new(rows.max(1), cols.max(1), self.cfg.scrollback)
     }

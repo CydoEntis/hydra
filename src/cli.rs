@@ -309,6 +309,12 @@ pub fn focused_pane() -> Option<TermId> {
     s.workspaces.iter().find(|w| Some(w.id) == s.active_ws)?.tab().map(|t| t.focus)
 }
 
+/// `hydra popup -- <command>`: a floating pane in the folder you're in.
+pub fn popup(cmd: Vec<String>) -> Result<()> {
+    let cmd = join_command(cmd).ok_or_else(|| anyhow!("what to run: hydra popup -- fzf"))?;
+    command(Command::Popup { cmd, cwd: std::env::current_dir().ok() })
+}
+
 /// `hydra grant <pane> read,write,…|default`.
 pub fn grant(term: TermId, grants: &str) -> Result<()> {
     let list = (grants.trim() != "default").then(|| grants.split(',').map(|g| g.trim().to_lowercase()).filter(|g| !g.is_empty()).collect::<Vec<_>>());

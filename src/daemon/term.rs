@@ -83,6 +83,8 @@ pub struct Term {
     pub process: String,
     /// The machine an ssh-like client in the pane is connected to.
     pub remote: Option<String>,
+    /// A floating pane (`hydra popup`), in no workspace.
+    pub popup: bool,
     pub agent: Option<String>,
     pub status: Status,
     /// When the status last changed (unix seconds), for "working 3m".
@@ -160,6 +162,8 @@ pub struct SpawnSpec<'a> {
     pub rows: u16,
     /// More environment for this one (a dev server's PORT).
     pub env: &'a [(String, String)],
+    /// Run the command and end with it (a popup), rather than keep a shell after.
+    pub once: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -262,13 +266,24 @@ function global:prompt { [Console]::Write([char]27 + ']133;A' + [char]7); $l = $
 if ($l.Provider.Name -eq 'FileSystem') { [Console]::Write([char]27 + ']9;9;' + [char]34 + $l.ProviderPath + [char]34 + [char]7) }; \
 & $global:__hydraPrompt }";
 
-fn argv(cfg: &Config, cmd: Option<&str>) -> Vec<String> {
+fn argv(cfg: &Config, cmd: Option<&str>, once: bool) -> Vec<String> {
     let mut shell = cfg.shell_command();
     let cmd = cmd.filter(|c| !c.trim().is_empty());
     let exe = Path::new(&shell[0])
         .file_stem()
         .map(|s| s.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
+    // Once: the shell runs the command and ends with it (so the pane does too).
+    if once && let Some(c) = cmd {
+        let flag = match exe.as_str() {
+            "pwsh" | "powershell" => "-Command",
+            "cmd" => "/C",
+            "nu" => "-c",
+            _ => "-ic",
+        };
+        shell.extend([flag.to_string(), c.to_string()]);
+        return shell;
+    }
     match (exe.as_str(), cmd) {
         ("pwsh" | "powershell", cmd) if cfg.shell_integration => {
             let script = match cmd {
@@ -296,7 +311,7 @@ impl Term {
         let size = PtySize { rows: spec.rows.max(2), cols: spec.cols.max(2), pixel_width: 0, pixel_height: 0 };
         let pair = pty.openpty(size).context("opening pty")?;
 
-        let args = argv(cfg, spec.cmd);
+        let args = argv(cfg, spec.cmd, spec.once);
         let mut cmd = CommandBuilder::new(&args[0]);
         cmd.args(&args[1..]);
         if spec.cwd.is_dir() {
@@ -370,6 +385,7 @@ impl Term {
             rows: size.rows,
             process,
             remote: None,
+            popup: false,
             agent: None,
             status: Status::None,
             status_since: unix_now(),

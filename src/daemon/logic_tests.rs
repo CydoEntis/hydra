@@ -284,3 +284,23 @@ fn a_pane_does_what_its_grants_allow() {
     let terms: Vec<TermId> = d.terms.keys().copied().collect();
     close(&mut d, &terms);
 }
+
+#[test]
+fn a_popup_floats_in_no_workspace_and_goes_when_done() {
+    let (mut d, mut rx) = daemon();
+    let cmd = if cfg!(windows) { "cmd /c exit" } else { "true" };
+    d.command(0, Command::Popup { cmd: cmd.into(), cwd: Some(std::env::temp_dir()) }).unwrap();
+    let (&id, t) = d.terms.iter().next().expect("the popup's pane");
+    assert!(t.popup && d.workspaces.is_empty(), "floating, in no workspace");
+    assert!(d.snapshot().terms[&id].popup);
+    // Its command exits: the pane goes.
+    let until = Instant::now() + Duration::from_secs(10);
+    while d.terms.contains_key(&id) && Instant::now() < until {
+        if let Ok(ev) = rx.try_recv() {
+            d.handle(ev);
+        } else {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    assert!(!d.terms.contains_key(&id), "gone when its command is done");
+}

@@ -389,6 +389,17 @@ impl Daemon {
                 let undo = self.auto_undo.take().ok_or_else(|| anyhow::anyhow!("nothing to undo"))?;
                 self.undo_auto(undo)?;
             }
+            Command::Popup { cmd, cwd } => {
+                let cwd = cwd.map(clean_path).filter(|p| p.is_dir()).unwrap_or_else(home);
+                let (cols, rows) = self.guess_size();
+                self.next_once = true;
+                // Most of the screen; the client sizes it exactly once it's drawn.
+                let term = self.spawn(Some(&cmd), &cwd, cols.saturating_mul(4) / 5, rows.saturating_mul(3) / 4)?;
+                if let Some(t) = self.terms.get_mut(&term) {
+                    t.popup = true;
+                }
+                self.dirty = true;
+            }
             Command::TeachAgent { term } => {
                 let pid = self.terms.get(&term).and_then(|t| t.pid).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?;
                 let (program, args) = scan::leaf_program(pid).ok_or_else(|| anyhow::anyhow!("nothing is running in that pane"))?;

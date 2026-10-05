@@ -12,7 +12,7 @@ which ones need you, jump to them, and keep them running when you leave. See
 ## Now
 
 Active phase: **7 — test-week feedback** (collecting: the user runs Hydra for a week)
-Next unblocked: #25 (hooks for more harnesses)
+Next unblocked: #28 rest (multi-pane copy)
 
 ## Phases
 
@@ -58,7 +58,7 @@ Next, in order:
 1. #25 (rest) Hooks for Gemini, opencode, Qwen in one command
 2. #24 (rest) Per-pane permissions for what an agent may do through hydra
 3. #28 Scrollback: jump between commands (done, 0.8.1); multi-pane copy (with #26)
-4. #26 Layouts: tiling, scrolling, master-stack, workspaces, popups
+4. #26 Layouts: split, grid, main and stack, columns; popups — done (0.9.0); tabs 1-9 are the workspaces. Left with #28: multi-pane copy
 
 On hold (2026-10-05, the user's call): #31 package managers (AUR name and account to decide),
 #23 more machines, #27 graphics, #29 extras, #30 web terminal and SSH server mode.

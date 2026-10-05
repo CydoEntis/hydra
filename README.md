@@ -172,6 +172,7 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 | `h j k l` or arrows | focus the pane that way (left past the edge: the sidebar) |
 | `x` / `z` / `b` / `y` | close pane / zoom pane / show or hide the sidebar / select text with keys |
 | `H J K L` | resize |
+| `=` | arrange this tab's panes: split (where you put them) → grid → main and stack → columns (a strip that slides to the pane you're on) |
 | `{` / `}` | jump to the previous / next command in the history (shells that mark their prompts: fish, PowerShell in hydra, others with OSC 133) |
 | `c` / `]` `[` / `1–9` / `X` | new tab / next, previous tab / go to tab / close tab |
 | `m` / `r` / `R` | message an agent / reply to the focused one / rename a session |
@@ -429,6 +430,11 @@ its pane and pick **"… is an agent"**, or run `hydra teach` in it (`hydra teac
 Hydra looks at the program actually running, whatever alias started it (or, for a node /
 python harness, its package or script), and adds it under `[[agents]]` in your config with the
 usual screen signs of working. Edit that entry to tune them.
+
+## Popups
+
+`hydra popup -- fzf` (or `lazygit`, `htop`, any command) opens a floating pane over everything,
+in the folder you're in; it has the keys until the command exits, then it's gone.
 
 ## Agents asking you
 

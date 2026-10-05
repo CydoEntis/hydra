@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 27;
+pub const PROTOCOL_VERSION: u32 = 28;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -119,6 +119,8 @@ pub enum Command {
     /// The program running in `term` is an agent: add it to config (by its program, or by
     /// its script when node/python runs it) so its status shows.
     TeachAgent { term: TermId },
+    /// Run a command in a floating pane over everything; it closes when the command exits.
+    Popup { cmd: String, cwd: Option<PathBuf> },
     /// An agent asks you a question with these answers; the reply (the chosen answer) comes
     /// once you pick one.
     AskHuman { term: TermId, text: String, options: Vec<String> },
@@ -323,6 +325,9 @@ pub struct TermInfo {
     /// The machine an ssh (or mosh, …) client in the pane is connected to.
     #[serde(default)]
     pub remote: Option<String>,
+    /// A floating pane over everything (`hydra popup`); gone when its command exits.
+    #[serde(default)]
+    pub popup: bool,
     /// Detected or hook-reported agent name.
     pub agent: Option<String>,
     pub status: Status,
@@ -466,6 +471,7 @@ mod tests {
             ClientMsg::Command(Command::ClosePane { term: 3 }),
             ClientMsg::Command(Command::Reveal { term: 3 }),
             ClientMsg::Command(Command::TeachAgent { term: 3 }),
+            ClientMsg::Command(Command::Popup { cmd: "fzf".into(), cwd: None }),
             ClientMsg::Command(Command::AskHuman { term: 3, text: "Deploy?".into(), options: vec!["Yes".into(), "No".into()] }),
             ClientMsg::Command(Command::AnswerHuman { id: 1, choice: 0 }),
             ClientMsg::Command(Command::Grant { term: 3, grants: Some(vec!["read".into()]) }),

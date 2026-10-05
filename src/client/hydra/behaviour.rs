@@ -40,7 +40,7 @@ impl App {
         };
         if new_tab {
             take_out(&mut self.hy.tabs, f);
-            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f });
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split });
             self.hy.tab = self.hy.tabs.len() - 1;
             return;
         }
@@ -49,7 +49,7 @@ impl App {
             let i = match self.hy.tabs.iter().position(|t| t.layout.contains(p)) {
                 Some(i) => i,
                 None => {
-                    self.hy.tabs.push(HyTab { layout: Node::Leaf(p), focus: p });
+                    self.hy.tabs.push(HyTab { layout: Node::Leaf(p), focus: p, arrange: Arrange::Split });
                     self.hy.tabs.len() - 1
                 }
             };
@@ -68,7 +68,7 @@ impl App {
             return;
         }
         if self.hy.tabs.is_empty() {
-            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f });
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split });
             self.hy.tab = 0;
             return;
         }
@@ -91,11 +91,11 @@ impl App {
             let i = match self.hy.tabs.iter().position(|t| t.layout.leaves().len() == 1) {
                 Some(i) => i,
                 None => {
-                    self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f });
+                    self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split });
                     self.hy.tabs.len() - 1
                 }
             };
-            self.hy.tabs[i] = HyTab { layout: Node::Leaf(f), focus: f };
+            self.hy.tabs[i] = HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split };
             self.hy.tab = i;
             return;
         }
@@ -337,6 +337,13 @@ impl App {
                 self.hy_new_session(dir, None, false);
             }
             Action::Jump | Action::Picker => self.mode = Mode::Jump { sel: 0 },
+            Action::Arrange => {
+                if let Some(tab) = self.hy.tabs.get_mut(self.hy.tab) {
+                    tab.arrange = tab.arrange.next();
+                    let label = tab.arrange.label();
+                    self.notify(format!("panes: {label}"), false);
+                }
+            }
             Action::PrevPrompt | Action::NextPrompt => {
                 if let Some(t) = self.focused() {
                     self.jump_prompt(t, *a == Action::PrevPrompt);

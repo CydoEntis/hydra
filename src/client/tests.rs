@@ -52,6 +52,7 @@ mod design_tests {
             asleep: false,
             win32_input: false,
             remote: None,
+            popup: false,
         }
     }
 
@@ -692,6 +693,14 @@ mod hydra_tests {
         assert_eq!(app.hy.leaf_rects.len(), 3);
         let widths: Vec<u16> = app.hy.leaf_rects.iter().map(|(_, r)| r.width).collect();
         assert!(widths.iter().max().unwrap() - widths.iter().min().unwrap() <= 2, "three tile evenly: {widths:?}");
+        // Ctrl+Space =: main and stack, the first one big.
+        app.act(Action::Arrange);
+        app.act(Action::Arrange);
+        assert_eq!(app.hy.tabs[0].arrange, hydra::Arrange::Main);
+        draw(&mut app, 200, 50);
+        let first = app.hy.leaf_rects[0].1.width;
+        assert!(app.hy.leaf_rects.iter().skip(1).all(|(_, r)| r.width < first), "main is widest: {:?}", app.hy.leaf_rects);
+        app.hy.tabs[0].arrange = hydra::Arrange::Split;
         // Close one: two left, with a line between them you can drag.
         assert!(app.hy_unshow(c));
         assert_eq!(app.hy.tabs[0].layout.leaves().len(), 2);
@@ -879,6 +888,23 @@ mod hydra_tests {
         assert_eq!(top(&app), "$ job4", "found though the history shifted");
         app.jump_prompt(term, true);
         assert_eq!(top(&app), "$ job3");
+    }
+
+    #[test]
+    fn a_popup_floats_over_everything_and_takes_the_keys() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let mut pop = app.snap.terms[&3].clone();
+        (pop.id, pop.popup, pop.process) = (9, true, "fzf".into());
+        app.snap.terms.insert(9, pop);
+        let mut p = vt100::Parser::new(30, 120, 0);
+        p.process(b"> pick a file");
+        app.parsers.insert(9, p);
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("> pick a file"), "drawn over the rest");
+        assert_eq!(app.typing_to(), Some(9), "typing goes to it");
+        assert_ne!(app.focused(), Some(9), "the pane you're on stays yours underneath");
+        app.snap.terms.remove(&9);
+        assert_eq!(app.typing_to(), app.focused(), "closed: typing goes back");
     }
 
     #[test]

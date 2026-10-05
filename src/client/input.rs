@@ -47,7 +47,7 @@ impl App {
             }
             _ if s.is_empty() => self.paste_image(),
             _ => {
-                let Some(term) = self.focused() else { return };
+                let Some(term) = self.typing_to() else { return };
                 let bracketed = self.parsers.get(&term).is_some_and(|p| p.screen().bracketed_paste());
                 let body = s.replace("\r\n", "\r").replace('\n', "\r");
                 let data = if bracketed { format!("\x1b[200~{body}\x1b[201~") } else { body };
@@ -268,7 +268,7 @@ impl App {
     }
 
     pub(super) fn forward_key(&mut self, k: &KeyEvent) {
-        let Some(term) = self.focused() else { return };
+        let Some(term) = self.typing_to() else { return };
         let app_cursor = self.parsers.get(&term).is_some_and(|p| p.screen().application_cursor());
         let win32 = cfg!(windows) && self.snap.terms.get(&term).is_some_and(|t| t.win32_input) && keys::wants_win32(k);
         let data = match win32.then(|| keys::encode_win32(k)).flatten() {

@@ -60,6 +60,16 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
     draw_main(app, f, panes, &model, t);
     app.hy.crumb_x = panes.x + 1;
     draw_status(app, f.buffer_mut(), Rect { y: area.bottom().saturating_sub(1), height: 1, ..area }, &model, t);
+    // A popup (`hydra popup`) floats over everything, the rest dimmed.
+    if let Some(term) = app.popup() {
+        let whole = f.area();
+        dim_all(f.buffer_mut(), whole, t);
+        let w = (whole.width * 4 / 5).max(40).min(whole.width);
+        let h = (whole.height * 3 / 4).max(12).min(whole.height);
+        let r = Rect { x: whole.x + (whole.width - w) / 2, y: whole.y + (whole.height - h) / 2, width: w, height: h };
+        fill(f.buffer_mut(), r, t.bg);
+        draw_session(app, f, r, term, true, false, &model, t);
+    }
     draw_toast(app, f.buffer_mut(), panes, t);
     // Files, diffs and pull requests open over everything in one tool-window size; Esc
     // closes.
@@ -589,28 +599,18 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         return;
     };
     let leaves = layout.leaves();
-    // Three or more tile evenly (6 make a 3×2 grid); two split where you drag the line.
-    if leaves.len() >= 3 {
-        let n = leaves.len();
-        let rows = if n <= 3 { 1 } else if n <= 6 { 2 } else { n.div_ceil(3) };
-        let per = n.div_ceil(rows);
-        let rh = (area.height + 1) / rows as u16;
-        let mut rects = Vec::new();
-        for (ri, chunk) in leaves.chunks(per).enumerate() {
-            let y = area.y + ri as u16 * rh;
-            let h = if ri + 1 == rows { area.bottom() - y } else { rh - 1 };
-            let cols = chunk.len() as u16;
-            let cw = (area.width + 3) / cols;
-            for (ci, id) in chunk.iter().enumerate() {
-                let x = area.x + ci as u16 * cw;
-                let w = if ci as u16 + 1 == cols { area.right() - x } else { cw - 3 };
-                rects.push((*id, Rect { x, y, width: w, height: h }));
-                if (ci as u16) + 1 < cols {
-                    let buf = f.buffer_mut();
-                    for yy in y..y + h {
-                        if let Some(px) = buf.cell_mut((x + w + 1, yy)) {
-                            px.set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
-                        }
+    let arrange = app.hy.tabs.get(app.hy.tab).map(|tab| tab.arrange).unwrap_or_default();
+    // Split with two: where you drag the line (below). Anything else: by the arrangement.
+    if leaves.len() >= 3 || arrange != Arrange::Split {
+        let rects = arranged(arrange, &leaves, focus, area);
+        // A line in the middle of each gutter between panes side by side.
+        let buf = f.buffer_mut();
+        for (_, r) in &rects {
+            let gx = r.right() + 1;
+            if r.right() + 3 <= area.right() && rects.iter().any(|(_, o)| o.x == r.right() + 3 && o.y < r.bottom() && r.y < o.bottom()) {
+                for yy in r.top()..r.bottom() {
+                    if let Some(px) = buf.cell_mut((gx, yy)) {
+                        px.set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
                     }
                 }
             }

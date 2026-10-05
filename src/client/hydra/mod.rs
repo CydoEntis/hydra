@@ -142,6 +142,99 @@ pub(super) struct HyTab {
     pub layout: crate::layout::Node,
     /// The one you were on in it.
     pub focus: TermId,
+    /// How its panes are laid out.
+    pub arrange: Arrange,
+}
+
+/// How a tab lays out its panes (Ctrl+Space = goes to the next).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum Arrange {
+    /// Where you put them: two side by side (drag the line), more tile evenly.
+    #[default]
+    Split,
+    /// All the same size, in rows.
+    Grid,
+    /// The first one big on the left, the rest stacked on the right.
+    Main,
+    /// A strip of columns wide enough to read; it slides to keep the one you're on in view.
+    Columns,
+}
+
+impl Arrange {
+    pub fn next(self) -> Arrange {
+        match self {
+            Arrange::Split => Arrange::Grid,
+            Arrange::Grid => Arrange::Main,
+            Arrange::Main => Arrange::Columns,
+            Arrange::Columns => Arrange::Split,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Arrange::Split => "split",
+            Arrange::Grid => "grid",
+            Arrange::Main => "main and stack",
+            Arrange::Columns => "columns",
+        }
+    }
+}
+
+/// Where each pane goes in `area` for `arrange` (not Split's two-pane drag case): panes
+/// side by side leave a 3-column gutter (a line in its middle), stacked ones a row.
+pub(super) fn arranged(arrange: Arrange, leaves: &[TermId], focus: TermId, area: Rect) -> Vec<(TermId, Rect)> {
+    let n = leaves.len();
+    let column = |x: u16, w: u16, ids: &[TermId], out: &mut Vec<(TermId, Rect)>| {
+        // `ids` stacked in a column, a row between each.
+        let k = ids.len() as u16;
+        let rh = (area.height + 1) / k.max(1);
+        for (i, id) in ids.iter().enumerate() {
+            let y = area.y + i as u16 * rh;
+            let h = if i as u16 + 1 == k { area.bottom() - y } else { rh.saturating_sub(1) };
+            out.push((*id, Rect { x, y, width: w, height: h }));
+        }
+    };
+    let mut out = Vec::new();
+    match arrange {
+        Arrange::Main if n >= 2 => {
+            let mw = (area.width * 3 / 5).max(20).min(area.width.saturating_sub(23));
+            out.push((leaves[0], Rect { width: mw, ..area }));
+            let x = area.x + mw + 3;
+            column(x, area.right().saturating_sub(x), &leaves[1..], &mut out);
+        }
+        Arrange::Columns if n >= 2 => {
+            // Each wide enough to read (half the room, at least 80), as many as fit.
+            let cw = (area.width / 2).max(80).min(area.width);
+            let fit = ((area.width + 3) / (cw + 3)).max(1) as usize;
+            let at = leaves.iter().position(|l| *l == focus).unwrap_or(0);
+            let start = at.saturating_sub(fit - 1).min(n.saturating_sub(fit));
+            let shown = &leaves[start..(start + fit).min(n)];
+            let w = (area.width + 3) / shown.len() as u16;
+            for (i, id) in shown.iter().enumerate() {
+                let x = area.x + i as u16 * w;
+                let width = if i + 1 == shown.len() { area.right() - x } else { w - 3 };
+                out.push((*id, Rect { x, width, ..area }));
+            }
+        }
+        _ => {
+            // Grid (and Split with three or more): rows of up to three.
+            let rows = if n <= 3 { 1 } else if n <= 6 { 2 } else { n.div_ceil(3) };
+            let per = n.div_ceil(rows).max(1);
+            let rh = (area.height + 1) / rows as u16;
+            for (ri, chunk) in leaves.chunks(per).enumerate() {
+                let y = area.y + ri as u16 * rh;
+                let h = if ri + 1 == rows { area.bottom() - y } else { rh - 1 };
+                let cols = chunk.len() as u16;
+                let cw = (area.width + 3) / cols;
+                for (ci, id) in chunk.iter().enumerate() {
+                    let x = area.x + ci as u16 * cw;
+                    let w = if ci as u16 + 1 == cols { area.right() - x } else { cw - 3 };
+                    out.push((*id, Rect { x, y, width: w, height: h }));
+                }
+            }
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -646,7 +739,7 @@ impl App {
             .filter_map(|tab| {
                 let layout = tab.layout.map_leaves(&mut |id| alive(id).then_some(id))?;
                 let focus = if layout.contains(tab.focus) { tab.focus } else { layout.first_leaf() };
-                Some(HyTab { layout, focus })
+                Some(HyTab { layout, focus, arrange: Arrange::Split })
             })
             .collect();
         tabs.dedup_by(|a, b| a.layout == b.layout);
@@ -864,3 +957,28 @@ mod pr_map;
 
 pub(in crate::client) use self::{dialogs::*, popups::*, screen::*, splash::*, pr_map::*};
 
+
+#[cfg(test)]
+mod arrange_tests {
+    use super::{Arrange, arranged};
+    use ratatui::layout::Rect;
+
+    #[test]
+    fn each_arrangement_places_panes() {
+        let area = Rect { x: 0, y: 0, width: 200, height: 50 };
+        // Main: the first big on the left, the others stacked on the right.
+        let r = arranged(Arrange::Main, &[1, 2, 3], 1, area);
+        assert_eq!(r[0].0, 1);
+        assert!(r[0].1.width > 100 && r[0].1.height == 50, "{r:?}");
+        assert!(r[1].1.x == r[2].1.x && r[2].1.y > r[1].1.y, "stacked: {r:?}");
+        // Grid: all the same size.
+        let r = arranged(Arrange::Grid, &[1, 2], 1, area);
+        assert_eq!(r.len(), 2);
+        assert!(r[0].1.width.abs_diff(r[1].1.width) <= 3);
+        // Columns: wide enough to read; the one you're on is always shown.
+        let r = arranged(Arrange::Columns, &[1, 2, 3, 4, 5], 5, area);
+        assert!(r.iter().all(|(_, x)| x.width >= 80), "{r:?}");
+        assert!(r.iter().any(|(id, _)| *id == 5), "slides to the focused one: {r:?}");
+        assert!(!r.iter().any(|(id, _)| *id == 1), "the strip doesn't squeeze them all in");
+    }
+}

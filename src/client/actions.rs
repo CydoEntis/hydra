@@ -266,6 +266,7 @@ impl App {
             Action::OpenProject,
             Action::SplitRight,
             Action::SplitDown,
+            Action::Arrange,
             Action::Focus(Dir::Left),
             Action::Focus(Dir::Right),
             Action::Focus(Dir::Up),
