@@ -324,6 +324,92 @@ pub struct AgentDef {
     pub enabled: Option<bool>,
 }
 
+/// Programs that run an agent's script rather than being the agent: they can't name it.
+const INTERPRETERS: &[&str] = &["node", "nodejs", "bun", "deno", "python", "python3", "py", "ruby", "java", "uv", "uvx", "npx", "pnpm", "tsx", "ts-node"];
+
+/// What hydra learns from a program you say is an agent: matched by its name, or (run by
+/// node, python, …) by its package or script. The usual screen signs of a working agent;
+/// None when there's nothing to go on (a shell, no script).
+pub fn agent_from_command(program: &str, args: &[String]) -> Option<AgentDef> {
+    let program = program.to_lowercase();
+    let shells = ["pwsh", "powershell", "cmd", "bash", "zsh", "fish", "nu", "sh", "dash", "elvish", "xonsh"];
+    if program.is_empty() || shells.contains(&program.as_str()) {
+        return None;
+    }
+    let (name, process, cmdline) = if INTERPRETERS.contains(&program.as_str()) {
+        let script = args.iter().skip(1).find(|a| !a.starts_with('-') && !["run", "x", "exec", "dlx"].contains(&a.as_str()))?;
+        let path = script.replace('\\', "/");
+        let name = match path.split_once("node_modules/") {
+            // An npm package: its name (the part after a scope).
+            Some((_, rest)) => {
+                let mut parts = rest.split('/');
+                let first = parts.next().unwrap_or_default();
+                if first.starts_with('@') { parts.next().unwrap_or(first) } else { first }.to_string()
+            }
+            None => {
+                let file = path.rsplit('/').next().unwrap_or(&path);
+                let stem = file.rsplit_once('.').map_or(file, |(s, _)| s);
+                // cli.js, main.py, index.ts: the folder says more.
+                if ["cli", "main", "index", "__main__", "app", "run"].contains(&stem) {
+                    path.rsplit('/').nth(1).filter(|d| !d.is_empty() && *d != "dist" && *d != "bin").unwrap_or(stem).to_string()
+                } else {
+                    stem.to_string()
+                }
+            }
+        };
+        (name.clone(), Vec::new(), vec![name])
+    } else {
+        (program.clone(), vec![program.clone()], Vec::new())
+    };
+    Some(AgentDef {
+        name,
+        process,
+        cmdline,
+        working_patterns: [r"esc to interrupt", r"esc to cancel", r"ctrl\+c to (stop|interrupt|cancel)"].map(String::from).to_vec(),
+        blocked_patterns: [r"Do you want to", r"\(y/n\)", r"\[y/N\]"].map(String::from).to_vec(),
+        resume: None,
+        resume_last: None,
+        enabled: None,
+    })
+}
+
+/// Add an agent to config.toml (`[[agents]]`), replacing one of the same name; the rest of
+/// the file stays as it is.
+pub fn add_agent(def: &AgentDef) -> Result<()> {
+    add_agent_to(&config_path(), def)
+}
+
+fn add_agent_to(file: &std::path::Path, def: &AgentDef) -> Result<()> {
+    let text = match std::fs::read_to_string(file) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(e).context("reading config"),
+    };
+    let mut doc: toml_edit::DocumentMut = text.parse().context("config.toml has a syntax error; fix it first")?;
+    if !doc.contains_key("agents") {
+        doc.insert("agents", toml_edit::Item::ArrayOfTables(toml_edit::ArrayOfTables::new()));
+    }
+    let agents = doc["agents"].as_array_of_tables_mut().context("`agents` in config.toml isn't a list of [[agents]]")?;
+    agents.retain(|t| t.get("name").and_then(|n| n.as_str()) != Some(def.name.as_str()));
+    let list = |xs: &[String]| toml_edit::value(xs.iter().map(String::as_str).collect::<toml_edit::Array>());
+    let mut t = toml_edit::Table::new();
+    t.insert("name", toml_edit::value(def.name.as_str()));
+    if !def.process.is_empty() {
+        t.insert("process", list(&def.process));
+    }
+    if !def.cmdline.is_empty() {
+        t.insert("cmdline", list(&def.cmdline));
+    }
+    t.insert("working_patterns", list(&def.working_patterns));
+    t.insert("blocked_patterns", list(&def.blocked_patterns));
+    // At the end of the file, after what's there.
+    t.set_position(isize::MAX);
+    agents.push(t);
+    write_atomic(file, doc.to_string()).context("writing config")?;
+    crate::sync::push_soon();
+    Ok(())
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -813,6 +899,36 @@ fn which(exe: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_program_becomes_an_agent() {
+        let args = |s: &str| s.split_whitespace().map(String::from).collect::<Vec<_>>();
+        let native = super::agent_from_command("deepseek", &args("deepseek --model x")).unwrap();
+        assert_eq!((native.name.as_str(), native.process.clone(), native.cmdline.is_empty()), ("deepseek", vec!["deepseek".to_string()], true), "by its name, whatever alias ran it");
+        let npm = super::agent_from_command("node", &args("node /home/vox/.npm/lib/node_modules/@acme/deepseek-harness/dist/cli.js")).unwrap();
+        assert_eq!((npm.name.as_str(), npm.process.is_empty(), npm.cmdline.clone()), ("deepseek-harness", true, vec!["deepseek-harness".to_string()]), "node: by its package");
+        let py = super::agent_from_command("python3", &args("python3 -u /opt/harness/main.py")).unwrap();
+        assert_eq!(py.name, "harness", "a main.py goes by its folder");
+        assert!(super::agent_from_command("bash", &args("bash")).is_none(), "a shell isn't an agent");
+        assert!(super::agent_from_command("node", &args("node")).is_none(), "nothing to go on");
+        assert!(native.working_patterns.iter().any(|p| p == "esc to interrupt"));
+    }
+
+    #[test]
+    fn adding_an_agent_keeps_the_rest_of_the_config() {
+        let file = std::env::temp_dir().join(format!("hydra-agents-{}.toml", std::process::id()));
+        std::fs::write(&file, "# mine\ntheme = \"default\"\n\n[ui]\nsplash = true\n\n[notify]\ndesktop = true\n").unwrap();
+        let def = super::agent_from_command("dst", &["dst".to_string()]).unwrap();
+        super::add_agent_to(&file, &def).unwrap();
+        super::add_agent_to(&file, &def).unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("# mine") && text.contains("theme = \"default\""), "the rest stays: {text}");
+        assert_eq!(text.matches("[[agents]]").count(), 1, "the same name once: {text}");
+        assert!(text.find("[[agents]]") > text.find("[notify]"), "added at the end: {text}");
+        let cfg: super::Config = toml::from_str(&text).unwrap();
+        assert!(cfg.agent_defs().iter().any(|a| a.name == "dst"), "and hydra reads it back");
+        let _ = std::fs::remove_file(&file);
+    }
+
     #[test]
     fn the_start_folder() {
         let mut cfg = super::Config::default();

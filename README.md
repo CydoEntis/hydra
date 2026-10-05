@@ -417,6 +417,12 @@ these sources, in order:
 
 A turn that finishes while you're looking elsewhere is **done** until you focus that pane.
 
+**An agent hydra doesn't know** (a newer CLI, or one you start with your own alias): right-click
+its pane and pick **"… is an agent"**, or run `hydra teach` in it (`hydra teach 4` for pane 4).
+Hydra looks at the program actually running, whatever alias started it (or, for a node /
+python harness, its package or script), and adds it under `[[agents]]` in your config with the
+usual screen signs of working. Edit that entry to tune them.
+
 ## Script it
 
 ```sh

@@ -56,6 +56,53 @@ pub struct Found {
     pub remote: Option<String>,
 }
 
+/// The program running in a pane (the deepest one under its shell, not a helper): its name
+/// and command line. Slow (reads the process table): not for every tick.
+pub fn leaf_program(root: u32) -> Option<(String, Vec<String>)> {
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always));
+    let mut children: HashMap<Pid, Vec<Pid>> = HashMap::new();
+    for (pid, p) in sys.processes() {
+        if let Some(parent) = p.parent() {
+            children.entry(parent).or_default().push(*pid);
+        }
+    }
+    let mut queue = vec![(Pid::from_u32(root), 0usize)];
+    let mut best: Option<(usize, u64, Pid)> = None;
+    let mut i = 0;
+    while i < queue.len() {
+        let (pid, depth) = queue[i];
+        i += 1;
+        if let Some(p) = sys.process(pid)
+            && depth > 0
+            && !IGNORED.contains(&stem(p.name()).as_str())
+            && best.is_none_or(|(d, t, _)| (depth, p.start_time()) > (d, t))
+        {
+            best = Some((depth, p.start_time(), pid));
+        }
+        for c in children.get(&pid).into_iter().flatten() {
+            if queue.len() < 512 {
+                queue.push((*c, depth + 1));
+            }
+        }
+    }
+    // The shallowest non-shell program is what you started (its helpers are deeper); fall
+    // back to the deepest.
+    let shells = ["pwsh", "powershell", "cmd", "bash", "zsh", "fish", "nu", "sh", "dash"];
+    let pick = queue
+        .iter()
+        .filter(|(_, d)| *d > 0)
+        .filter_map(|(pid, _)| sys.process(*pid))
+        .find(|p| {
+            let n = stem(p.name());
+            !IGNORED.contains(&n.as_str()) && !shells.contains(&n.as_str())
+        })
+        .map(|p| p.pid())
+        .or(best.map(|b| b.2))?;
+    let p = sys.process(pick)?;
+    Some((stem(p.name()), p.cmd().iter().map(|a| a.to_string_lossy().into_owned()).collect()))
+}
+
 /// Programs that put the pane on another machine.
 const REMOTE_CLIENTS: &[&str] = &["ssh", "mosh", "mosh-client", "autossh", "et"];
 

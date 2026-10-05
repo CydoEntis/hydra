@@ -309,6 +309,14 @@ pub fn focused_pane() -> Option<TermId> {
     s.workspaces.iter().find(|w| Some(w.id) == s.active_ws)?.tab().map(|t| t.focus)
 }
 
+/// `hydra teach [pane]`: the program running there is an agent.
+pub fn teach(pane: Option<TermId>) -> Result<()> {
+    let term = resolve_pane(pane)?;
+    command(Command::TeachAgent { term })?;
+    println!("hydra knows it as an agent now (see [[agents]] in {})", crate::config::config_path().display());
+    Ok(())
+}
+
 /// Focus a pane and bring hydra's window forward (what clicking a notification does).
 pub fn reveal(pane: TermId) -> Result<()> {
     command(Command::Reveal { term: pane })

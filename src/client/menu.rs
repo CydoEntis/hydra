@@ -17,6 +17,8 @@ use unicode_width::UnicodeWidthStr;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Act {
     Beside(TermId),
+    /// The program in this pane is an agent: hydra learns it.
+    TeachAgent(TermId),
     Talk(TermId),
     /// End these (stops what runs in them).
     End(Vec<TermId>),
@@ -124,6 +126,10 @@ impl App {
             if self.hy.right_clicks.contains(&term) { "Stop sending right-clicks to pane" } else { "Send right-clicks to pane" }.to_string(),
             Act::RightClicks(term),
         ));
+        // A program hydra doesn't know (an agent started by an alias, say): teach it.
+        if let Some(t) = self.snap.terms.get(&term).filter(|t| t.agent.is_none() && !t.is_shell() && !t.process.is_empty() && t.remote.is_none()) {
+            items.push((format!("{} is an agent…", t.process), Act::TeachAgent(term)));
+        }
         items.push(("Close pane".to_string(), Act::End(vec![term])));
         self.menu(if agent.is_empty() { "pane".into() } else { agent }, items, at);
     }
@@ -350,6 +356,7 @@ impl App {
                 });
             }
             Act::Zoom(t) => self.hy.zoom = if self.hy.zoom == Some(t) { None } else { Some(t) },
+            Act::TeachAgent(term) => self.cmd(Command::TeachAgent { term }),
             Act::RightClicks(t) => {
                 if !self.hy.right_clicks.remove(&t) {
                     self.hy.right_clicks.insert(t);

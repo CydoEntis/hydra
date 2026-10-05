@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 24;
+pub const PROTOCOL_VERSION: u32 = 25;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -109,6 +109,9 @@ pub enum Command {
     /// Index into the configured workspace colour palette.
     SetWorkspaceColor { ws: WsId, color: u8 },
     ReloadConfig,
+    /// The program running in `term` is an agent: add it to config (by its program, or by
+    /// its script when node/python runs it) so its status shows.
+    TeachAgent { term: TermId },
     /// `forget`: also discard the saved session, so the next start is a clean slate.
     KillServer { forget: bool },
 }
@@ -434,6 +437,7 @@ mod tests {
             ClientMsg::Command(Command::Split { term: 3, dir: crate::layout::Dir::Down, cmd: None, cwd: None }),
             ClientMsg::Command(Command::ClosePane { term: 3 }),
             ClientMsg::Command(Command::Reveal { term: 3 }),
+            ClientMsg::Command(Command::TeachAgent { term: 3 }),
             ClientMsg::Command(Command::RenamePane { term: 3, name: "x".into() }),
             ClientMsg::Command(Command::MoveToWorktree { term: 3, branch: Some("feat/x".into()) }),
         ];

@@ -389,6 +389,16 @@ impl Daemon {
                 let undo = self.auto_undo.take().ok_or_else(|| anyhow::anyhow!("nothing to undo"))?;
                 self.undo_auto(undo)?;
             }
+            Command::TeachAgent { term } => {
+                let pid = self.terms.get(&term).and_then(|t| t.pid).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?;
+                let (program, args) = scan::leaf_program(pid).ok_or_else(|| anyhow::anyhow!("nothing is running in that pane"))?;
+                let def = crate::config::agent_from_command(&program, &args)
+                    .ok_or_else(|| anyhow::anyhow!("{program} has nothing to recognise it by; add it under [[agents]] in config.toml"))?;
+                crate::config::add_agent(&def)?;
+                let name = def.name.clone();
+                self.command(client, Command::ReloadConfig)?;
+                self.broadcast(|c| c.attach, ServerMsg::Notice(format!("{name} is an agent now: hydra shows when it's working, needs you or done")));
+            }
             Command::ReloadConfig => {
                 self.exts = crate::ext::load_all().0;
                 self.cfg = Config::load()?;

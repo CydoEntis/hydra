@@ -97,6 +97,9 @@ enum Cmd {
     },
     /// Focus a pane (switches workspace and tab).
     Focus { pane: protocol::TermId },
+    /// The program in a pane (default: this one) is an agent: hydra learns it, by its
+    /// program (any alias) or, run by node / python, by its script.
+    Teach { pane: Option<protocol::TermId> },
     /// Go to a session and bring hydra's window forward: what clicking a notification runs.
     /// Takes a hydra:// link or a pane number.
     Reveal { target: String },
@@ -254,6 +257,7 @@ fn main() {
         Some(Cmd::New { path, name, command }) => cli::new_workspace(path, name, command),
         Some(Cmd::Focus { pane }) => cli::focus(pane),
         Some(Cmd::Reveal { target }) => reveal::run(&target),
+        Some(Cmd::Teach { pane }) => cli::teach(pane),
         Some(Cmd::Close { pane }) => cli::close(pane),
         Some(Cmd::Hook { agent, status, payload }) => {
             // Hooks run inline in the agent's turn: never fail, never print.
