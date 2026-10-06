@@ -768,6 +768,62 @@ fn last_assistant_text(path: &std::path::Path) -> Option<String> {
     })
 }
 
+/// Whether a Claude transcript has background work running that was started since your last
+/// message: a background command or agent with no "finished" note for it yet.
+fn background_running(path: &std::path::Path) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut f) = std::fs::File::open(path) else { return false };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let start = len.saturating_sub(4 * 1024 * 1024);
+    if f.seek(SeekFrom::Start(start)).is_err() {
+        return false;
+    }
+    let mut buf = String::new();
+    if f.read_to_string(&mut buf).is_err() {
+        return false;
+    }
+    background_running_in(&buf)
+}
+
+fn background_running_in(transcript: &str) -> bool {
+    use std::sync::LazyLock;
+    static STARTED: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"(?:running in background with ID: |agentId: )([A-Za-z0-9_-]+)").expect("valid regex"));
+    static ENDED: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"<task-id>([A-Za-z0-9_-]+)</task-id>.{0,800}?<status>(\w+)</status>").expect("valid regex"));
+    let mut started: Vec<String> = Vec::new();
+    let mut ended: Vec<String> = Vec::new();
+    for line in transcript.lines() {
+        let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        if v.get("type").and_then(Value::as_str) == Some("user") && is_typed_prompt(&v) {
+            // Your message: what ran before it is no longer this job.
+            started.clear();
+            ended.clear();
+            continue;
+        }
+        started.extend(STARTED.captures_iter(line).map(|c| c[1].to_string()));
+        ended.extend(ENDED.captures_iter(line).filter(|c| &c[2] != "running").map(|c| c[1].to_string()));
+    }
+    started.iter().any(|id| !ended.contains(id))
+}
+
+/// A user line in a Claude transcript that you typed (not a tool's result or a background
+/// task's note).
+fn is_typed_prompt(v: &Value) -> bool {
+    let typed = |t: &str| {
+        let t = t.trim_start();
+        !t.is_empty() && !t.starts_with("<task-notification>") && !t.starts_with("<system-reminder>")
+    };
+    match v.pointer("/message/content") {
+        Some(Value::String(t)) => typed(t),
+        Some(Value::Array(items)) => {
+            !items.iter().any(|i| i.get("type").and_then(Value::as_str) == Some("tool_result"))
+                && items.iter().any(|i| i.get("type").and_then(Value::as_str) == Some("text") && i.get("text").and_then(Value::as_str).is_some_and(typed))
+        }
+        _ => false,
+    }
+}
+
 /// Collapse whitespace and cut to `max` characters.
 fn one_line(s: &str, max: usize) -> String {
     let flat = s.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -838,6 +894,9 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
     let prompt = field(&["prompt"]).filter(|_| session_facts).map(|p| one_line(&p, 160));
     let transcript = transcript.filter(|_| session_facts);
     let (model, name) = transcript.as_deref().map(transcript_facts).unwrap_or_default();
+    // A reply that ends while work it started in the background still runs (a long build,
+    // a background agent) isn't the end of the job: it wakes up when that's done.
+    let status = if status == HookStatus::Done && transcript.as_deref().is_some_and(background_running) { HookStatus::Working } else { status };
     if event == "Notification"
         && let Some(kind) = field(&["notification_type"])
     {
@@ -1219,6 +1278,22 @@ pub fn allow(dir: Option<std::path::PathBuf>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_reply_with_background_work_running_isnt_the_end() {
+        use serde_json::json;
+        let line = |v: serde_json::Value| v.to_string();
+        let you = line(json!({"type": "user", "message": {"content": "run the long build"}}));
+        let started = line(json!({"type": "user", "message": {"content": [{"type": "tool_result", "content": "Command running in background with ID: b9ib9wh3g. Output is being written to: x"}]}}));
+        let ended = line(json!({"type": "user", "message": {"content": "<task-notification>\n<task-id>b9ib9wh3g</task-id>\n<status>completed</status>\n</task-notification>"}}));
+        let reply = line(json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "Waiting for the build."}]}}));
+        let t = |lines: &[&String]| lines.iter().map(|l| l.as_str()).collect::<Vec<_>>().join("\n");
+        assert!(super::background_running_in(&t(&[&you, &started, &reply])), "the build still runs: not done");
+        assert!(!super::background_running_in(&t(&[&you, &started, &reply, &ended, &reply])), "it finished: done");
+        assert!(!super::background_running_in(&t(&[&started, &reply, &you, &reply])), "started before your last message: not this job");
+        let agent = line(json!({"type": "user", "message": {"content": [{"type": "tool_result", "content": [{"type": "text", "text": "Async agent launched successfully.\nagentId: a90856b7402e3540a"}]}]}}));
+        assert!(super::background_running_in(&t(&[&you, &agent, &reply])), "a background agent counts too");
+    }
+
     #[test]
     fn gemini_qwen_and_opencode_events_mean_states() {
         use crate::protocol::HookStatus as H;
