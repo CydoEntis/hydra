@@ -991,6 +991,54 @@ mod hydra_tests {
     }
 
     #[test]
+    fn sessions_drag_into_another_group() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        // codex works in another folder (no git): a second agents group.
+        let t = app.snap.terms.get_mut(&2).unwrap();
+        (t.root, t.top, t.cwd) = (None, None, std::path::PathBuf::from("/work/web"));
+        app.hy_fresh();
+        draw(&mut app, 160, 45);
+        let groups = |app: &App| app.hy_model().iter().map(|p| (p.name.clone(), p.sessions().map(|s| s.term).collect::<Vec<_>>())).collect::<Vec<_>>();
+        let header = |app: &App, name: &str| {
+            let pi = app.hy_model().iter().position(|p| p.name == name && p.kind == hydra::Kind::Agents).unwrap();
+            app.hits.iter().find_map(|(r, h)| (*h == Hit::Hy(hydra::HyHit::ToggleProj(pi))).then_some((r.x + 4, r.y))).unwrap()
+        };
+        let row = |app: &App, t: TermId| app.hits.iter().find_map(|(r, h)| (*h == Hit::Hy(hydra::HyHit::Session(t))).then_some((r.x + 6, r.y))).unwrap();
+        let mouse = |app: &mut App, kind: MouseEventKind, (x, y): (u16, u16)| {
+            app.on_mouse(MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE });
+            draw(app, 160, 45);
+        };
+        // claude dragged onto web's name joins web.
+        let (from, to) = (row(&app, 1), header(&app, "web"));
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), from);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), to);
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), to);
+        let g = groups(&app);
+        assert!(g.iter().any(|(n, ts)| n == "web" && ts.contains(&1) && ts.contains(&2)), "claude is in web now: {g:?}");
+        assert!(app.hy.drag.is_none());
+        // An agent can't go into the terminals section.
+        let shell_group = app.hy_model().iter().position(|p| p.kind == hydra::Kind::Terminals).unwrap();
+        assert!(!app.place_session(1, shell_group), "an agent stays among the agents");
+        // It stays when the agent reports its folder again.
+        app.hy_fresh();
+        assert!(groups(&app).iter().any(|(n, ts)| n == "web" && ts.contains(&1)));
+    }
+
+    #[test]
+    fn a_newer_hydra_has_an_update_button() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let o = draw(&mut app, 160, 45);
+        assert!(!o.contains(" Update "), "no button without a newer version");
+        app.update_available = Some("9.9.9".into());
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("9.9.9 is out") && o.contains(" Update "), "the button by the version");
+        // Not clicked here: that would download a release over the test program.
+        assert!(app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::Update)), "it can be clicked");
+        assert!(app.palette_commands().contains(&Action::Update), "and it's in the palette");
+    }
+
+    #[test]
     fn x_closes_and_x_confirms() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         app.menu_act(menu::Act::End(vec![3]));

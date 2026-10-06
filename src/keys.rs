@@ -272,6 +272,8 @@ pub enum Action {
     ReloadConfig,
     SendPrefix,
     KillServer,
+    /// Install the newest hydra and restart this window into it.
+    Update,
     /// Explicitly unbind a default.
     None,
 }
@@ -365,6 +367,7 @@ impl Action {
             Action::ReloadConfig => "Reload the config file".into(),
             Action::SendPrefix => "send prefix key".into(),
             Action::KillServer => "kill server".into(),
+            Action::Update => "Update hydra".into(),
             Action::None => "unbound".into(),
         }
     }
@@ -455,6 +458,7 @@ impl Action {
             Action::ReloadConfig => "reload-config".into(),
             Action::SendPrefix => "send-prefix".into(),
             Action::KillServer => "kill-server".into(),
+            Action::Update => "update".into(),
             Action::None => return None,
         })
     }
@@ -558,6 +562,7 @@ impl FromStr for Action {
             "reload-config" => Action::ReloadConfig,
             "send-prefix" => Action::SendPrefix,
             "kill-server" => Action::KillServer,
+            "update" => Action::Update,
             "none" | "unbind" => Action::None,
             _ => bail!("unknown action `{s}`"),
         })

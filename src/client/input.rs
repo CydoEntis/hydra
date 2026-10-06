@@ -443,11 +443,24 @@ impl App {
                             }
                         }
                         hydra::Drag::Session(t, _) => {
-                            let over = self.hits.iter().rev().find(|(r, h)| r.contains(pos) && matches!(h, Hit::Hy(hydra::HyHit::Session(_)))).map(|(_, h)| *h);
-                            if let Some(Hit::Hy(hydra::HyHit::Session(u))) = over
-                                && u != t
-                                && self.move_session(t, u)
-                            {
+                            let over = self
+                                .hits
+                                .iter()
+                                .rev()
+                                .find(|(r, h)| r.contains(pos) && matches!(h, Hit::Hy(hydra::HyHit::Session(_) | hydra::HyHit::ToggleProj(_))))
+                                .map(|(_, h)| *h);
+                            let moved = match over {
+                                // Onto another session: into its group, at its place.
+                                Some(Hit::Hy(hydra::HyHit::Session(u))) if u != t => {
+                                    let model = self.hy_model();
+                                    let into = model.iter().position(|p| p.sessions().any(|s| s.term == u));
+                                    (into.is_some_and(|pi| self.place_session(t, pi))) | self.move_session(t, u)
+                                }
+                                // Onto a group's name: into that group.
+                                Some(Hit::Hy(hydra::HyHit::ToggleProj(pi))) => self.place_session(t, pi),
+                                _ => false,
+                            };
+                            if moved {
                                 self.hy.drag = Some(hydra::Drag::Session(t, true));
                             }
                         }
@@ -660,6 +673,25 @@ impl App {
 
     /// Put session `t` where `u` is, within their group (the order you dragged them to).
     /// False when they aren't in the same group.
+    /// Put session `t` in group `pi` (by the sidebar's groups). Only within its section: an
+    /// agent goes to another agents' group, a shell to another terminals' one.
+    pub(super) fn place_session(&mut self, t: TermId, pi: usize) -> bool {
+        let model = self.hy_model();
+        let Some(to) = model.get(pi) else { return false };
+        let Some(from) = model.iter().find(|p| p.sessions().any(|s| s.term == t)) else { return false };
+        if from.key == to.key || from.kind != to.kind || to.kind == hydra::Kind::Ssh {
+            return false;
+        }
+        let placed = &mut self.hy.saved.placed;
+        placed.retain(|(x, ..)| *x != t);
+        placed.push((t, to.path.clone(), to.git));
+        let alive: Vec<TermId> = self.snap.terms.keys().copied().collect();
+        placed.retain(|(x, ..)| alive.contains(x));
+        self.hy_fresh();
+        self.dirty = true;
+        true
+    }
+
     pub(super) fn move_session(&mut self, t: TermId, u: TermId) -> bool {
         let model = self.hy_model();
         let Some(group) = model.iter().find(|p| p.sessions().any(|s| s.term == t)) else { return false };

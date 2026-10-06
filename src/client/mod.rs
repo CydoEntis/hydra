@@ -308,6 +308,10 @@ enum PickTarget {
 pub struct App {
     /// A newer release found by the daily check (shown on the splash).
     update_available: Option<String>,
+    /// An update is downloading.
+    updating: bool,
+    /// Installed a newer hydra: start it here once this one has closed.
+    restart: Option<PathBuf>,
     cfg: Config,
     theme: Theme,
     keymap: Keymap,
@@ -384,12 +388,22 @@ pub struct App {
     cursor_sent: u8,
 }
 
+/// Set on a hydra started by an in-app update, so it may restart a server too old to talk to.
+pub const UPDATED_ENV: &str = "HYDRA_UPDATED";
+
 pub fn run(opts: Options) -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;
-    rt.block_on(run_async(opts))
+    let restart = rt.block_on(run_async(opts))?;
+    drop(rt);
+    // Updated: the new hydra takes over this terminal, with the same arguments.
+    if let Some(exe) = restart {
+        let status = std::process::Command::new(&exe).args(std::env::args_os().skip(1)).env(UPDATED_ENV, "1").status()?;
+        std::process::exit(status.code().unwrap_or(0));
+    }
+    Ok(())
 }
 
-async fn run_async(opts: Options) -> Result<()> {
+async fn run_async(opts: Options) -> Result<Option<PathBuf>> {
     let (mut reader, mut writer) = ipc::open_or_spawn(true).await?;
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<ClientMsg>();
     tokio::spawn(async move {
@@ -411,7 +425,7 @@ async fn run_async(opts: Options) -> Result<()> {
             let newer = crate::update::newer_release();
             Bg::Then(Box::new(move |app: &mut App| {
                 if let Some(v) = newer {
-                    app.notify(format!("hydra {v} is out: run `hydra update`"), false);
+                    app.notify(format!("hydra {v} is out: click Update at the bottom left"), false);
                     app.update_available = Some(v);
                 }
             }))
@@ -438,10 +452,13 @@ async fn run_async(opts: Options) -> Result<()> {
 
     restore_terminal();
     result?;
+    if let Some(exe) = app.restart.take() {
+        return Ok(Some(exe));
+    }
     if let Some(reason) = app.quit {
         println!("[{reason}]");
     }
-    Ok(())
+    Ok(None)
 }
 
 /// Undo everything hydra turned on in the terminal: mouse, paste and focus reporting, its
@@ -471,6 +488,8 @@ impl App {
         let keymap = cfg.keymap();
         let mut app = App {
             update_available: None,
+            updating: false,
+            restart: None,
             theme: cfg.theme(),
             sidebar: cfg.ui.sidebar,
             keymap,
@@ -602,6 +621,29 @@ impl App {
                 self.sync_sizes();
             }
         }
+    }
+
+    /// Download the newest hydra in the background, then restart this window into it (the
+    /// sessions keep running in the server).
+    fn start_update(&mut self) {
+        if self.updating {
+            return;
+        }
+        self.updating = true;
+        self.notify("Updating hydra… the window restarts when it's done".into(), false);
+        self.spawn_bg(|| {
+            let r = crate::update::install_latest();
+            Bg::Then(Box::new(move |app: &mut App| match r {
+                Ok((v, exe)) => {
+                    app.restart = Some(exe);
+                    app.quit = Some(format!("updated to {v}"));
+                }
+                Err(e) => {
+                    app.updating = false;
+                    app.notify(format!("Update failed: {e:#}"), true);
+                }
+            }))
+        });
     }
 
     fn notify(&mut self, msg: String, error: bool) {

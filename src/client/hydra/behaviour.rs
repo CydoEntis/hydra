@@ -1102,6 +1102,7 @@ impl App {
             HyHit::Talk(t) => self.hy_talk(t, false),
             HyHit::Settings => self.hy_settings(),
             HyHit::Jump => self.open_goto(),
+            HyHit::Update => self.act(Action::Update),
             // The sidebar's "new": a shell where you are.
             HyHit::NewPane => self.act(Action::ShellHere),
             // The ✕ on a pane: close it (after asking).

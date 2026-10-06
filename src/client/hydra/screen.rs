@@ -557,9 +557,20 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     // Which hydra this is (and a newer one, if the daily check found it).
     let mut ver = vec![seg(format!("hydra {}", env!("CARGO_PKG_VERSION")), plain.fg(t.muted))];
     if let Some(v) = &app.update_available {
-        ver.push(seg(format!(" · {v} is out"), plain.fg(t.accent)));
+        ver.push(seg(format!(" · {v} is out "), plain.fg(t.accent)));
     }
-    put(buf, x0 + 2, by + 2, &ver, r.right().saturating_sub(1));
+    let x = put(buf, x0 + 2, by + 2, &ver, r.right().saturating_sub(1));
+    if app.update_available.is_some() {
+        let label = if app.updating { " updating… " } else { " Update " };
+        let w = label.width() as u16;
+        if x + w <= r.right().saturating_sub(1) {
+            let br = Rect { x, y: by + 2, width: w, height: 1 };
+            let bg = if hovered(app, br) { t.accent } else { t.btn };
+            let fg = if hovered(app, br) { t.sidebar_bg } else { t.strong };
+            put(buf, x, by + 2, &[seg(label, Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD))], r.right());
+            hit(app, br, HyHit::Update);
+        }
+    }
 }
 
 pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme) {

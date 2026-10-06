@@ -272,8 +272,8 @@ fn main() {
         std::process::exit(2);
     }
     let result = match args.cmd {
-        None => client::run(client::Options { open: args.path }),
-        Some(Cmd::Attach { path }) => client::run(client::Options { open: path }),
+        None => open_client(args.path),
+        Some(Cmd::Attach { path }) => open_client(path),
         Some(Cmd::Daemon) => daemon::run(),
         Some(Cmd::Ls { json }) => cli::ls(json),
         Some(Cmd::Read { pane }) => cli::read(pane),
@@ -347,5 +347,18 @@ fn main() {
     if let Err(e) = result {
         eprintln!("hydra: {e:#}");
         std::process::exit(1);
+    }
+}
+
+/// Open the app. Started by an in-app update to a hydra that can't talk to the running
+/// server: restart the server (its sessions resume) instead of stopping with an error.
+fn open_client(open: Option<std::path::PathBuf>) -> anyhow::Result<()> {
+    let updated = std::env::var_os(client::UPDATED_ENV).is_some();
+    match client::run(client::Options { open: open.clone() }) {
+        Err(e) if updated && e.chain().any(|c| c.is::<ipc::OtherVersion>()) => {
+            cli::kill_server(false)?;
+            client::run(client::Options { open })
+        }
+        r => r,
     }
 }

@@ -118,7 +118,7 @@ pub fn run(check: bool, force: bool) -> Result<()> {
     let asset = asset_for(target);
     let tmp = std::env::temp_dir().join(format!("hydra-update-{}", std::process::id()));
     std::fs::create_dir_all(&tmp)?;
-    let result = install(&tag, target, &asset, &tmp);
+    let result = install(&tag, target, &asset, &tmp, true);
     let _ = std::fs::remove_dir_all(&tmp);
     let exe = result?;
     println!("Updated hydra {current} -> {} ({}).", tag.trim_start_matches('v'), exe.display());
@@ -127,8 +127,24 @@ pub fn run(check: bool, force: bool) -> Result<()> {
     Ok(())
 }
 
-fn install(tag: &str, target: &str, asset: &str, tmp: &Path) -> Result<PathBuf> {
-    println!("Downloading hydra {} for {target}...", tag.trim_start_matches('v'));
+/// Install the newest release over this one without printing (from inside the app, whose
+/// screen printing would garble). Returns the version installed and where it went.
+pub fn install_latest() -> Result<(String, PathBuf)> {
+    let tag = latest_tag().map_err(|e| anyhow::anyhow!(e))?;
+    remember(&tag);
+    let Some(target) = target() else { bail!("there's no release build for this machine; build from source") };
+    let asset = asset_for(target);
+    let tmp = std::env::temp_dir().join(format!("hydra-update-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp)?;
+    let result = install(&tag, target, &asset, &tmp, false);
+    let _ = std::fs::remove_dir_all(&tmp);
+    Ok((tag.trim_start_matches('v').to_string(), result?))
+}
+
+fn install(tag: &str, target: &str, asset: &str, tmp: &Path, say: bool) -> Result<PathBuf> {
+    if say {
+        println!("Downloading hydra {} for {target}...", tag.trim_start_matches('v'));
+    }
     let archive = download(tag, asset, tmp)?;
     let sums = std::fs::read_to_string(download(tag, "sha256sums.txt", tmp)?)?;
     let expected = sums

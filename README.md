@@ -110,9 +110,11 @@ The installers pick the build for your machine, check its checksum, put it in
 another `hydra` comes first. No admin rights needed. `HYDRA_VERSION=v0.3.0` picks a version;
 `HYDRA_INSTALL_DIR` a folder. If scripts are blocked (a locked-down work PC), download the archive
 for your machine from [Releases](https://github.com/CydoEntis/hydra/releases) and put `hydra` on your PATH.
-To update later: `hydra update` (or `hydra update --check` to just look). Hydra also checks
-once a day and says on the splash when a newer version is out; turn that off in Settings
-(Check for updates).
+To update later: Hydra checks once a day, and when a newer version is out an **Update** button
+shows by the version at the bottom left of the sidebar (also "Update hydra" in the command
+palette). Click it: the new version downloads and the window restarts into it, with your
+sessions still running. From a shell it's `hydra update` (or `hydra update --check` to just
+look). Turn the daily check off in Settings (Check for updates).
 
 Then run `hydra doctor` to check your setup. For the best look: a terminal with true colour and a
 [Nerd Font](https://www.nerdfonts.com) (Windows Terminal, Ghostty, Alacritty, WezTerm, iTerm2).
@@ -157,8 +159,9 @@ split beside a session stays with it.
   worktree with an agent.
 - `#412 ✓` / `#412 ✕±`: the branch's pull request, its checks, and review state. Click it.
 - Things that need you sort to the top. Agents asleep (see Settings) show `☾ asleep`.
-- Drag a group's name, or a session within its group, up or down to reorder (what needs you
-  still comes first); click to fold or open. With the sidebar focused
+- Drag a group's name, or a session, up or down to reorder (what needs you still comes first);
+  drop a session on another group (its name or one of its sessions) to move it there, within its
+  section. Click to fold or open. With the sidebar focused
   (`Ctrl+Space e`), a row's menu letters work directly: `x` (or Delete) closes, `r` renames,
   `m` messages. The bottom-left says which hydra you're on.
 

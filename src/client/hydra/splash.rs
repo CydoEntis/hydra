@@ -139,7 +139,7 @@ pub(in crate::client) fn draw_splash(app: &mut App, f: &mut Frame, area: Rect, t
     let s = Style::default().bg(t.sidebar_bg);
     let mut left = vec![seg(format!("hydra {}", env!("CARGO_PKG_VERSION")), s.fg(t.muted))];
     if let Some(v) = &app.update_available {
-        left.push(seg(format!("   {v} is out: hydra update"), s.fg(t.accent).add_modifier(Modifier::BOLD)));
+        left.push(seg(format!("   {v} is out: Ctrl+Space p, then Update hydra"), s.fg(t.accent).add_modifier(Modifier::BOLD)));
     }
     if let Some((pn, pc, wn, title)) = last {
         left.push(seg("   last: ", s.fg(t.muted)));

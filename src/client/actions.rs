@@ -128,6 +128,7 @@ impl App {
             Action::KillServer => {
                 self.mode = Mode::Prompt { kind: PromptKind::ConfirmKillServer, input: String::new() };
             }
+            Action::Update => self.start_update(),
             Action::None => {}
             // The rest are handled by hy_act above.
             _ => {}
@@ -301,6 +302,7 @@ impl App {
             Action::Settings,
             Action::Help,
             Action::ReloadConfig,
+            Action::Update,
             Action::Detach,
         ]
     }

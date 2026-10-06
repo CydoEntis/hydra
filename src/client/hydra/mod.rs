@@ -45,6 +45,9 @@ pub(super) struct Saved {
     /// Sessions in the order you dragged them to (within a group; what needs you still
     /// comes first).
     pub session_order: Vec<TermId>,
+    /// Sessions you dragged into another group: the session, that group's folder, and
+    /// whether it's a git repo. Kept while the session lives.
+    pub placed: Vec<(TermId, PathBuf, bool)>,
     /// Projects whose BRANCHES list is unfolded.
     pub open_branches: Vec<String>,
     /// Races in progress.
@@ -580,7 +583,13 @@ impl App {
             let leaves: Vec<TermId> = w.tabs.iter().flat_map(|t| t.layout.leaves()).collect();
             for id in &leaves {
                 let Some(t) = self.snap.terms.get(id) else { continue };
+                let placed = self.hy.saved.placed.iter().find(|(x, ..)| x == id);
                 let (root, top, branch, main, git) = match (&t.root, &t.top) {
+                    // Dragged into another group: it stays there.
+                    _ if let Some((_, p, g)) = placed => {
+                        let branch = if t.root.as_ref().is_some_and(|r| path_key(r) == path_key(p)) { t.branch.clone().unwrap_or_default() } else { String::new() };
+                        (p.clone(), p.clone(), branch, true, *g)
+                    }
                     (Some(r), Some(tp)) => {
                         let main = path_key(r) == path_key(tp);
                         (r.clone(), tp.clone(), t.branch.clone().unwrap_or_default(), main, true)
@@ -916,6 +925,8 @@ pub(super) enum HyHit {
     MenuPick(usize),
     /// The sidebar's edge (drag to resize).
     SideEdge,
+    /// Install the newer hydra (the button by the version).
+    Update,
     /// A pane's scrollbar (click or drag).
     ScrollBar(TermId),
     FindTab(u8),
