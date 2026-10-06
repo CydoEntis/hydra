@@ -581,8 +581,14 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         return;
     };
     // Tabs, once there's more than one.
-    // A tab bar once you've made more than one tab.
-    let area = if app.hy.tabs.iter().filter(|t| !t.hidden).count() > 1 {
+    // Which tab was on screen last, per session.
+    app.hy.tick += 1;
+    let (tick, cur) = (app.hy.tick, app.hy.tab);
+    if let Some(tab) = app.hy.tabs.get_mut(cur) {
+        tab.used = tick;
+    }
+    // A tab bar once the session you're on has more than one tab.
+    let area = if app.session_tabs().len() > 1 {
         draw_tab_bar(app, f.buffer_mut(), Rect { height: 1, ..area }, model, t);
         Rect { y: area.y + 1, height: area.height.saturating_sub(1), ..area }
     } else {
@@ -675,14 +681,18 @@ pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, 
     fill(buf, r, t.bg);
     let mut x = r.x + 1;
     let mut shown = 0;
-    for i in 0..app.hy.tabs.len() {
+    for i in app.session_tabs() {
         let tab = &app.hy.tabs[i];
-        if tab.hidden {
-            continue;
-        }
         shown += 1;
         let n = tab.layout.leaves().len();
-        let name = find(model, tab.focus).map(|(_, _, s)| if s.title == WAITING || s.title.is_empty() { s.agent.clone() } else { format!("{} · {}", s.agent, truncate(&s.title, 18)) }).unwrap_or_else(|| "…".into());
+        // A session's other tabs have no row of their own: say what's in them from the pane.
+        let name = find(model, tab.focus).map(|(_, _, s)| if s.title == WAITING || s.title.is_empty() { s.agent.clone() } else { format!("{} · {}", s.agent, truncate(&s.title, 18)) }).unwrap_or_else(|| {
+            app.snap.terms.get(&tab.focus).map(|i| match &i.agent {
+                Some(a) => a.clone(),
+                None if i.is_shell() => "shell".into(),
+                None => i.display_name(),
+            }).unwrap_or_else(|| "…".into())
+        });
         let label = if n > 1 { format!(" {shown} {name} +{} ", n - 1) } else { format!(" {shown} {name} ") };
         let w = label.width() as u16;
         if x + w + 4 > r.right() {

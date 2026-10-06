@@ -25,7 +25,7 @@ impl App {
             .take()
             .filter(|(p, at)| *p != f && at.elapsed().as_secs() < 20 && self.snap.terms.contains_key(p))
             .map(|(p, _)| p);
-        let new_tab = self.hy.new_tab.take().is_some_and(|at| at.elapsed().as_secs() < 60);
+        let new_tab = self.hy.new_tab.take().filter(|(at, _)| at.elapsed().as_secs() < 60).map(|(_, owner)| owner);
         let take_out = |tabs: &mut Vec<HyTab>, f: TermId| {
             for tab in tabs.iter_mut() {
                 if tab.layout.contains(f)
@@ -38,9 +38,9 @@ impl App {
             }
             tabs.retain(|t| !(t.layout == Node::Leaf(f)));
         };
-        if new_tab {
+        if let Some(owner) = new_tab.filter(|o| *o != f) {
             take_out(&mut self.hy.tabs, f);
-            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, hidden: false });
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner, used: 0 });
             self.hy.tab = self.hy.tabs.len() - 1;
             return;
         }
@@ -49,7 +49,7 @@ impl App {
             let i = match self.hy.tabs.iter().position(|t| t.layout.contains(p)) {
                 Some(i) => i,
                 None => {
-                    self.hy.tabs.push(HyTab { layout: Node::Leaf(p), focus: p, arrange: Arrange::Split, hidden: true });
+                    self.hy.tabs.push(HyTab { layout: Node::Leaf(p), focus: p, arrange: Arrange::Split, owner: p, used: 0 });
                     self.hy.tabs.len() - 1
                 }
             };
@@ -62,13 +62,23 @@ impl App {
             self.hy.tab = i;
             return;
         }
+        // A session with tabs: the one you were last on (unless you're already in one of them).
+        let here = self.hy.tabs.get(self.hy.tab).is_some_and(|t| t.owner == f && t.layout.contains(f));
+        if !here && let Some(i) = (0..self.hy.tabs.len()).filter(|i| self.hy.tabs[*i].owner == f).max_by_key(|i| self.hy.tabs[*i].used) {
+            self.hy.tab = i;
+            let to = self.hy.tabs[i].focus;
+            if to != f {
+                self.cmd(Command::FocusPane { term: to });
+            }
+            return;
+        }
         if let Some(i) = self.hy.tabs.iter().position(|t| t.layout.contains(f)) {
             self.hy.tab = i;
             self.hy.tabs[i].focus = f;
             return;
         }
         if self.hy.tabs.is_empty() {
-            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, hidden: false });
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner: f, used: 0 });
             self.hy.tab = 0;
             return;
         }
@@ -85,26 +95,48 @@ impl App {
             self.cmd(Command::FocusPane { term: to });
             return;
         }
-        // Not shown anywhere: it shows on its own, full size. A split stays as you made it
-        // (pick its row to get it back); the session goes where a lone one is, or a new tab.
-        if self.hy.tabs[self.hy.tab].layout.leaves().len() > 1 {
-            // A view of its own, kept out of the tab bar (a lone one of those is reused).
-            let i = match self.hy.tabs.iter().position(|t| t.hidden && t.layout.leaves().len() == 1) {
-                Some(i) => i,
-                None => {
-                    self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, hidden: true });
-                    self.hy.tabs.len() - 1
-                }
-            };
-            self.hy.tabs[i] = HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, hidden: true };
-            self.hy.tab = i;
+        // Not shown anywhere: it shows on its own, full size. A view that's one session's only
+        // tab with nothing beside it is reused (this one first); a split or another session's
+        // tabs stay as they are (pick its row to get them back).
+        let lone = |tabs: &[HyTab], i: usize| tabs[i].layout.leaves().len() == 1 && tabs.iter().filter(|u| u.owner == tabs[i].owner).count() == 1;
+        let fresh = HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner: f, used: 0 };
+        let reuse = if lone(&self.hy.tabs, self.hy.tab) { Some(self.hy.tab) } else { (0..self.hy.tabs.len()).find(|i| lone(&self.hy.tabs, *i)) };
+        match reuse {
+            Some(i) => {
+                self.hy.tabs[i] = fresh;
+                self.hy.tab = i;
+            }
+            None => {
+                self.hy.tabs.push(fresh);
+                self.hy.tab = self.hy.tabs.len() - 1;
+            }
+        }
+    }
+
+    /// The tabs of the session you're on, in order.
+    pub(in crate::client) fn session_tabs(&self) -> Vec<usize> {
+        let Some(owner) = self.hy.tabs.get(self.hy.tab).map(|t| t.owner) else { return Vec::new() };
+        (0..self.hy.tabs.len()).filter(|i| self.hy.tabs[*i].owner == owner).collect()
+    }
+
+    /// Close a session's tab and what's in it (one of several: its last tab is the session,
+    /// closed from the sidebar). With an agent in it, a second click within a few seconds.
+    pub(in crate::client) fn close_tab(&mut self, i: usize) {
+        let Some(tab) = self.hy.tabs.get(i) else { return };
+        if self.hy.tabs.iter().filter(|t| t.owner == tab.owner).count() < 2 {
             return;
         }
-        let tab = &mut self.hy.tabs[self.hy.tab];
-        let old = prev.filter(|o| tab.layout.contains(*o)).unwrap_or(tab.focus);
-        let swapped = tab.layout.map_leaves(&mut |id| Some(if id == old { f } else { id }));
-        tab.layout = swapped.filter(|l| l.contains(f)).unwrap_or(Node::Leaf(f));
-        tab.focus = f;
+        let leaves = tab.layout.leaves();
+        let agents: Vec<String> = leaves.iter().filter_map(|id| self.snap.terms.get(id)).filter_map(|t| t.agent.clone()).collect();
+        let armed = self.hy.close_armed.take().is_some_and(|(at, when)| at == i && when.elapsed().as_secs() < 4);
+        if !agents.is_empty() && !armed {
+            self.hy.close_armed = Some((i, Instant::now()));
+            self.notify(format!("{} is running in this tab: click ✕ again to close it", agents.join(", ")), false);
+            return;
+        }
+        for term in leaves {
+            self.cmd(Command::ClosePane { term });
+        }
     }
 
     /// Stop showing `t` beside the others (it keeps running). False when it's on its own.
@@ -384,14 +416,16 @@ impl App {
                     self.cmd(Command::FocusPane { term: to });
                 }
             }
+            // A new tab in this session: a shell where you are.
             Action::NewTab => {
-                self.hy.new_tab = Some(Instant::now());
-                self.open_goto();
-                self.notify("pick what the new tab shows (or + New for something new)".into(), false);
+                if let Some(owner) = self.hy.tabs.get(self.hy.tab).map(|t| t.owner).or(self.focused()) {
+                    self.hy.new_tab = Some((Instant::now(), owner));
+                    self.hy_act(&Action::ShellHere);
+                }
             }
             Action::NextTab | Action::PrevTab => {
-                // The tabs you made, in order.
-                let seen: Vec<usize> = (0..self.hy.tabs.len()).filter(|i| !self.hy.tabs[*i].hidden).collect();
+                // This session's tabs, in order.
+                let seen = self.session_tabs();
                 let n = seen.len();
                 if n > 1 {
                     let at = seen.iter().position(|i| *i == self.hy.tab);
@@ -407,7 +441,7 @@ impl App {
             }
             Action::GoTo => self.open_goto(),
             Action::SelectTab(n) => {
-                let seen: Vec<usize> = (0..self.hy.tabs.len()).filter(|i| !self.hy.tabs[*i].hidden).collect();
+                let seen = self.session_tabs();
                 if let Some(i) = n.checked_sub(1).and_then(|k| seen.get(k).copied())
                     && let Some(tab) = self.hy.tabs.get(i)
                 {
@@ -416,18 +450,7 @@ impl App {
                     self.cmd(Command::FocusPane { term: to });
                 }
             }
-            // A tab is a view: closing it keeps its sessions (they're in the sidebar).
-            Action::CloseTab => {
-                if self.hy.tabs.len() > 1 {
-                    let i = self.hy.tab.min(self.hy.tabs.len() - 1);
-                    self.hy.tabs.remove(i);
-                    self.hy.tab = self.hy.tab.min(self.hy.tabs.len() - 1);
-                    let to = self.hy.tabs[self.hy.tab].focus;
-                    self.cmd(Command::FocusPane { term: to });
-                } else {
-                    self.notify("it's the only tab".into(), false);
-                }
-            }
+            Action::CloseTab => self.close_tab(self.hy.tab),
             Action::ToggleSidebar => self.sidebar = !self.sidebar,
             Action::RenameWorkspace => {
                 if let Some(t) = self.hy.cursor.or(focused) {
@@ -1138,14 +1161,7 @@ impl App {
                     self.cmd(Command::FocusPane { term: to });
                 }
             }
-            HyHit::TabClose(i) => {
-                if i < self.hy.tabs.len() && self.hy.tabs.len() > 1 {
-                    self.hy.tabs.remove(i);
-                    self.hy.tab = self.hy.tab.min(self.hy.tabs.len() - 1);
-                    let to = self.hy.tabs[self.hy.tab].focus;
-                    self.cmd(Command::FocusPane { term: to });
-                }
-            }
+            HyHit::TabClose(i) => self.close_tab(i),
             HyHit::TabNew => self.act(Action::NewTab),
             HyHit::Close => self.mode = Mode::Normal,
             HyHit::Noop => {}

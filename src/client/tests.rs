@@ -721,15 +721,47 @@ mod hydra_tests {
         app.hy.tabs[0].layout.set_ratio(&path, 0.3);
         draw(&mut app, 200, 50);
         assert!(app.hy.leaf_rects[0].1.width < before, "dragging moves it");
-        // A new tab for c; the bar shows both.
-        app.hy.new_tab = Some(Instant::now());
+        // A new tab for c in this session; the bar shows both.
+        app.hy.new_tab = Some((Instant::now(), app.hy.tabs[0].owner));
         app.hy_place(c, Some(a));
         assert_eq!(app.hy.tabs.len(), 2);
+        assert_eq!(app.hy.tabs[1].owner, app.hy.tabs[0].owner, "a tab of the same session");
         app.hy.tab = 0;
         let o = draw(&mut app, 200, 50);
         show(&o);
         assert!(o.contains(" 1 ") && o.contains(" 2 "), "a tab bar");
         assert!(app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::TabNew)), "with a + for another tab");
+    }
+
+    #[test]
+    fn a_session_has_tabs_of_its_own() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        // claude (1), codex (2), and a shell (3).
+        let rows = |app: &App| app.hy_model().iter().flat_map(|p| p.sessions().map(|s| s.term).collect::<Vec<_>>()).collect::<Vec<_>>();
+        app.hy.tabs.clear();
+        app.hy_place(1, None);
+        // Ctrl+Space c in claude's session: the next session to show is a tab of claude's.
+        app.act(Action::NewTab);
+        assert!(matches!(app.hy.new_tab, Some((_, 1))), "a new tab for claude's session: {:?}", app.hy.new_tab);
+        app.hy_place(3, Some(1));
+        app.hy_fresh();
+        assert!(!rows(&app).contains(&3), "the shell is one of claude's tabs, not a row of its own: {:?}", rows(&app));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert_eq!(app.session_tabs().len(), 2);
+        assert!(o.contains(" 1 claude") && o.contains(" 2 shell"), "claude's tab bar");
+        // Another session: its own view, with no tab bar.
+        app.hy_place(2, Some(3));
+        let o = draw(&mut app, 160, 45);
+        assert_eq!(app.session_tabs().len(), 1);
+        assert!(!o.contains(" 2 shell"), "codex has one tab: no bar");
+        // Back to claude: the tab you were last on there (the shell).
+        app.hy_place(1, Some(2));
+        assert_eq!(app.hy.tabs[app.hy.tab].focus, 3, "back on the shell tab");
+        // Closing claude's own tab while claude runs takes a second click.
+        let mine = app.hy.tabs.iter().position(|t| t.layout.contains(1)).unwrap();
+        app.close_tab(mine);
+        assert!(app.notice.as_ref().is_some_and(|(m, ..)| m.contains("click ✕ again")), "{:?}", app.notice);
     }
 
     #[test]
@@ -1180,7 +1212,7 @@ mod hydra_tests {
         // Picking another session shows it alone; the split is still there to go back to.
         app.hy_place(c, Some(b));
         assert_eq!(app.hy.tabs[app.hy.tab].layout, crate::layout::Node::Leaf(c), "full size");
-        assert_eq!(app.hy.tabs.iter().filter(|t| !t.hidden).count(), 1, "no tab bar: the split is kept out of sight, not made a tab");
+        assert_eq!(app.session_tabs().len(), 1, "no tab bar: the split is kept as its session's, not made a tab of this one");
         assert!(app.hy.tabs.iter().any(|t| t.layout.leaves() == vec![a, b]), "the split is kept: {:?}", app.hy.tabs);
         app.hy_place(a, Some(c));
         assert_eq!(app.hy.tabs[app.hy.tab].layout.leaves(), vec![a, b], "its row brings the split back");

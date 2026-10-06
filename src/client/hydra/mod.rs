@@ -86,7 +86,12 @@ pub(super) struct Hy {
     pub preview_rect: Rect,
     pub tab: usize,
     /// The next session that opens goes in a new tab (Ctrl+Space w), until this time.
-    pub new_tab: Option<Instant>,
+    /// A new tab was asked for in this session: the next session to show goes in it.
+    pub new_tab: Option<(Instant, TermId)>,
+    /// Counts frames, for `HyTab::used`.
+    pub tick: u64,
+    /// A tab's ✕ clicked once with an agent in it: a second click closes it.
+    pub close_armed: Option<(usize, Instant)>,
     /// Where the sessions were drawn last frame, and the splits between them.
     pub leaf_rects: Vec<(TermId, Rect)>,
     pub dividers: Vec<(Rect, bool, Vec<bool>)>,
@@ -150,9 +155,11 @@ pub(super) struct HyTab {
     pub focus: TermId,
     /// How its panes are laid out.
     pub arrange: Arrange,
-    /// Not a tab you made: a split kept to come back to, or a session shown on its own.
-    /// It isn't in the tab bar; its session's row brings it back.
-    pub hidden: bool,
+    /// The session (sidebar row) it's a tab of. A session's tabs share its row; the tab
+    /// bar shows the tabs of the session you're on, once it has more than one.
+    pub owner: TermId,
+    /// When it was last on screen (higher is later): a session's row brings that tab back.
+    pub used: u64,
 }
 
 /// How a tab lays out its panes (Ctrl+Space = goes to the next).
@@ -447,10 +454,14 @@ pub(super) fn rank(s: Status) -> u8 {
 /// beside it don't get rows of their own. The row shows the most urgent of them, so an agent
 /// in a split that needs you still says so (and what it asks).
 pub(super) fn fold_splits(projs: &mut [Proj], tabs: &[HyTab]) {
-    for tab in tabs {
-        let leaves = tab.layout.leaves();
-        let Some((&owner, beside)) = leaves.split_first() else { continue };
-        if beside.is_empty() {
+    let mut owners: Vec<TermId> = tabs.iter().map(|t| t.owner).collect();
+    owners.sort_unstable();
+    owners.dedup();
+    for owner in owners {
+        // Everything in the session's tabs, besides the session itself.
+        let beside: Vec<TermId> = tabs.iter().filter(|t| t.owner == owner).flat_map(|t| t.layout.leaves()).filter(|id| *id != owner).collect();
+        let has_row = projs.iter().flat_map(|p| p.sessions()).any(|s| s.term == owner);
+        if beside.is_empty() || !has_row {
             continue;
         }
         let mut members: Vec<Session> = Vec::new();
@@ -758,10 +769,19 @@ impl App {
             .filter_map(|tab| {
                 let layout = tab.layout.map_leaves(&mut |id| alive(id).then_some(id))?;
                 let focus = if layout.contains(tab.focus) { tab.focus } else { layout.first_leaf() };
-                Some(HyTab { layout, focus, arrange: Arrange::Split, hidden: false })
+                Some(HyTab { layout, focus, ..tab })
             })
             .collect();
         tabs.dedup_by(|a, b| a.layout == b.layout);
+        // A session that ended with other tabs left: the first of those becomes the session.
+        let gone: Vec<TermId> = tabs.iter().map(|t| t.owner).filter(|o| !alive(*o)).collect();
+        for o in gone {
+            if let Some(next) = tabs.iter().find(|t| t.owner == o).map(|t| t.layout.first_leaf()) {
+                for t in tabs.iter_mut().filter(|t| t.owner == o) {
+                    t.owner = next;
+                }
+            }
+        }
         if tabs != self.hy.tabs {
             self.hy_fresh();
         }
