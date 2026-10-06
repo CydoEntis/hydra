@@ -116,7 +116,6 @@ impl App {
                 }
             }
             Mode::Talk { term, input } => self.on_talk_key(term, input, &k),
-            Mode::Jump { sel } => self.on_jump_key(sel, &k),
             Mode::Finder(fd) => self.on_finder_key(*fd, &k),
             Mode::HyPane(np) => self.on_hy_pane_key(np, &k),
             Mode::HySettings(_) => self.hy_settings_key(&k),

@@ -69,8 +69,6 @@ enum Mode {
     Worktrees { ws: WsId, cmd: Option<String>, items: Option<Vec<WorktreeEntry>>, query: String, sel: usize },
     /// Talking to one pane's agent in a modal.
     Talk { term: TermId, input: String },
-    /// Hydra layout: sessions that need you, then finished ones.
-    Jump { sel: usize },
     /// Hydra layout: open a folder as a project.
     Finder(Box<hydra::Finder>),
     /// Hydra layout: new pane (project, worktree, what to run).

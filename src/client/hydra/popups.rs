@@ -101,133 +101,6 @@ pub(in crate::client) fn jump_prs(model: &[Proj]) -> Vec<(PathBuf, crate::client
         .collect()
 }
 
-pub(in crate::client) fn draw_jump(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, sel: usize) {
-    let model = app.hy_model();
-    let list = jump_list(&model);
-    let prs = jump_prs(&model);
-    let buf = f.buffer_mut();
-    dim_all(buf, area, t);
-    // Each one that needs you takes three lines (its question, its answers), a finished
-    // one two (what it said).
-    let lines: u16 = list.iter().map(|(s, ..)| match s.status {
-        Status::Blocked => 3,
-        Status::Done => 2,
-        _ => 1,
-    }).sum();
-    let h = (lines + prs.len() as u16 + 12).max(10);
-    let r = panel(app, buf, area, 90, h, "Inbox", &[], t);
-    let mut y = r.y + 2;
-    let mut i = 0;
-    let waiting = list.iter().any(|(s, ..)| matches!(s.status, Status::Blocked | Status::Done));
-    if !waiting {
-        put(buf, r.x + 3, y, &[seg("✓ ", Style::default().fg(t.done).bg(t.card).add_modifier(Modifier::BOLD)), seg("Nothing needs you right now.", Style::default().fg(t.strong).bg(t.card))], r.right());
-        y += 2;
-    }
-    let groups: Vec<(Option<Status>, &str)> = if waiting { vec![(Some(Status::Blocked), "NEEDS YOU"), (Some(Status::Done), "DONE · NOT REVIEWED")] } else { Vec::new() };
-    if !waiting {
-        let gk = k(app, &Action::GoTo);
-        put(buf, r.x + 3, y, &[seg(format!("To find any session: Go to ({gk})."), Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::ITALIC))], r.right());
-        y += 2;
-    }
-    for (st, label) in groups {
-        let rows: Vec<_> = list.iter().filter(|(s, ..)| st.is_none_or(|x| s.status == x)).collect();
-        let st = st.unwrap_or(Status::None);
-        if rows.is_empty() {
-            continue;
-        }
-        put(buf, r.x + 3, y, &[seg(label, Style::default().fg(if st == Status::Blocked { t.blocked } else { t.muted }).bg(t.card).add_modifier(Modifier::BOLD))], r.right());
-        y += 1;
-        for (s, pname, wname, pc) in rows {
-            if y >= r.bottom().saturating_sub(2) {
-                break;
-            }
-            let bg = sel_row(app, buf, r, y, i == sel, t);
-            let st_ = Style::default().bg(bg);
-            let mut ts = st_.fg(t.strong);
-            if i == sel {
-                ts = ts.add_modifier(Modifier::BOLD);
-            }
-            let rseg = vec![
-                seg("▌", st_.fg(*pc)),
-                seg(pname.clone(), st_.fg(t.text)),
-                seg(format!(" › {wname}  {}  {}", s.agent, age(s.since)), st_.fg(t.muted)),
-            ];
-            let rw = segs_width(&rseg);
-            put(
-                buf,
-                r.x + 3,
-                y,
-                &[seg(format!("{} ", glyph(app, s.status)), st_.fg(t.status(s.status)).add_modifier(Modifier::BOLD)), seg(s.title.clone(), ts)],
-                r.right().saturating_sub(rw + 3),
-            );
-            put(buf, r.right().saturating_sub(rw + 2), y, &rseg, r.right());
-            hit(app, Rect { x: r.x + 1, y, width: r.width - 2, height: 1 }, HyHit::JumpTo(s.term));
-            y += 1;
-            let note = Style::default().bg(t.card);
-            match s.status {
-                // What it asks, and its answers: a number (or a click) answers from here.
-                Status::Blocked => {
-                    let q = s.question.clone().unwrap_or_else(|| "It's waiting on you.".into());
-                    let opts = app.answer_options(s.term);
-                    put(buf, r.x + 5, y, &[seg(truncate(&q, (r.width - 8) as usize), note.fg(t.blocked))], r.right() - 2);
-                    y += 1;
-                    let mut x = r.x + 5;
-                    for (n, label) in opts.iter().enumerate() {
-                        let key = char::from(b'1' + n as u8);
-                        let chip = format!(" {label} {key} ");
-                        let w = chip.width() as u16;
-                        if x + w >= r.right() - 2 {
-                            break;
-                        }
-                        let on = i == sel;
-                        put(buf, x, y, &[seg(chip, Style::default().bg(if on { t.btn } else { t.card2 }).fg(if on { t.strong } else { t.text }))], r.right());
-                        hit(app, Rect { x, y, width: w, height: 1 }, HyHit::InboxAnswer(s.term, key));
-                        x += w + 1;
-                    }
-                    y += 1;
-                }
-                // What it said when it finished.
-                Status::Done => {
-                    let said = app.snap.terms.get(&s.term).map(|t| t.said.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default().trim().to_string()).unwrap_or_default();
-                    let said = if said.is_empty() { "Finished.".to_string() } else { said };
-                    put(buf, r.x + 5, y, &[seg(truncate(&said, (r.width - 8) as usize), note.fg(t.muted))], r.right() - 2);
-                    y += 1;
-                }
-                _ => {}
-            }
-            i += 1;
-        }
-        y += 1;
-    }
-    if !prs.is_empty() && y < r.bottom().saturating_sub(3) {
-        put(buf, r.x + 3, y, &[seg("PULL REQUESTS", Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::BOLD))], r.right());
-        y += 1;
-        for (dir, pr, pname, pc) in &prs {
-            if y >= r.bottom().saturating_sub(2) {
-                break;
-            }
-            let bg = sel_row(app, buf, r, y, i == sel, t);
-            let st_ = Style::default().bg(bg);
-            let mut row: Vec<Seg> = Vec::new();
-            row.extend(pr_tag(t, pr).into_iter().map(|(x, s2)| (x, s2.bg(bg))));
-            row.push(seg(format!("  {}", pr.title), st_.fg(t.strong)));
-            let rseg = vec![seg("▌", st_.fg(*pc)), seg(pname.clone(), st_.fg(t.text)), seg(format!("  {}", pr.state_text()), st_.fg(if pr.checks == crate::client::pr::Checks::Fail { t.err } else { t.blocked }))];
-            let rw = segs_width(&rseg);
-            put(buf, r.x + 3, y, &row, r.right().saturating_sub(rw + 3));
-            put(buf, r.right().saturating_sub(rw + 2), y, &rseg, r.right());
-            let k = app.hy.pr_keys.len();
-            app.hy.pr_keys.push((dir.clone(), pr.number.to_string()));
-            hit(app, Rect { x: r.x + 1, y, width: r.width - 2, height: 1 }, HyHit::Pr(k));
-            y += 1;
-            i += 1;
-        }
-    }
-    if list.is_empty() && prs.is_empty() {
-        put(buf, r.x + 3, y, &[seg("Nothing running yet.", Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::ITALIC))], r.right());
-    }
-    put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("↑↓", "choose"), ("1-9", "answer"), ("Enter", "go there"), ("d", "seen"), ("Esc", "close")]), r.right());
-}
-
 // Open a folder ------------------------------------------------------------------------------
 
 impl Finder {
@@ -517,23 +390,62 @@ pub(in crate::client) fn shimmer(text: &str, frame: u64, base: Color, bright: Co
         .collect()
 }
 
-/// The go-to switcher's rows: projects and their sessions, those matching `q`.
+/// Go to's rows. With nothing typed it opens on what needs you (the Inbox): agents asking,
+/// ones that finished, pull requests that need you; then every session by project. Typing
+/// finds any session.
 #[derive(Debug, Clone, PartialEq)]
 pub(in crate::client) enum GoRow {
+    /// A section's heading (not a row you pick).
+    Head(&'static str),
+    /// An agent asking you: its question and answers on the line.
+    Ask(TermId),
+    /// One that finished and you haven't looked at: what it said.
+    Done(TermId),
+    /// A pull request that needs you (index into `jump_prs`).
+    Pr(usize),
     Proj(usize),
     Sess(usize, TermId),
+}
+
+impl GoRow {
+    pub fn pickable(&self) -> bool {
+        !matches!(self, GoRow::Head(_))
+    }
 }
 
 pub(in crate::client) fn goto_rows(model: &[Proj], q: &str) -> Vec<GoRow> {
     let q = q.trim();
     let hit = |text: &str| q.is_empty() || crate::client::files::fuzzy(q, text).is_some();
     let mut out = Vec::new();
+    // Nothing typed: what needs you first.
+    let mut listed: Vec<TermId> = Vec::new();
+    if q.is_empty() {
+        let waiting = jump_list(model);
+        for (st, head) in [(Status::Blocked, "NEEDS YOU"), (Status::Done, "JUST FINISHED")] {
+            let these: Vec<TermId> = waiting.iter().filter(|(s, ..)| s.status == st).map(|(s, ..)| s.term).collect();
+            if !these.is_empty() {
+                out.push(GoRow::Head(head));
+                out.extend(these.iter().map(|t| if st == Status::Blocked { GoRow::Ask(*t) } else { GoRow::Done(*t) }));
+                listed.extend(these);
+            }
+        }
+        let prs = jump_prs(model);
+        if !prs.is_empty() {
+            out.push(GoRow::Head("PULL REQUESTS"));
+            out.extend((0..prs.len()).map(GoRow::Pr));
+        }
+        if !out.is_empty() {
+            out.push(GoRow::Head("EVERYTHING"));
+        }
+    }
     for (pi, p) in model.iter().enumerate() {
         let proj_hit = hit(&p.name);
-        let mut sess: Vec<&Session> = p.sessions().collect();
+        let mut sess: Vec<&Session> = p.sessions().filter(|s| !listed.contains(&s.term)).collect();
         sess.sort_by_key(|s| (rank(s.status), s.term));
         let sess: Vec<&Session> = sess.into_iter().filter(|s| proj_hit || hit(&format!("{} {} {} {}", p.name, s.name, s.agent, s.title))).collect();
-        if !proj_hit && sess.is_empty() {
+        // Nothing left to show under it (its sessions are up in the Inbox), or no match.
+        let all_listed = sess.is_empty() && p.sessions().any(|s| listed.contains(&s.term));
+        if (!proj_hit && sess.is_empty()) || all_listed {
             continue;
         }
         out.push(GoRow::Proj(pi));
@@ -545,8 +457,11 @@ pub(in crate::client) fn goto_rows(model: &[Proj], q: &str) -> Vec<GoRow> {
 pub(in crate::client) fn draw_goto(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, query: &str, sel: usize) {
     let model = app.hy_model();
     let rows = goto_rows(&model, query);
+    let prs = jump_prs(&model);
+    let waiting = rows.iter().any(|r| matches!(r, GoRow::Ask(_) | GoRow::Done(_)));
+    let title = if waiting { "Inbox" } else { "Go to" };
     let buf = f.buffer_mut();
-    let (r, list, start) = query_list(app, buf, area, t, "Go to", 92, rows.len(), query, "type a project or session", sel);
+    let (r, list, start) = query_list(app, buf, area, t, title, 100, rows.len().max(1), query, "type to go to any session", sel);
     let c = Style::default().bg(t.card);
     for (i, row) in rows.iter().enumerate().skip(start).take(list.height as usize) {
         let y = list.y + (i - start) as u16;
@@ -555,9 +470,70 @@ pub(in crate::client) fn draw_goto(app: &mut App, f: &mut Frame, area: Rect, t: 
         let st = list_row(app, buf, rr, on, t);
         let bg = st.bg.unwrap_or(t.card);
         match row {
+            GoRow::Head(h) => {
+                fill(buf, rr, t.card);
+                put(buf, rr.x + 2, y, &[seg(*h, c.fg(if *h == "NEEDS YOU" { t.blocked } else { t.muted }).add_modifier(Modifier::BOLD))], rr.right());
+                continue;
+            }
+            // Its question, and its answers as buttons (a number answers it).
+            GoRow::Ask(term) => {
+                let Some((p, _, s)) = find(&model, *term) else { continue };
+                let left = vec![
+                    seg(format!("{} ", glyph(app, Status::Blocked)), st.fg(t.blocked).add_modifier(Modifier::BOLD)),
+                    seg(format!("{} ", s.name), st.fg(t.strong).add_modifier(Modifier::BOLD)),
+                    seg(format!("{}  ", p.name), st.fg(t.muted)),
+                ];
+                let lw = segs_width(&left);
+                let mut x = put(buf, rr.x + 3, y, &left, rr.right());
+                let mut chips: Vec<(String, char)> = Vec::new();
+                for (n, label) in app.answer_options(*term).iter().enumerate().take(4) {
+                    chips.push((format!(" {label} {} ", n + 1), char::from(b'1' + n as u8)));
+                }
+                let cw: u16 = chips.iter().map(|(c, _)| c.width() as u16 + 1).sum();
+                let room = rr.width.saturating_sub(lw + cw + 6) as usize;
+                let q = s.question.clone().unwrap_or_else(|| "waiting on you".into());
+                x = put(buf, x, y, &[seg(format!("{}  ", truncate(&q, room)), st.fg(t.blocked))], rr.right());
+                for (chip, key) in chips {
+                    let w = chip.width() as u16;
+                    if x + w >= rr.right() {
+                        break;
+                    }
+                    put(buf, x, y, &[seg(chip, Style::default().bg(if on { t.btn } else { t.card2 }).fg(t.strong))], rr.right());
+                    hit(app, Rect { x, y, width: w, height: 1 }, HyHit::InboxAnswer(*term, key));
+                    x += w + 1;
+                }
+            }
+            // What it said when it finished.
+            GoRow::Done(term) => {
+                let Some((p, _, s)) = find(&model, *term) else { continue };
+                let said = app.snap.terms.get(term).map(|i| i.said.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default().trim().to_string()).unwrap_or_default();
+                let left = vec![
+                    seg(format!("{} ", glyph(app, Status::Done)), st.fg(t.done).add_modifier(Modifier::BOLD)),
+                    seg(format!("{} ", s.name), st.fg(t.done).add_modifier(Modifier::BOLD)),
+                    seg(format!("{}  ", p.name), st.fg(t.muted)),
+                ];
+                let x = put(buf, rr.x + 3, y, &left, rr.right());
+                let room = rr.right().saturating_sub(x + 2) as usize;
+                put(buf, x, y, &[seg(truncate(if said.is_empty() { "finished" } else { &said }, room), st.fg(t.muted))], rr.right());
+            }
+            GoRow::Pr(k) => {
+                let Some((_, pr, pname, pc)) = prs.get(*k) else { continue };
+                let mut row: Vec<Seg> = pr_tag(t, pr).into_iter().map(|(x, s2)| (x, s2.bg(bg))).collect();
+                row.push(seg(format!("  {}", pr.title), st.fg(t.strong)));
+                put(buf, rr.x + 3, y, &row, rr.right());
+                let col = if pr.checks == crate::client::pr::Checks::Fail { t.err } else { t.blocked };
+                let rseg = vec![seg("▌", st.fg(*pc)), seg(pname.clone(), st.fg(t.text)), seg(format!("  {}", pr.state_text()), st.fg(col))];
+                let rw = segs_width(&rseg);
+                put(buf, rr.right().saturating_sub(rw + 2), y, &rseg, rr.right());
+            }
             GoRow::Proj(pi) => {
                 let p = &model[*pi];
-                put(buf, rr.x + 3, y, &[seg("▌", st.fg(p.color)), seg(p.name.clone(), st.fg(t.strong).add_modifier(Modifier::BOLD))], rr.right());
+                // Which section it's from, when it isn't agents (a repo can be in two).
+                let kind = match p.kind {
+                    super::Kind::Agents => String::new(),
+                    k => format!(" · {}", k.heading().to_lowercase()),
+                };
+                put(buf, rr.x + 3, y, &[seg("▌", st.fg(p.color)), seg(p.name.clone(), st.fg(t.strong).add_modifier(Modifier::BOLD)), seg(kind, st.fg(t.muted))], rr.right());
                 let meta: Vec<Seg> = counts(app, t, p.sessions(), None).into_iter().map(|(x, s)| (x, s.bg(bg))).collect();
                 let meta = if p.sessions().count() == 0 { vec![seg("empty", st.fg(t.muted))] } else { meta };
                 let mw = segs_width(&meta);
@@ -578,9 +554,15 @@ pub(in crate::client) fn draw_goto(app: &mut App, f: &mut Frame, area: Rect, t: 
         hit(app, rr, HyHit::GoPick(i));
     }
     if rows.is_empty() {
-        put(buf, list.x + 2, list.y, &[seg("nothing matches", c.fg(t.muted).add_modifier(Modifier::ITALIC))], list.right());
+        let none = if query.trim().is_empty() { "nothing open yet" } else { "nothing matches" };
+        put(buf, list.x + 2, list.y, &[seg(none, c.fg(t.muted).add_modifier(Modifier::ITALIC))], list.right());
     }
-    put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("↑↓", "move"), ("Enter", "go"), ("Esc", "close")]), r.right());
+    let keys: Vec<(&str, &str)> = if waiting && query.trim().is_empty() {
+        vec![("↑↓", "move"), ("1-4", "answer"), ("Enter", "go there"), ("Del", "seen"), ("type", "find"), ("Esc", "close")]
+    } else {
+        vec![("↑↓", "move"), ("Enter", "go"), ("type", "find"), ("Esc", "close")]
+    };
+    put(buf, r.x + 3, r.bottom() - 2, &hints(t, &keys), r.right());
 }
 
 /// Every session with what it uses, biggest first: (term, label, where, bytes, asleep).

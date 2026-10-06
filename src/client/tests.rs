@@ -192,7 +192,7 @@ mod hydra_tests {
         assert!(lines[2].contains("> fix the flaky checkout test"), "a blank row under the bar, then the output");
         // Overlays are centred over a dimmed screen.
         for (mode, needle) in [
-            (Mode::Jump { sel: 0 }, "NEEDS YOU"),
+            (Mode::GoTo { query: String::new(), sel: 1 }, "NEEDS YOU"),
             (Mode::HyPane(hydra::NewPaneHy::new(0, false)), "claude gets its own new worktree in shop-api"),
             (Mode::HyPane(hydra::NewPaneHy { place: Some(1), ..hydra::NewPaneHy::new(0, false) }), "Switches shop-api to a new branch"),
             (Mode::Help { scroll: 0 }, "search code"),
@@ -250,9 +250,9 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains("#412 ✕±"), "PR tag on the worktree's session");
-        app.mode = Mode::Jump { sel: 0 };
+        app.act(Action::Jump);
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains("PULL REQUESTS") && o.contains("checks failing"), "failing PRs in Jump");
+        assert!(o.contains("PULL REQUESTS") && o.contains("checks failing"), "failing PRs in the Inbox");
     }
 
     #[test]
@@ -262,16 +262,26 @@ mod hydra_tests {
         let t = app.snap.terms.get_mut(&2).unwrap();
         (t.status, t.said) = (Status::Done, "All 14 tests pass now.".into());
         app.hy_fresh();
-        app.mode = Mode::Jump { sel: 0 };
+        app.act(Action::Jump);
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("Inbox"), "it's the Inbox");
+        assert!(o.contains("Inbox") && o.contains("NEEDS YOU") && o.contains("JUST FINISHED") && o.contains("EVERYTHING"), "the Inbox, then every session");
         assert!(o.contains("Run npm test -- checkout?") && o.contains(" Yes 1 ") && o.contains(" Always 2 ") && o.contains(" No 3"), "the question and its answers");
         assert!(o.contains("All 14 tests pass now."), "what the finished one said");
         // 2 answers the selected question without going there.
         app.on_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
-        assert!(matches!(app.mode, Mode::Jump { .. }), "still in the Inbox");
+        assert!(matches!(app.mode, Mode::GoTo { .. }), "still in the Inbox");
         assert!(app.notice.as_ref().is_some_and(|(m, ..)| m.contains("Always")), "{:?}", app.notice);
+        // Typing finds any session instead (numbers too, once you're typing).
+        for ch in "rate".chars() {
+            app.on_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
+        }
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("Go to") && !o.contains("NEEDS YOU"), "searching: just what matches");
+        // g opens the same place.
+        app.mode = Mode::Normal;
+        app.act(Action::GoTo);
+        assert!(matches!(&app.mode, Mode::GoTo { query, .. } if query.is_empty()));
     }
 
     #[test]
@@ -1170,7 +1180,8 @@ mod hydra_tests {
         app.act(Action::GoTo);
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("Go to") && o.contains("▌shop-api") && o.contains("type a project or session"));
+        // claude needs you in the fixture: the Inbox, then every session by project.
+        assert!(o.contains("Inbox") && o.contains("▌shop-api") && o.contains("type to go to any session"));
         for c in "rate".chars() {
             app.on_key(key(KeyCode::Char(c)));
         }

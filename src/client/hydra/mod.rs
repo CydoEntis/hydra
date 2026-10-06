@@ -882,7 +882,6 @@ pub(super) enum HyHit {
     /// Inside an overlay's panel: nothing.
     Noop,
     FinderPick(usize),
-    JumpTo(TermId),
     NpProj(usize),
     NpRun(usize),
     NpBeside(usize),

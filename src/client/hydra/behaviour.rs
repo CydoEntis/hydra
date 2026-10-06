@@ -337,7 +337,8 @@ impl App {
                 self.hy.cursor = None;
                 self.hy_new_session(dir, None, false);
             }
-            Action::Jump | Action::Picker => self.mode = Mode::Jump { sel: 0 },
+            // One place: what needs you on top, and type to go anywhere.
+            Action::Jump | Action::Picker => self.open_goto(),
             Action::Arrange => {
                 if let Some(tab) = self.hy.tabs.get_mut(self.hy.tab) {
                     tab.arrange = tab.arrange.next();
@@ -385,7 +386,7 @@ impl App {
             }
             Action::NewTab => {
                 self.hy.new_tab = Some(Instant::now());
-                self.mode = Mode::Jump { sel: 0 };
+                self.open_goto();
                 self.notify("pick what the new tab shows (or + New for something new)".into(), false);
             }
             Action::NextTab | Action::PrevTab => {
@@ -404,7 +405,7 @@ impl App {
                     self.cmd(Command::FocusPane { term: to });
                 }
             }
-            Action::GoTo => self.mode = Mode::GoTo { query: String::new(), sel: 0 },
+            Action::GoTo => self.open_goto(),
             Action::SelectTab(n) => {
                 let seen: Vec<usize> = (0..self.hy.tabs.len()).filter(|i| !self.hy.tabs[*i].hidden).collect();
                 if let Some(i) = n.checked_sub(1).and_then(|k| seen.get(k).copied())
@@ -592,39 +593,11 @@ impl App {
         }
     }
 
-    pub(in crate::client) fn on_jump_key(&mut self, sel: usize, k: &KeyEvent) {
-        let model = self.hy_model();
-        let list = jump_list(&model);
-        let prs = jump_prs(&model);
-        let total = list.len() + prs.len();
-        let go = |app: &mut App, i: usize| {
-            if let Some((s, ..)) = list.get(i) {
-                app.hy_focus(s.term);
-            } else if let Some((dir, pr, ..)) = prs.get(i - list.len().min(i)) {
-                app.mode = Mode::Normal;
-                app.open_pr(dir.clone(), pr.number.to_string());
-            }
-        };
-        let chosen = list.get(sel).map(|(s, ..)| (s.term, s.status, s.name.clone()));
-        match k.code {
-            KeyCode::Esc | KeyCode::Char('j') => self.mode = Mode::Normal,
-            KeyCode::Down => self.mode = Mode::Jump { sel: (sel + 1).min(total.saturating_sub(1)) },
-            KeyCode::Up => self.mode = Mode::Jump { sel: sel.saturating_sub(1) },
-            KeyCode::Enter if sel < total => go(self, sel),
-            // Answer the selected one's question from here (its options are numbered).
-            KeyCode::Char(c @ '1'..='9') => {
-                if let Some((term, Status::Blocked, name)) = chosen {
-                    self.inbox_answer(term, c, &name);
-                }
-            }
-            // Seen: a finished one leaves the list without going there.
-            KeyCode::Char('d') => {
-                if let Some((term, Status::Done, _)) = chosen {
-                    self.cmd(Command::MarkSeen { term });
-                }
-            }
-            _ => {}
-        }
+    /// Go to, opened on its first row you can pick (what needs you, when anything does).
+    pub(in crate::client) fn open_goto(&mut self) {
+        let rows = goto_rows(&self.hy_model(), "");
+        let sel = rows.iter().position(GoRow::pickable).unwrap_or(0);
+        self.mode = Mode::GoTo { query: String::new(), sel };
     }
 
     /// Answer an agent's numbered question from the Inbox: its option `key`, as if typed there.
@@ -816,18 +789,55 @@ impl App {
     pub(in crate::client) fn on_goto_key(&mut self, mut query: String, mut sel: usize, k: &KeyEvent) {
         let model = self.hy_model();
         let rows = goto_rows(&model, &query);
+        // Headings aren't rows you land on.
+        let land = |sel: usize, down: bool| -> usize {
+            let n = rows.len();
+            if n == 0 {
+                return 0;
+            }
+            let mut i = sel.min(n - 1);
+            while !rows[i].pickable() {
+                match (down, i) {
+                    (true, i2) if i2 + 1 < n => i = i2 + 1,
+                    (false, i2) if i2 > 0 => i = i2 - 1,
+                    _ => return rows.iter().position(GoRow::pickable).unwrap_or(0),
+                }
+            }
+            i
+        };
+        let sel_row = rows.get(land(sel, true)).cloned();
         match k.code {
             KeyCode::Esc => {
                 self.mode = Mode::Normal;
                 return;
             }
-            KeyCode::Down => sel = (sel + 1).min(rows.len().saturating_sub(1)),
-            KeyCode::Up => sel = sel.saturating_sub(1),
-            KeyCode::PageDown => sel = (sel + 10).min(rows.len().saturating_sub(1)),
-            KeyCode::PageUp => sel = sel.saturating_sub(10),
+            KeyCode::Down => sel = land((sel + 1).min(rows.len().saturating_sub(1)), true),
+            KeyCode::Up => sel = land(sel.saturating_sub(1), false),
+            KeyCode::PageDown => sel = land((sel + 10).min(rows.len().saturating_sub(1)), true),
+            KeyCode::PageUp => sel = land(sel.saturating_sub(10), false),
+            // With nothing typed, a number answers the agent you're on.
+            KeyCode::Char(c @ '1'..='9') if query.is_empty() && matches!(sel_row, Some(GoRow::Ask(_))) => {
+                if let Some(GoRow::Ask(term)) = sel_row {
+                    let name = self.snap.terms.get(&term).map(|t| t.display_name()).unwrap_or_default();
+                    self.inbox_answer(term, c, &name);
+                }
+            }
+            // Seen: a finished one leaves the list.
+            KeyCode::Delete if matches!(sel_row, Some(GoRow::Done(_))) => {
+                if let Some(GoRow::Done(term)) = sel_row {
+                    self.cmd(Command::MarkSeen { term });
+                }
+            }
             KeyCode::Enter => {
                 self.mode = Mode::Normal;
-                match rows.get(sel) {
+                match sel_row.as_ref() {
+                    Some(GoRow::Ask(t) | GoRow::Done(t)) => self.hy_focus(*t),
+                    Some(GoRow::Pr(k)) => {
+                        if let Some((dir, pr, ..)) = jump_prs(&model).get(*k) {
+                            self.open_pr(dir.clone(), pr.number.to_string());
+                        }
+                    }
+                    Some(GoRow::Head(_)) => {}
                     Some(GoRow::Sess(_, t)) => self.hy_focus(*t),
                     // A project: its most urgent session, or a shell there.
                     Some(GoRow::Proj(pi)) => match model[*pi].sessions().min_by_key(|s| (rank(s.status), s.term)) {
@@ -849,6 +859,9 @@ impl App {
                 sel = rows.iter().position(|r| matches!(r, GoRow::Sess(..))).unwrap_or(0);
             }
             _ => {}
+        }
+        if query.is_empty() && !matches!(k.code, KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown) {
+            sel = land(sel, true);
         }
         self.mode = Mode::GoTo { query, sel };
     }
@@ -1088,7 +1101,7 @@ impl App {
             }
             HyHit::Talk(t) => self.hy_talk(t, false),
             HyHit::Settings => self.hy_settings(),
-            HyHit::Jump => self.mode = Mode::Jump { sel: 0 },
+            HyHit::Jump => self.open_goto(),
             // The sidebar's "new": a shell where you are.
             HyHit::NewPane => self.act(Action::ShellHere),
             // The ✕ on a pane: close it (after asking).
@@ -1142,7 +1155,6 @@ impl App {
                     self.finder_enter(fd);
                 }
             }
-            HyHit::JumpTo(t) => self.hy_focus(t),
             HyHit::InboxAnswer(term, key) => {
                 let name = self.snap.terms.get(&term).map(|t| t.display_name()).unwrap_or_default();
                 self.inbox_answer(term, key, &name);
