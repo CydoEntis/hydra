@@ -554,23 +554,6 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
         hit(app, hr, h);
         hx += sw + 4;
     }
-    // Which hydra this is (and a newer one, if the daily check found it).
-    let mut ver = vec![seg(format!("hydra {}", env!("CARGO_PKG_VERSION")), plain.fg(t.muted))];
-    if let Some(v) = &app.update_available {
-        ver.push(seg(format!(" · {v} is out "), plain.fg(t.accent)));
-    }
-    let x = put(buf, x0 + 2, by + 2, &ver, r.right().saturating_sub(1));
-    if app.update_available.is_some() {
-        let label = if app.updating { " updating… " } else { " Update " };
-        let w = label.width() as u16;
-        if x + w <= r.right().saturating_sub(1) {
-            let br = Rect { x, y: by + 2, width: w, height: 1 };
-            let bg = if hovered(app, br) { t.accent } else { t.btn };
-            let fg = if hovered(app, br) { t.sidebar_bg } else { t.strong };
-            put(buf, x, by + 2, &[seg(label, Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD))], r.right());
-            hit(app, br, HyHit::Update);
-        }
-    }
 }
 
 pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme) {
@@ -910,7 +893,9 @@ pub(in crate::client) fn draw_toast(app: &mut App, buf: &mut Buffer, panes: Rect
     if panes.height < 4 || panes.width < w + 2 {
         return;
     }
-    let r = Rect { x: panes.x + (panes.width - w) / 2, y: panes.bottom().saturating_sub(4), width: w, height: 3 };
+    // Top right, under the title bar: away from where you type (an agent's prompt is at
+    // the bottom).
+    let r = Rect { x: panes.right().saturating_sub(w + 2), y: panes.y + 1, width: w, height: 3 };
     fill(buf, r, t.card2);
     let edge = Style::default().fg(if err { t.err } else { t.done }).bg(t.card2);
     for y in r.top()..r.bottom() {
@@ -996,5 +981,23 @@ pub(in crate::client) fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, m
     put(buf, app.hy.crumb_x.max(r.x + 1), r.y, &left, r.right().saturating_sub(rw + 2));
     hit(app, Rect { width: 60.min(r.width), ..r }, HyHit::Jump);
     put(buf, r.right().saturating_sub(rw), r.y, &right, r.right());
-    let _ = rw;
+    // Under the sidebar: which hydra this is, and an Update button when a newer one is out.
+    if app.mode != Mode::Side {
+        let mut ver = vec![seg(format!("hydra {}", env!("CARGO_PKG_VERSION")), s.fg(t.muted))];
+        if let Some(v) = &app.update_available {
+            ver.push(seg(format!(" · {v} is out "), s.fg(t.accent)));
+        }
+        let end = app.hy.crumb_x.max(r.x + 1).saturating_sub(1);
+        let x = put(buf, r.x + 2, r.y, &ver, end);
+        if app.update_available.is_some() {
+            let label = if app.updating { " updating… " } else { " Update " };
+            let w = label.width() as u16;
+            if x + w <= end {
+                let br = Rect { x, y: r.y, width: w, height: 1 };
+                let (bg, fg) = if hovered(app, br) { (t.accent, t.acc_ink) } else { (t.btn, t.strong) };
+                put(buf, x, r.y, &[seg(label, Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD))], end);
+                hit(app, br, HyHit::Update);
+            }
+        }
+    }
 }
