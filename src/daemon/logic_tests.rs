@@ -329,3 +329,32 @@ fn an_agent_stays_in_the_folder_it_started_in() {
     close(&mut d, &[t]);
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn codex_shows_working_from_its_screen_after_a_turn() {
+    let (mut d, _rx) = daemon();
+    let t = pane(&mut d);
+    {
+        let p = d.terms.get_mut(&t).unwrap();
+        // Codex finished a turn (its notify hook), ten seconds ago.
+        (p.agent, p.hooked, p.status) = (Some("codex".into()), true, Status::Done);
+        p.status_since = term::unix_now() - 10;
+        // You typed the next prompt, and it's working on it.
+        p.last_input = Instant::now();
+        // At the bottom of the screen, where it is in Codex.
+        p.parser.process(&b"\r\n".repeat(30));
+        p.parser.process(b"\xe2\x80\xa2 Working (3s \xe2\x80\xa2 esc to interrupt)\r\n\r\n> Ask Codex to do anything");
+    }
+    d.update_statuses();
+    assert_eq!(d.terms[&t].status, Status::Working, "seen on its screen: its hooks never say a turn started");
+    // Without anything typed since the turn ended, the old line on screen doesn't count.
+    {
+        let p = d.terms.get_mut(&t).unwrap();
+        p.status = Status::Done;
+        p.status_since = term::unix_now();
+        p.last_input = Instant::now() - Duration::from_secs(5);
+    }
+    d.update_statuses();
+    assert_eq!(d.terms[&t].status, Status::Done);
+    close(&mut d, &[t]);
+}

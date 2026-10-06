@@ -1,6 +1,6 @@
 [package]
 name = "hydra"
-version = "0.9.8"
+version = "0.9.9"
 edition = "2024"
 description = "A customizable, agent-aware terminal multiplexer (herdr-style) for Windows, macOS and Linux"
 license = "MIT"
@@ -53,3 +53,7 @@ opt-level = 2
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# vt100 with one change (vendor/vt100/HYDRA.md): history from scroll regions at the top.
+[patch.crates-io]
+vt100 = { path = "vendor/vt100" }

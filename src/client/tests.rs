@@ -784,6 +784,29 @@ mod hydra_tests {
     }
 
     #[test]
+    fn codex_output_above_its_input_box_can_be_scrolled_back() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        draw(&mut app, 160, 45);
+        let (term, _) = app.pane_frames[0];
+        // A pane's screen as the app makes it (the fixture's keep no history).
+        let p = app.new_parser(40, 100);
+        app.parsers.insert(term, p);
+        // Codex: a scroll region over the rows above its input box, and each finished line
+        // printed at the region's bottom, pushing the ones above it up and off the top.
+        let mut out = b"\x1b[1;30r\x1b[30;1H".to_vec();
+        for i in 0..60 {
+            out.extend(format!("\r\nline {i}").bytes());
+        }
+        out.extend(b"\x1b[r");
+        app.feed(term, &out);
+        app.scroll_by(term, 20);
+        assert!(app.scroll.get(&term).is_some_and(|n| *n > 0), "lines pushed off the top are history");
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("line 10") && !o.contains("line 59"), "and show when scrolled back (20 lines up)");
+    }
+
+    #[test]
     fn map_opens_from_its_key() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         draw(&mut app, 160, 45);

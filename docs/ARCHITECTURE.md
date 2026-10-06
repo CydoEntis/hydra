@@ -168,6 +168,8 @@ Rust, edition 2024, stable toolchain. Key libraries: `tokio` (async runtime),
 format) over `tokio-util` length-delimited frames, `serde`/`toml`/`toml_edit`
 (config), `sysinfo` (process trees, memory), `ignore` + `regex` (file search),
 `arboard` (clipboard), `clap` (CLI), `anyhow` (errors), `tracing` (logs).
+`vt100` is a patched copy in `vendor/vt100` (see its `HYDRA.md`; wired in with
+`[patch.crates-io]`): keep its changes there and listed in that file.
 Rules for the language live in `docs/stack/rust.md`.
 
 ## Project-specific: layers

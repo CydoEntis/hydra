@@ -41,6 +41,10 @@ const SUBAGENTS_QUIET_AT_MOST: Duration = Duration::from_secs(60 * 60);
 /// A permission ping this soon after a "working" is Claude repeating one already answered.
 const REPEATED_PROMPT_WITHIN: Duration = Duration::from_secs(5);
 /// The progress indicator gone this long with no turn-end: the turn was cancelled (Esc).
+/// Agents whose hooks report only the end of a turn.
+const HOOKS_END_ONLY: &[&str] = &["codex"];
+/// A turn starts from something you typed: only that long after it is the screen checked.
+const TURN_START_WITHIN: Duration = Duration::from_secs(30);
 const CANCELLED_AFTER: Duration = Duration::from_secs(2);
 
 impl Daemon {
@@ -287,6 +291,18 @@ impl Daemon {
                 // The progress indicator went away and no turn-end came: cancelled (Esc).
                 if t.status == Status::Working && t.done_held.is_none() && t.progress_off.is_some_and(|p| p.elapsed() > CANCELLED_AFTER) {
                     changes.push((t.id, Status::Idle));
+                }
+                // Agents whose hooks only say a turn ended (Codex's notify): the start of the
+                // next turn shows on screen only.
+                if HOOKS_END_ONLY.contains(&name.as_str())
+                    && matches!(t.status, Status::Idle | Status::Done)
+                    && t.last_input.elapsed() < TURN_START_WITHIN
+                    // Typed since it finished: not the last turn's line still on screen.
+                    && t.last_input.elapsed().as_secs() < term::unix_now().saturating_sub(t.status_since)
+                    && let Some(d) = self.agents.iter().find(|a| &a.name == name)
+                    && d.working.iter().any(|r| r.is_match(&t.tail_text(rows)))
+                {
+                    changes.push((t.id, Status::Working));
                 }
                 continue;
             }
