@@ -556,6 +556,13 @@ impl App {
             return;
         }
         if m.kind == MouseEventKind::Moved {
+            // Moving with no button held: a drag whose release never came (let go outside the
+            // window) is over. Left in place it would keep the mouse from the panes.
+            if self.hy.drag.is_some() {
+                self.hy.drag = None;
+                self.hy.drag_key = None;
+                self.hy.save();
+            }
             if self.hover != Some(pos) {
                 self.hover = Some(pos);
                 self.dirty = true;
@@ -653,7 +660,17 @@ impl App {
                     return;
                 };
                 let alt = self.parsers.get(&term).is_some_and(|p| p.screen().alternate_screen());
-                if alt {
+                let agent = self.snap.terms.get(&term).is_some_and(|t| t.agent.is_some());
+                if alt && agent {
+                    // An agent's full-screen view that isn't taking the mouse (Claude Code's
+                    // after Ctrl+Z, or with mouse capture off): arrow keys would walk its
+                    // prompt history, so the wheel pages it (PgUp/PgDn), at most every 150 ms.
+                    if self.wheel_page.is_none_or(|at| at.elapsed() >= Duration::from_millis(150)) {
+                        self.wheel_page = Some(Instant::now());
+                        let key: &[u8] = if up { b"\x1b[5~" } else { b"\x1b[6~" };
+                        self.send(ClientMsg::Input { term, data: key.to_vec() });
+                    }
+                } else if alt {
                     // Full-screen programs scroll themselves: one arrow key per notch.
                     let app_cursor = self.parsers.get(&term).is_some_and(|p| p.screen().application_cursor());
                     let key: &[u8] = match (up, app_cursor) {

@@ -445,7 +445,7 @@ mod hydra_tests {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         // Claude draws pasted text and its diff panel on palette colour 8.
         let mut p = vt100::Parser::new(20, 80, 0);
-        p.process(b"[100mpasted text[0m plain");
+        p.process(b"\x1b[100mpasted text\x1b[0m plain");
         app.parsers.insert(1, p);
         let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 45)).unwrap();
         term.draw(|f| render::draw(&mut app, f)).unwrap();
@@ -762,6 +762,25 @@ mod hydra_tests {
         let mine = app.hy.tabs.iter().position(|t| t.layout.contains(1)).unwrap();
         app.close_tab(mine);
         assert!(app.notice.as_ref().is_some_and(|(m, ..)| m.contains("click ✕ again")), "{:?}", app.notice);
+    }
+
+    #[test]
+    fn the_wheel_scrolls_an_agents_full_screen_view() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        draw(&mut app, 160, 45);
+        let (term, r) = app.pane_frames[0];
+        let at = (r.x + 10, r.y + 10);
+        let mouse = |app: &mut App, kind: MouseEventKind| app.on_mouse(MouseEvent { kind, column: at.0, row: at.1, modifiers: KeyModifiers::NONE });
+        // A drag whose release never came is over once the mouse moves with no button held.
+        app.hy.drag = Some(hydra::Drag::Session(2, false));
+        mouse(&mut app, MouseEventKind::Moved);
+        assert!(app.hy.drag.is_none(), "a stuck drag doesn't keep the mouse from the panes");
+        // Claude Code's full-screen view, not taking the mouse: the wheel pages it.
+        assert!(app.snap.terms[&term].agent.is_some());
+        app.feed(term, b"\x1b[?1049h");
+        assert!(app.parsers[&term].screen().alternate_screen());
+        mouse(&mut app, MouseEventKind::ScrollUp);
+        assert!(app.wheel_page.is_some(), "paged (PgUp), not arrow keys into its prompt history");
     }
 
     #[test]

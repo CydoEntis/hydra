@@ -349,6 +349,8 @@ pub struct App {
     panes: Vec<(TermId, Rect)>,
     /// Outer rects of the panes drawn last frame (for neighbour search).
     pane_frames: Vec<(TermId, Rect)>,
+    /// When the wheel last paged an agent's full-screen view (see the wheel in input.rs).
+    wheel_page: Option<Instant>,
     out: mpsc::UnboundedSender<ClientMsg>,
     quit: Option<String>,
     dirty: bool,
@@ -514,6 +516,7 @@ impl App {
             hits: Vec::new(),
             panes: Vec::new(),
             pane_frames: Vec::new(),
+            wheel_page: None,
             out,
             quit: None,
             dirty: true,
