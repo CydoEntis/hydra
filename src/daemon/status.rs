@@ -105,7 +105,9 @@ impl Daemon {
                     }) {
                         t.session = Some(id);
                     }
-                    if let Some(c) = cwd.filter(|c| c.is_dir()) {
+                    // An agent stays in the group of the folder it started in: only its first
+                    // report places it, so its row doesn't jump as it works in other folders.
+                    if let Some(c) = cwd.filter(|c| c.is_dir() && !(t.hooked && t.agent.is_some())) {
                         t.cwd = c;
                         t.cwd_reported = true;
                         t.refresh_head();

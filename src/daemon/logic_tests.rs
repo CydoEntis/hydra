@@ -304,3 +304,28 @@ fn a_popup_floats_in_no_workspace_and_goes_when_done() {
     }
     assert!(!d.terms.contains_key(&id), "gone when its command is done");
 }
+
+#[test]
+fn an_agent_stays_in_the_folder_it_started_in() {
+    let (mut d, _rx) = daemon();
+    let t = pane(&mut d);
+    let secret = d.terms[&t].token.clone();
+    let base = std::env::temp_dir().join(format!("hydra-pin-{}", std::process::id()));
+    let (home, other) = (base.join("home"), base.join("other"));
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    let at = |cwd: &std::path::Path, status: HookStatus, event: &str| match report(t, &secret, 0, status, event) {
+        ClientMsg::Hook { term, agent, status, session, prompt, said, subagent, event, pid, token, transcript, model, name, .. } => {
+            ClientMsg::Hook { term, agent, status, session, cwd: Some(cwd.to_path_buf()), prompt, said, subagent, event, pid, token, transcript, model, name }
+        }
+        _ => unreachable!(),
+    };
+    // Its first report places it.
+    d.apply_hook(at(&home, HookStatus::Working, "UserPromptSubmit"), Some(true), Vec::new());
+    assert_eq!(d.terms[&t].cwd, home);
+    // Working in another folder doesn't move it.
+    d.apply_hook(at(&other, HookStatus::Working, "PreToolUse"), Some(true), Vec::new());
+    assert_eq!(d.terms[&t].cwd, home, "its row stays in the group it started in");
+    close(&mut d, &[t]);
+    let _ = std::fs::remove_dir_all(&base);
+}

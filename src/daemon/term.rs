@@ -455,8 +455,10 @@ impl Term {
             }
         }
         let mut cwd_changed = false;
+        // Same for a folder the pane reports while an agent runs in it.
         if let Some(dir) = find_cwd_report(data)
             && dir != self.cwd
+            && self.agent.is_none()
         {
             self.cwd = dir;
             cwd_changed = true;

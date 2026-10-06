@@ -130,9 +130,10 @@ hydra ~/code/api # open or switch to that directory
 The sidebar has a section per kind of session: **AGENTS**, **TERMINALS** and **SSH** (sessions on
 another machine). Inside each, sessions are grouped by **where they are working now**: the git
 repo they're in (a subfolder counts as its repo) or the folder itself outside git, and for SSH
-the machine they're connected to. Nothing to open or set up: `cd` somewhere and the session moves
-to that group; start an agent in a shell (or ssh somewhere) and it moves section. A pane split
-beside a session stays with it.
+the machine they're connected to. Nothing to open or set up: `cd` somewhere in a shell and it moves
+to that group; start an agent in a shell (or ssh somewhere) and it moves section. An agent stays in
+the group of the folder it started in while it runs, however many folders it works in. A pane
+split beside a session stays with it.
 
 ```
 ▾ ▌shop-api                       ●1 ⠹1
