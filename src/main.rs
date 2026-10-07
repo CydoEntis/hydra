@@ -207,6 +207,13 @@ enum Cmd {
     /// (Run by `--remote` over ssh) connect stdin/stdout to this machine's server.
     #[command(hide = true)]
     Proxy,
+    /// (Run by a pane's shell before an agent starts) print the folder it should start in:
+    /// a new worktree when it's started in a repo's main checkout, else nothing.
+    #[command(hide = true)]
+    AgentDir {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        cmd: Vec<String>,
+    },
     /// Extensions: `hydra ext list`, `hydra ext new <name>`.
     Ext {
         /// list | new | run
@@ -287,6 +294,10 @@ fn main() {
         Some(Cmd::Reveal { target }) => reveal::run(&target),
         Some(Cmd::Teach { pane }) => cli::teach(pane),
         Some(Cmd::TmuxShim { cmd }) => tmux_shim::run(cmd),
+        Some(Cmd::AgentDir { cmd }) => {
+            cli::agent_dir(&cmd);
+            Ok(())
+        }
         Some(Cmd::AskHuman { question, options }) => cli::ask_human(question, options),
         Some(Cmd::Grant { pane, grants }) => cli::grant(pane, &grants),
         Some(Cmd::Popup { cmd }) => cli::popup(cmd),

@@ -266,6 +266,64 @@ function global:prompt { [Console]::Write([char]27 + ']133;A' + [char]7); $l = $
 if ($l.Provider.Name -eq 'FileSystem') { [Console]::Write([char]27 + ']9;9;' + [char]34 + $l.ProviderPath + [char]34 + [char]7) }; \
 & $global:__hydraPrompt }";
 
+/// Agents that, typed into a pane's shell in a repo's main checkout, start in a new
+/// worktree of their own: the quick-prompt agents (with plain names).
+fn worktree_agents(cfg: &Config) -> Vec<String> {
+    if !cfg.worktree.per_agent || !cfg.shell_integration {
+        return Vec::new();
+    }
+    let plain = |n: &str| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    cfg.quick.agents.iter().map(|a| a.name.clone()).filter(|n| plain(n)).collect()
+}
+
+fn hydra_exe() -> String {
+    std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "hydra".into())
+}
+
+/// For each agent, a shell function that asks hydra for the folder to start in (`hydra
+/// agent-dir`), goes there, then runs the real agent. PowerShell's has no double quotes
+/// (see `PWSH_CWD_HOOK`).
+fn agent_functions(shell: &str, agents: &[String], exe: &str) -> String {
+    match shell {
+        "pwsh" | "powershell" => {
+            let exe = exe.replace('\'', "''");
+            agents
+                .iter()
+                .map(|a| {
+                    format!(
+                        "; function global:{a} {{ $d = & '{exe}' agent-dir {a} @args; if ($d) {{ Set-Location -LiteralPath $d }}; \
+& (Get-Command {a} -CommandType Application,ExternalScript | Select-Object -First 1) @args }}"
+                    )
+                })
+                .collect()
+        }
+        "fish" => {
+            let exe = exe.replace('\\', "\\\\").replace('\'', "\\'");
+            agents.iter().map(|a| format!("function {a}; set -l d ('{exe}' agent-dir {a} $argv); if test -n \"$d\"; cd $d; end; command {a} $argv; end\n")).collect()
+        }
+        _ => {
+            let exe = exe.replace('\'', "'\\''");
+            agents.iter().map(|a| format!("{a}() {{ local d; d=$('{exe}' agent-dir {a} \"$@\") && [ -n \"$d\" ] && cd \"$d\"; command {a} \"$@\"; }}\n")).collect()
+        }
+    }
+}
+
+/// The rc file a plain bash pane starts with: yours, then the agent functions. Rewritten
+/// when it changes.
+fn bash_rc(agents: &[String]) -> Option<PathBuf> {
+    let path = crate::config::data_dir().join("shell").join("hydra.bashrc");
+    let text = format!(
+        "# Written by hydra for its bash panes: your ~/.bashrc, then agents started in their own worktrees.\n\
+[ -f ~/.bashrc ] && . ~/.bashrc\n{}",
+        agent_functions("bash", agents, &hydra_exe())
+    );
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
+        std::fs::create_dir_all(path.parent()?).ok()?;
+        std::fs::write(&path, text).ok()?;
+    }
+    Some(path)
+}
+
 fn argv(cfg: &Config, cmd: Option<&str>, once: bool) -> Vec<String> {
     let mut shell = cfg.shell_command();
     let cmd = cmd.filter(|c| !c.trim().is_empty());
@@ -284,14 +342,23 @@ fn argv(cfg: &Config, cmd: Option<&str>, once: bool) -> Vec<String> {
         shell.extend([flag.to_string(), c.to_string()]);
         return shell;
     }
+    let agents = worktree_agents(cfg);
+    let plain = shell.len() == 1;
     match (exe.as_str(), cmd) {
         ("pwsh" | "powershell", cmd) if cfg.shell_integration => {
+            let hook = format!("{PWSH_CWD_HOOK}{}", agent_functions(&exe, &agents, &hydra_exe()));
             let script = match cmd {
-                Some(c) => format!("{PWSH_CWD_HOOK}; {c}"),
-                None => PWSH_CWD_HOOK.to_string(),
+                Some(c) => format!("{hook}; {c}"),
+                None => hook,
             };
             shell.extend(["-NoExit".into(), "-Command".into(), script]);
         }
+        ("bash", None) if plain && !agents.is_empty() => {
+            if let Some(rc) = bash_rc(&agents) {
+                shell.extend(["--rcfile".into(), rc.display().to_string()]);
+            }
+        }
+        ("fish", None) if plain && !agents.is_empty() => shell.extend(["-C".into(), agent_functions("fish", &agents, &hydra_exe())]),
         (_, None) => {}
         ("pwsh" | "powershell", Some(c)) => shell.extend(["-NoExit".into(), "-Command".into(), c.into()]),
         ("cmd", Some(c)) => shell.extend(["/K".into(), c.into()]),
@@ -646,6 +713,42 @@ pub fn same_secret(a: &str, b: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_pane_shell_starts_agents_through_hydra() {
+        let cfg = crate::config::Config::default();
+        let ps = super::agent_functions("pwsh", &["claude".into()], r"C:\it's\hydra.exe");
+        assert!(ps.contains("function global:claude") && ps.contains("& 'C:\\it''s\\hydra.exe' agent-dir claude @args"), "{ps}");
+        assert!(!ps.contains('"'), "no double quotes: they don't survive Windows argument quoting");
+        let names = super::worktree_agents(&cfg);
+        assert!(names.contains(&"claude".to_string()) && names.contains(&"codex".to_string()));
+        let mut off = crate::config::Config::default();
+        off.worktree.per_agent = false;
+        assert!(super::worktree_agents(&off).is_empty(), "off: agents start where they're typed");
+    }
+
+    /// The bash function really goes to the folder hydra names, then runs the real agent.
+    #[cfg(unix)]
+    #[test]
+    fn the_bash_function_starts_the_agent_where_hydra_says() {
+        let tmp = std::env::temp_dir().join(format!("hydra-fn-{}", std::process::id()));
+        let bin = tmp.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let fake = |name: &str, body: &str| {
+            use std::os::unix::fs::PermissionsExt;
+            let p = bin.join(name);
+            std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        let hydra = fake("hydra", &format!("echo {}", tmp.display()));
+        fake("claude", "echo \"ran in $PWD with $*\"");
+        let script = format!("{}claude hi there", super::agent_functions("bash", &["claude".into()], &hydra.display().to_string()));
+        let out = std::process::Command::new("bash").arg("-c").arg(script).env("PATH", format!("{}:/usr/bin:/bin", bin.display())).output().unwrap();
+        let out = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(out.trim(), format!("ran in {} with hi there", tmp.display()));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     #[test]
     fn a_pane_that_never_reads_doesnt_block() {
         // A writer that never returns, like a program that has stopped reading its input.

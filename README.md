@@ -82,7 +82,9 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
 - **Detection without setup.** The process tree finds `claude`, `codex`, `gemini`, `opencode`,
   `cursor-agent`, `copilot`, `amp`, `qwen`, `aider` and others, and screen patterns tell
   working from blocked. Hooks (`hydra integrate claude`) make it exact.
-- **Git without leaving.** New agents get their own worktree; Changes (`d`) shows the diff with
+- **Git without leaving.** New agents get their own worktree, including `claude` or `codex`
+  typed into a shell in a repo's main folder (turn it off with *Own worktree per agent* in
+  Settings; `--continue`/`--resume` stay put). Changes (`d`) shows the diff with
   review marks, then commit, ship, or open a pull request. Files (`f`), find (`F`), search the
   code (`/`), switch branch (`B`).
 - **Everything is configurable.** The leader, every binding, commands bound to keys, themes and

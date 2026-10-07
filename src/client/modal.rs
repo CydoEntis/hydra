@@ -182,7 +182,7 @@ pub const SETTINGS: &[Setting] = &[
     // Appearance
     Setting { path: "theme", label: "Theme", kind: Kind::Choice(crate::theme::BUILTIN), cat: Cat::Appearance, help: "Changes the whole app live. Agent output keeps its own colours; only the ANSI palette is themed." },
     // Agents
-    Setting { path: "worktree.per_agent", label: "Own worktree per agent", kind: Kind::Bool, cat: Cat::Agents, help: "Quick-prompt agents in a git repo get their own branch and folder." },
+    Setting { path: "worktree.per_agent", label: "Own worktree per agent", kind: Kind::Bool, cat: Cat::Agents, help: "Agents started in a repo's main folder (+ New, the quick prompt, or claude/codex typed in a shell) get their own branch and folder." },
     Setting { path: "quick.place", label: "Quick prompt opens in", kind: Kind::Choice(&["worktree", "right", "down", "tab", "here"]), cat: Cat::Agents, help: "Where an agent starts when you give it a task with the quick prompt." },
     Setting { path: "worktree.command", label: "Start in new worktrees", kind: Kind::Text, cat: Cat::Agents, help: "A command to run in every new worktree (e.g. claude). Empty: a shell." },
     Setting { path: "mcp.approve", label: "Agents may approve prompts", kind: Kind::Choice(&["never", "safe", "always"]), cat: Cat::Agents, help: "Through hydra mcp. safe: only prompts for commands on [mcp] safe (tests, lint, git status…). Saying no is always allowed." },

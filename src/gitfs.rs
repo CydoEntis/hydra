@@ -4,6 +4,12 @@
 
 use std::path::{Path, PathBuf};
 
+/// Names for branches hydra makes up (a new worktree nobody named).
+pub const WT_NAMES: [&str; 16] = [
+    "quick-fox", "calm-heron", "bright-owl", "steady-elk", "brave-wren", "swift-lynx", "keen-otter", "bold-raven",
+    "wise-badger", "lucky-hare", "sly-marten", "warm-finch", "deep-pike", "grey-wolf", "red-kite", "tall-crane",
+];
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Head {
     /// The checkout's top folder (where `.git` is).

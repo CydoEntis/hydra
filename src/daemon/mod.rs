@@ -65,6 +65,8 @@ pub enum Ev {
         result: Result<(PathBuf, String), String>,
     },
     WorktreeRemoved { client: ClientId, path: PathBuf, result: Result<(), String> },
+    /// A worktree made for an agent started from a shell (`Command::AgentWorktree`).
+    AgentWorktreeMade { client: ClientId, result: Result<PathBuf, String> },
     /// A worktree removed (or kept) after its last pane closed.
     WorktreeAutoRemoved { client: ClientId, path: PathBuf, result: Result<(), String> },
     WorktreeList { client: ClientId, result: Result<Vec<WorktreeEntry>, String> },
@@ -708,6 +710,21 @@ impl Daemon {
                         self.send(client, ServerMsg::Reply(Reply::Ok));
                     }
                     Err(e) => self.send(client, ServerMsg::Error(format!("{e:#}"))),
+                }
+                self.dirty = true;
+            }
+            Ev::AgentWorktreeMade { client, result } => {
+                self.pending_ops -= 1;
+                match result {
+                    Ok(path) => {
+                        if let Some(top) = crate::gitfs::head(&path).map(|h| h.top) {
+                            self.worktree_hook(&top, true);
+                            self.made_worktrees.push(top);
+                        }
+                        self.poll_git_soon();
+                        self.send(client, ServerMsg::Reply(Reply::Text(path.to_string_lossy().into_owned())));
+                    }
+                    Err(e) => self.send(client, ServerMsg::Error(e)),
                 }
                 self.dirty = true;
             }

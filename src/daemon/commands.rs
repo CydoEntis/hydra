@@ -309,6 +309,27 @@ impl Daemon {
                 });
                 return Ok(false);
             }
+            Command::AgentWorktree { dir } => {
+                // Only for a shell starting an agent: not from outside a pane, and not for an
+                // agent an agent starts (it works where its parent does).
+                let dir = clean_path(dir);
+                let from = self.clients.get(&client).and_then(|c| c.from).and_then(|t| self.terms.get(&t));
+                let wanted = self.cfg.worktree.per_agent
+                    && from.is_some_and(|t| t.agent.is_none())
+                    && crate::gitfs::head(&dir).is_some_and(|h| !h.linked);
+                if !wanted {
+                    self.send(client, ServerMsg::Reply(Reply::Text(String::new())));
+                    return Ok(false);
+                }
+                let template = self.cfg.worktree.dir.clone();
+                let tx = self.tx.clone();
+                self.pending_ops += 1;
+                tokio::task::spawn_blocking(move || {
+                    let result = agent_worktree(&dir, &template);
+                    let _ = tx.blocking_send(Ev::AgentWorktreeMade { client, result });
+                });
+                return Ok(false);
+            }
             Command::RemoveWorktree { ws, force, delete_branch } => {
                 let w = self.ws_mut(ws)?;
                 let path = w.cwd.clone();

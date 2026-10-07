@@ -105,7 +105,8 @@ pub struct Worktree {
     pub dir: String,
     /// Command to start in a new worktree's first pane (e.g. "claude"). Empty = a shell.
     pub command: String,
-    /// New agent panes (+ Pane, quick prompt) get their own worktree when they start in a repo.
+    /// New agents (+ New, the quick prompt, or a quick-prompt agent typed into a pane's
+    /// PowerShell, bash or fish) get their own worktree when started in a repo's main checkout.
     pub per_agent: bool,
     /// Closing the last thing running in a worktree hydra made removes its folder (the
     /// branch is kept; a worktree with uncommitted changes is left alone).

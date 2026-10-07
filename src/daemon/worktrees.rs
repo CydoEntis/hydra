@@ -66,6 +66,23 @@ pub(super) fn create_trusted_worktree(dir: &std::path::Path, branch: &str, base:
     Ok(made)
 }
 
+/// A new worktree for an agent about to start in `dir`, a folder of the repo's main
+/// checkout, on a made-up branch. Returns the folder to start in: the same subfolder of the
+/// new worktree.
+pub(super) fn agent_worktree(dir: &std::path::Path, template: &str) -> Result<PathBuf, String> {
+    let head = crate::gitfs::head(dir).ok_or("not in a git repository")?;
+    let taken = git::branches(&head.main_root);
+    let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as usize).unwrap_or(0);
+    let names = crate::gitfs::WT_NAMES;
+    let branch = (0..names.len())
+        .map(|i| names[(n + i) % names.len()].to_string())
+        .find(|b| !taken.contains(b))
+        .unwrap_or_else(|| format!("{}-{}", names[n % names.len()], n % 1000));
+    let (path, _) = create_trusted_worktree(&head.main_root, &branch, None, template)?;
+    let sub = dir.strip_prefix(&head.top).ok().map(|s| path.join(s)).filter(|p| p.is_dir());
+    Ok(sub.unwrap_or(path))
+}
+
 pub(super) fn trust_in(file: &std::path::Path, repo: &std::path::Path, worktree: &std::path::Path) {
     // Claude rewrites this file too: if it changed while we worked, start again from its
     // version rather than replace it.

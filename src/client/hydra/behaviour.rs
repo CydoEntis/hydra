@@ -5,10 +5,7 @@ use super::*;
 // ---- behaviour -----------------------------------------------------------------------------
 
 
-pub(in crate::client) const WT_NAMES: [&str; 16] = [
-    "quick-fox", "calm-heron", "bright-owl", "steady-elk", "brave-wren", "swift-lynx", "keen-otter", "bold-raven",
-    "wise-badger", "lucky-hare", "sly-marten", "warm-finch", "deep-pike", "grey-wolf", "red-kite", "tall-crane",
-];
+pub(in crate::client) use crate::gitfs::WT_NAMES;
 
 impl App {
     pub(in crate::client) fn hy_agent(&self) -> String {

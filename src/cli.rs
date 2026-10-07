@@ -57,6 +57,40 @@ fn resolve_pane(pane: Option<TermId>) -> Result<TermId> {
     snap.active().and_then(|w| w.tab()).map(|t| t.focus).ok_or_else(|| anyhow!("no pane to target"))
 }
 
+/// Arguments that mean the agent isn't starting a new piece of work: help, version, a
+/// one-shot print, picking up an earlier conversation (which lives in the folder it was in),
+/// or one of its subcommands.
+const NOT_NEW_WORK: [&str; 13] = ["-h", "--help", "-v", "-V", "--version", "-p", "--print", "-c", "--continue", "-r", "--resume", "-w", "--worktree"];
+const SUBCOMMANDS: [&str; 20] = [
+    "resume", "exec", "e", "login", "logout", "mcp", "mcp-server", "config", "update", "upgrade", "doctor", "install", "plugin", "setup-token",
+    "migrate-installer", "completion", "apply", "sandbox", "debug", "app-server",
+];
+
+/// Whether `agent args…` starts new work (which gets its own worktree).
+pub(crate) fn starts_new_work(args: &[String]) -> bool {
+    let sub = args.first().is_some_and(|a| SUBCOMMANDS.contains(&a.as_str()));
+    !sub && !args.iter().any(|a| NOT_NEW_WORK.contains(&a.as_str()) || a.starts_with("--resume=") || a.starts_with("--worktree="))
+}
+
+/// `hydra agent-dir <agent> [args…]`, run by a pane's shell just before it starts an agent:
+/// prints the folder to start in (a new worktree), or nothing to start where it is. Never
+/// fails: the agent starts either way.
+pub fn agent_dir(cmd: &[String]) {
+    let args = cmd.get(1..).unwrap_or_default();
+    if std::env::var_os("HYDRA_TERM_ID").is_none() || !starts_new_work(args) {
+        return;
+    }
+    let Ok(dir) = std::env::current_dir() else { return };
+    match block_on(request(ClientMsg::Command(Command::AgentWorktree { dir }))) {
+        Ok(Reply::Text(path)) if !path.is_empty() => {
+            eprintln!("hydra: {} gets its own worktree: {path}", cmd.first().map(String::as_str).unwrap_or("the agent"));
+            println!("{path}");
+        }
+        Ok(_) => {}
+        Err(e) => eprintln!("hydra: no worktree for it ({e:#}), so it starts here"),
+    }
+}
+
 pub fn ls(as_json: bool) -> Result<()> {
     let snap = snapshot()?;
     if as_json {
@@ -1278,6 +1312,14 @@ pub fn allow(dir: Option<std::path::PathBuf>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_new_work_gets_a_worktree() {
+        let w = |a: &[&str]| super::starts_new_work(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert!(w(&[]) && w(&["fix the login page"]) && w(&["--model", "opus"]) && w(&["update the readme"]), "a new session or a task");
+        assert!(!w(&["--continue"]) && !w(&["-r"]) && !w(&["resume"]), "an earlier conversation stays in its folder");
+        assert!(!w(&["--version"]) && !w(&["-p", "what's 2+2"]) && !w(&["mcp", "list"]) && !w(&["update"]), "not work: help, one-shots, subcommands");
+    }
+
     #[test]
     fn a_reply_with_background_work_running_isnt_the_end() {
         use serde_json::json;

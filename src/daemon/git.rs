@@ -140,6 +140,11 @@ pub fn create_worktree(dir: &Path, branch: &str, base: Option<&str>, template: &
     Ok((path, repo))
 }
 
+/// The repository's local branches.
+pub fn branches(dir: &Path) -> Vec<String> {
+    git(dir, &["for-each-ref", "--format=%(refname:short)", "refs/heads"]).map(|s| s.lines().map(str::to_string).collect()).unwrap_or_default()
+}
+
 /// Commits on HEAD of `dir` that `base` doesn't have.
 pub fn ahead_of(dir: &Path, base: &str) -> u32 {
     git(dir, &["rev-list", "--count", &format!("{base}..HEAD")]).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0)

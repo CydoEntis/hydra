@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 28;
+pub const PROTOCOL_VERSION: u32 = 29;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -101,6 +101,10 @@ pub enum Command {
         split: Option<TermId>,
         from: Option<PathBuf>,
     },
+    /// From a pane about to start an agent in `dir`: a new worktree for it when `dir` is
+    /// in a repo's main checkout (and per-agent worktrees are on). Replies with the folder
+    /// to start in, or empty text to start where it is.
+    AgentWorktree { dir: PathBuf },
     /// Put a pane in a sidebar group (None: take it out).
     SetGroup { ws: WsId, group: Option<String> },
     /// Move a pane into another group (`to`), or into a new group named `name`.

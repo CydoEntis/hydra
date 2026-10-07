@@ -189,6 +189,44 @@ fn worktree_names_that_look_like_options_are_refused() {
 }
 
 #[test]
+fn an_agent_typed_into_a_shell_gets_its_own_worktree() {
+    let tmp = std::env::temp_dir().join(format!("hydra-agent-wt-{}", std::process::id()));
+    let repo = tmp.join("shop");
+    std::fs::create_dir_all(repo.join("web")).unwrap();
+    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success(), "git {args:?}");
+    git(&["init", "-q"]);
+    git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first"]);
+    std::fs::write(repo.join("web").join("keep"), "").unwrap();
+    git(&["add", "."]);
+    git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "web"]);
+    let made = worktrees::agent_worktree(&repo.join("web"), "{repo_parent}/{repo}-worktrees/{branch}").unwrap();
+    assert!(made.ends_with("web") && made.is_dir(), "in the same subfolder of the new worktree: {}", made.display());
+    let head = crate::gitfs::head(&made).unwrap();
+    assert!(head.linked && crate::gitfs::WT_NAMES.contains(&head.branch.as_str()), "a linked worktree on a made-up branch: {head:?}");
+    let again = worktrees::agent_worktree(&repo, "{repo_parent}/{repo}-worktrees/{branch}").unwrap();
+    assert_ne!(crate::gitfs::head(&again).unwrap().branch, head.branch, "the next one gets its own branch");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn only_a_pane_shell_asks_for_an_agent_worktree() {
+    let (mut d, _rx) = daemon();
+    let t = pane(&mut d);
+    let (tx, mut crx) = mpsc::channel(64);
+    d.handle(Ev::Connected(1, tx, false));
+    d.handle(Ev::Msg(1, ClientMsg::Command(Command::AgentWorktree { dir: std::env::current_dir().unwrap() })));
+    assert!(matches!(crx.try_recv(), Ok(ServerMsg::Reply(Reply::Text(p))) if p.is_empty()), "not from a pane: start where it is");
+    d.terms.get_mut(&t).unwrap().agent = Some("claude".into());
+    let (tx, mut crx) = mpsc::channel(64);
+    d.handle(Ev::Connected(2, tx, false));
+    let token = d.terms[&t].token.clone();
+    d.handle(Ev::From(2, t, token));
+    d.handle(Ev::Msg(2, ClientMsg::Command(Command::AgentWorktree { dir: std::env::current_dir().unwrap() })));
+    assert!(matches!(crx.try_recv(), Ok(ServerMsg::Reply(Reply::Text(p))) if p.is_empty()), "an agent's own agents work where it does");
+    close(&mut d, &[t]);
+}
+
+#[test]
 fn closing_the_last_pane_keeps_an_open_window() {
     let (mut d, _rx) = daemon();
     let t = pane(&mut d);
