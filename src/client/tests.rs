@@ -807,6 +807,39 @@ mod hydra_tests {
     }
 
     #[test]
+    fn pane_info_says_how_a_pane_scrolls() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        draw(&mut app, 160, 45);
+        let (term, _) = app.pane_frames[0];
+        let p = app.new_parser(40, 100);
+        app.parsers.insert(term, p);
+        app.feed(term, &b"line\r\n".repeat(100));
+        let info = app.pane_info(term).unwrap();
+        assert!(info.contains("normal screen") && info.contains("the wheel goes to hydra") && info.contains("61 lines of history"), "{info}");
+        app.feed(term, b"\x1b[?1049h\x1b[?1000h\x1b[?1006h");
+        let info = app.pane_info(term).unwrap();
+        assert!(info.contains("full-screen") && info.contains("the wheel goes to the program"), "{info}");
+    }
+
+    #[test]
+    fn a_pane_rewraps_once_a_drag_ends() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        draw(&mut app, 160, 45);
+        app.sync_sizes();
+        let (term, _) = app.pane_frames[0];
+        app.keep_raw(term, b"some output\r\n", true);
+        // Mid-drag, a new width just resizes the screen; it re-wraps after.
+        app.hy.drag = Some(hydra::Drag::Side);
+        app.hy.saved.side_w = Some(50);
+        draw(&mut app, 160, 45);
+        app.sync_sizes();
+        assert!(app.rewrap.contains(&term), "re-wrap waits for the drag to end");
+        app.hy.drag = None;
+        app.sync_sizes();
+        assert!(!app.rewrap.contains(&term), "and happens once it has");
+    }
+
+    #[test]
     fn map_opens_from_its_key() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         draw(&mut app, 160, 45);

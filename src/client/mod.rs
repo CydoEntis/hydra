@@ -385,6 +385,8 @@ pub struct App {
     pane_click: Option<(Position, Instant)>,
     /// Recent raw output per pane, to re-wrap the screen when its width changes.
     raw: HashMap<TermId, std::collections::VecDeque<u8>>,
+    /// Panes whose width changed during a drag: re-wrapped from `raw` once it ends.
+    rewrap: std::collections::HashSet<TermId>,
     /// The cursor style each pane's program asked for (DECSCUSR 0-6), and the one we set.
     cursor_style: HashMap<TermId, u8>,
     cursor_sent: u8,
@@ -537,6 +539,7 @@ impl App {
             focus_sent: None,
             pane_click: None,
             raw: HashMap::new(),
+            rewrap: Default::default(),
             cursor_style: HashMap::new(),
             cursor_sent: 0,
         };
@@ -716,26 +719,43 @@ impl App {
     /// Resize panes whose drawn size differs from what the daemon last heard.
     fn sync_sizes(&mut self) {
         let panes = self.panes.clone();
+        let dragging = self.hy.drag.is_some();
         for (term, r) in panes {
             let want = (r.width.max(2), r.height.max(2));
+            if !dragging && self.rewrap.remove(&term) {
+                self.rewrap_pane(term, want);
+            }
             if self.sizes.get(&term) == Some(&want) {
                 continue;
             }
             let old = self.sizes.insert(term, want);
             if old.is_some_and(|o| o.0 != want.0) && self.raw.get(&term).is_some_and(|r| !r.is_empty()) {
                 // A new width: replay recent output into a fresh screen so text re-wraps
-                // instead of being cut (history included).
-                let mut p = self.new_parser(want.1, want.0);
-                if let Some(raw) = self.raw.get_mut(&term) {
-                    p.process(raw.make_contiguous());
+                // instead of being cut (history included). Mid-drag that would be every
+                // step: once the drag ends instead.
+                if dragging {
+                    self.rewrap.insert(term);
+                    if let Some(p) = self.parsers.get_mut(&term) {
+                        p.screen_mut().set_size(want.1, want.0);
+                    }
+                } else {
+                    self.rewrap_pane(term, want);
                 }
-                self.parsers.insert(term, p);
-                self.scroll.remove(&term);
             } else if let Some(p) = self.parsers.get_mut(&term) {
                 p.screen_mut().set_size(want.1, want.0);
             }
             self.send(ClientMsg::Resize { term, cols: want.0, rows: want.1 });
         }
+    }
+
+    /// A fresh screen for `term` at `(cols, rows)`, from the output kept for it.
+    fn rewrap_pane(&mut self, term: TermId, (cols, rows): (u16, u16)) {
+        let mut p = self.new_parser(rows, cols);
+        if let Some(raw) = self.raw.get_mut(&term) {
+            p.process(raw.make_contiguous());
+        }
+        self.parsers.insert(term, p);
+        self.scroll.remove(&term);
     }
 
     // ---- server messages -----------------------------------------------------------
@@ -804,8 +824,29 @@ impl App {
     }
 
     /// Keep the last ~768 KiB a pane printed (for re-wrapping on resize).
+    /// How a pane takes the wheel and how much history it has, in one line (to say what's
+    /// going on when it won't scroll).
+    fn pane_info(&mut self, term: TermId) -> Option<String> {
+        let p = self.parsers.get_mut(&term)?;
+        let at = p.screen().scrollback();
+        p.screen_mut().set_scrollback(usize::MAX);
+        let history = p.screen().scrollback();
+        p.screen_mut().set_scrollback(at);
+        let s = p.screen();
+        let mouse = match s.mouse_protocol_mode() {
+            vt100::MouseProtocolMode::None => "hydra",
+            _ => "the program",
+        };
+        let full = if s.alternate_screen() { "full-screen (it scrolls itself)" } else { "normal screen" };
+        let raw = self.raw.get(&term).map(|r| r.len() / 1024).unwrap_or(0);
+        Some(format!("{full} · the wheel goes to {mouse} · {history} lines of history, {at} up · {raw} KB kept · {:?}", self.mode).chars().take(200).collect())
+    }
+
     fn keep_raw(&mut self, term: TermId, data: &[u8], replace: bool) {
-        const CAP: usize = 768 * 1024;
+        // Replayed into a fresh screen when a pane's width changes (so text re-wraps): what's
+        // here is all the history it has after. An agent redraws a lot while it works, so
+        // this is generous.
+        const CAP: usize = 8 * 1024 * 1024;
         let ring = self.raw.entry(term).or_default();
         if replace {
             ring.clear();

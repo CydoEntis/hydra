@@ -120,6 +120,12 @@ impl App {
             Action::Detach => self.quit = Some("detached".into()),
             Action::Help => self.mode = Mode::Help { scroll: 0 },
             Action::ReloadConfig => self.reload_config(),
+            Action::PaneInfo => {
+                if let Some(msg) = self.focused().and_then(|t| self.pane_info(t)) {
+                    super::copy::to_clipboard(&msg);
+                    self.notify(format!("{msg} (copied)"), true);
+                }
+            }
             Action::SendPrefix => {
                 let p = self.keymap.prefix;
                 let ev = KeyEvent::new(p.code, p.mods);
@@ -302,6 +308,7 @@ impl App {
             Action::Settings,
             Action::Help,
             Action::ReloadConfig,
+            Action::PaneInfo,
             Action::Update,
             Action::Detach,
         ]

@@ -270,6 +270,8 @@ pub enum Action {
     Detach,
     Help,
     ReloadConfig,
+    /// Say how the pane you're on takes the mouse and how much history it has.
+    PaneInfo,
     SendPrefix,
     KillServer,
     /// Install the newest hydra and restart this window into it.
@@ -365,6 +367,7 @@ impl Action {
             Action::Detach => "Detach (agents keep running)".into(),
             Action::Help => "Keys".into(),
             Action::ReloadConfig => "Reload the config file".into(),
+            Action::PaneInfo => "Pane info (scrolling, mouse)".into(),
             Action::SendPrefix => "send prefix key".into(),
             Action::KillServer => "kill server".into(),
             Action::Update => "Update hydra".into(),
@@ -456,6 +459,7 @@ impl Action {
             Action::Detach => "detach".into(),
             Action::Help => "help".into(),
             Action::ReloadConfig => "reload-config".into(),
+            Action::PaneInfo => "pane-info".into(),
             Action::SendPrefix => "send-prefix".into(),
             Action::KillServer => "kill-server".into(),
             Action::Update => "update".into(),
@@ -560,6 +564,7 @@ impl FromStr for Action {
             "detach" => Action::Detach,
             "help" => Action::Help,
             "reload-config" => Action::ReloadConfig,
+            "pane-info" => Action::PaneInfo,
             "send-prefix" => Action::SendPrefix,
             "kill-server" => Action::KillServer,
             "update" => Action::Update,
