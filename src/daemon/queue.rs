@@ -5,6 +5,9 @@
 use super::*;
 use crate::tickets::{Progress, Ticket};
 
+/// How many other names queued work tries when its worktree's folder is already there.
+const FOLDER_TRIES: usize = 8;
+
 impl Daemon {
     pub(super) fn enqueue(&mut self, mut item: QueueItem) {
         item.id = self.next_queue_id;
@@ -52,12 +55,22 @@ impl Daemon {
         let Some(q) = self.queue.iter_mut().find(|q| q.id == id) else { return };
         q.state = QueueState::Starting;
         let (dir, branch, template) = (q.project.clone(), q.branch.clone(), self.cfg.worktree.dir.clone());
-        let taken: Vec<String> = git_branches_quick(&dir);
-        let branch = free_branch(&branch, &taken);
-        q.branch = branch.clone();
+        let mut taken: Vec<String> = git_branches_quick(&dir);
+        let first = free_branch(&branch, &taken);
+        q.branch = first.clone();
         let tx = self.tx.clone();
         tokio::task::spawn_blocking(move || {
-            let result = create_trusted_worktree(&dir, &branch, None, &template);
+            // A folder of that name left from before: the next name.
+            let mut name = first;
+            let mut result = create_trusted_worktree(&dir, &name, None, &template);
+            for _ in 0..FOLDER_TRIES {
+                if !result.as_ref().is_err_and(|e| e.ends_with("already exists")) {
+                    break;
+                }
+                taken.push(name);
+                name = free_branch(&branch, &taken);
+                result = create_trusted_worktree(&dir, &name, None, &template);
+            }
             let _ = tx.blocking_send(Ev::QueueWorktree { id, result });
         });
     }
@@ -76,7 +89,12 @@ impl Daemon {
             self.worktree_hook(&path, true);
             Ok(term)
         });
+        // The branch it really got (another name when a folder was in the way).
+        let branch = started.as_ref().ok().and_then(|t| self.terms.get(t)).and_then(|t| t.head.as_ref()).map(|h| h.branch.clone());
         let Some(item) = self.queue.iter_mut().find(|q| q.id == id) else { return };
+        if let Some(b) = branch {
+            item.branch = b;
+        }
         match started {
             Ok(term) => {
                 item.state = QueueState::Running(term);

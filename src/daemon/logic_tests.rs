@@ -290,11 +290,14 @@ fn claude_reports_what_its_session_used() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_queue_runs_so_many_at_once_and_moves_on() {
     let tmp = std::env::temp_dir().join(format!("hydra-queue-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
     let repo = tmp.join("shop");
     std::fs::create_dir_all(&repo).unwrap();
     let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success(), "git {args:?}");
     git(&["init", "-q"]);
     git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first"]);
+    // A folder left from before where the first one's worktree would go.
+    std::fs::create_dir_all(tmp.join("shop-worktrees").join("fix-login")).unwrap();
     let (mut d, mut rx) = daemon();
     d.cfg.queue_at_once = 1;
     let item = |title: &str| QueueItem {
@@ -323,7 +326,7 @@ async fn the_queue_runs_so_many_at_once_and_moves_on() {
     let (id, result) = tokio::task::block_in_place(|| next_made(&mut rx));
     d.queue_worktree(id, result);
     let QueueState::Running(first) = d.queue[0].state else { panic!("running: {:?}", d.queue[0].state) };
-    assert!(d.terms[&first].cwd.to_string_lossy().contains("fix-login"), "in its own worktree: {}", d.terms[&first].cwd.display());
+    assert!(d.terms[&first].cwd.to_string_lossy().contains("fix-login-2"), "in its own worktree, past the folder in the way: {}", d.terms[&first].cwd.display());
     // It works, then finishes: yours to review, and the next one starts.
     d.terms.get_mut(&first).unwrap().status = Status::Working;
     d.run_queue();
@@ -332,7 +335,7 @@ async fn the_queue_runs_so_many_at_once_and_moves_on() {
     d.run_queue();
     assert_eq!(d.queue[0].state, QueueState::Review(first));
     assert_eq!(d.queue[1].state, QueueState::Starting);
-    assert_eq!(d.queue[1].branch, "fix-login-2", "its own branch, even with the same task");
+    assert_eq!(d.queue[1].branch, "fix-login", "its own branch, even with the same task (the name free in git)");
     let (id, result) = tokio::task::block_in_place(|| next_made(&mut rx));
     d.queue_worktree(id, result);
     // Closing what you reviewed takes it off the list.

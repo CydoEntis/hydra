@@ -392,7 +392,7 @@ pub fn close(pane: Option<TermId>) -> Result<()> {
 
 /// Whether a hydra server is running (for this socket).
 pub(crate) fn server_running() -> bool {
-    block_on(async { ipc::connect().await.map(|_| ()).map_err(anyhow::Error::from) }).is_ok()
+    block_on(async { ipc::connect().await.map(|_| ()) }).is_ok()
 }
 
 pub fn kill_server(forget: bool) -> Result<()> {

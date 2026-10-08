@@ -198,6 +198,7 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 | `f` / `F` / `/` | files / find a file / search the code |
 | `d` / `B` / `P` / `S` | changes / switch branch / pull request / ship |
 | `i` / `I` / `.` / `A` | tickets / ideas / presets / agent tools |
+| `Q` / `u` / `O` | the queue / checkpoints (roll a folder back) / past chats (search, pick one up again) |
 | `,` / `?` / `U` / `N` / `q` | settings / keys / memory / history / detach |
 
 In **Files**: Enter puts the path in the agent's prompt, `e` opens it in your editor (`editor`

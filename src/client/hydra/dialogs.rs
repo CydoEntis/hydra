@@ -493,6 +493,7 @@ pub(in crate::client) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: 
                 (vec![Action::Reply], "reply"),
                 (vec![Action::RenameWorkspace], "rename"),
                 (vec![Action::Presets], "presets"),
+                (vec![Action::Queue], "queue"),
             ],
         ),
         (
@@ -503,6 +504,8 @@ pub(in crate::client) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: 
                 (vec![Action::Changes], "changes"),
                 (vec![Action::Branches], "branch"),
                 (vec![Action::Inbox], "tickets"),
+                (vec![Action::Checkpoints], "checkpoints"),
+                (vec![Action::Chats], "past chats"),
                 (vec![Action::Settings], "settings"),
                 (vec![Action::History], "history"),
             ],
