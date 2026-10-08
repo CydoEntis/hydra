@@ -831,7 +831,11 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
     }
 
     // A blank row under the bar; output starts two cells in.
-    let ask = st == Status::Blocked && info.agent.is_some();
+    // Only for a question that's really there: a "needs you" with nothing to pick (one auto
+    // mode settled) gets no buttons that would just type a digit.
+    let ask = st == Status::Blocked
+        && info.agent.is_some()
+        && (app.pending_question(term).is_some() || !super::choices(app.parsers.get(&term)).is_empty());
     let bot = r.bottom().saturating_sub(if ask { 2 } else { 0 });
     let top = r.y + 2;
     let inner = Rect { x: r.x + 2, y: top, width: r.width.saturating_sub(3), height: bot.saturating_sub(top) };

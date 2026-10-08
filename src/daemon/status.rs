@@ -35,6 +35,10 @@ pub(super) fn hook_thread(tx: mpsc::Sender<Ev>) -> std::sync::mpsc::Sender<HookJ
 /// How long after your last key, with the pane quiet, a question that's no longer on screen
 /// counts as dismissed.
 pub(super) const QUESTION_GONE_AFTER: Duration = Duration::from_secs(2);
+/// How long a "needs you" with no question anywhere on screen lasts (you typed nothing).
+pub(super) const UNASKED_QUESTION_GONE_AFTER: Duration = Duration::from_secs(8);
+/// A numbered choice an agent offers ("❯ 1. Yes"): a question, whatever its wording.
+static CHOICES: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?m)^[\s│┃]*[❯>]?\s*1\.\s+\S").unwrap());
 /// A "done" held while subagents run is let through once none has been heard from for this
 /// long (one died without saying so). Background agents can run, and wait on CI, for a while.
 const SUBAGENTS_QUIET_AT_MOST: Duration = Duration::from_secs(60 * 60);
@@ -302,6 +306,18 @@ impl Daemon {
                     let asking = self.agents.iter().find(|a| &a.name == name).is_some_and(|d| d.blocked.iter().any(|r| r.is_match(&text)));
                     if !asking {
                         changes.push((t.id, Status::Idle));
+                    }
+                }
+                // A permission ask that auto mode (or the agent) settled by itself also sends
+                // no hook: a while on, with no question on screen at all, it's over.
+                if t.status == Status::Blocked
+                    && t.blocked_at.is_some_and(|b| b.elapsed() > UNASKED_QUESTION_GONE_AFTER)
+                    && !self.questions.iter().any(|(q, ..)| q.term == t.id)
+                {
+                    let text = t.tail_text(rows);
+                    let asking = CHOICES.is_match(&text) || self.agents.iter().find(|a| &a.name == name).is_some_and(|d| d.blocked.iter().any(|r| r.is_match(&text)));
+                    if !asking {
+                        changes.push((t.id, if Some(t.id) == focused { Status::Idle } else { Status::Done }));
                     }
                 }
                 // The progress indicator went away and no turn-end came: cancelled (Esc).

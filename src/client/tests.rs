@@ -258,6 +258,17 @@ mod hydra_tests {
     }
 
     #[test]
+    fn no_answer_buttons_without_a_question_on_screen() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        // Still "needs you", but what asked is gone (auto mode settled it).
+        let mut p = vt100::Parser::new(40, 120, 0);
+        p.process(b"* Waiting for 1 dynamic workflow to finish");
+        app.parsers.insert(1, p);
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("needs you") && !o.contains("● answer") && !o.contains(" Yes 1 "), "no buttons that would only type a digit");
+    }
+
+    #[test]
     fn the_inbox_answers_from_where_you_are() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         // claude (pane 1) asks a numbered question (on its screen in the fixture); codex finished.

@@ -91,6 +91,27 @@ fn a_report_traced_outside_the_pane_is_dropped() {
 }
 
 #[test]
+fn a_permission_ask_settled_without_you_stops_needing_you() {
+    let (mut d, _rx) = daemon();
+    let t = pane(&mut d);
+    let secret = d.terms[&t].token.clone();
+    d.apply_hook(report(t, &secret, 0, HookStatus::Blocked, "Notification:permission_prompt"), None, Vec::new());
+    assert_eq!(d.terms[&t].status, Status::Blocked);
+    let long_ago = Instant::now() - super::status::UNASKED_QUESTION_GONE_AFTER - Duration::from_secs(1);
+    // The question still on screen: it still needs you.
+    d.terms.get_mut(&t).unwrap().parser.process(&b"\r\n".repeat(30));
+    d.terms.get_mut(&t).unwrap().parser.process(b"\r\n Do you want to proceed?\r\n \xe2\x9d\xaf 1. Yes\r\n   2. No\r\n");
+    d.terms.get_mut(&t).unwrap().blocked_at = Some(long_ago);
+    d.update_statuses();
+    assert_eq!(d.terms[&t].status, Status::Blocked, "asking on screen");
+    // Auto mode allowed it and the screen moved on, with no hook to say so: over.
+    d.terms.get_mut(&t).unwrap().parser.process(b"\x1b[2J\x1b[H* Waiting for 1 dynamic workflow to finish\r\n");
+    d.update_statuses();
+    assert_eq!(d.terms[&t].status, Status::Done, "nothing asked on screen");
+    close(&mut d, &[t]);
+}
+
+#[test]
 fn status_reports_apply_in_the_order_they_came() {
     let (mut d, mut rx) = daemon();
     let t = pane(&mut d);

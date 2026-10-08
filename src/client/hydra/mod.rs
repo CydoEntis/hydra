@@ -537,12 +537,22 @@ pub(super) const CONTEXT_SHOWN_FROM: f32 = 50.0;
 /// An agent's numbered choices on screen ("❯ 1. Yes", "  2. Yes, and always allow …"),
 /// shortened for buttons. Falls back to Yes / Always / No.
 pub(super) fn options(parser: Option<&vt100::Parser>) -> Vec<String> {
+    let found = choices(parser);
+    if found.is_empty() {
+        return vec!["Yes".into(), "Always".into(), "No".into()];
+    }
+    found
+}
+
+/// The numbered choices on an agent's screen, shortened for buttons; none when it isn't
+/// asking anything there.
+pub(super) fn choices(parser: Option<&vt100::Parser>) -> Vec<String> {
     let mut out: Vec<(u8, String)> = Vec::new();
     if let Some(p) = parser {
         let screen = p.screen();
         let (_, cols) = screen.size();
         let lines: Vec<String> = screen.rows(0, cols).collect();
-        for l in lines.iter().rev().take(16) {
+        for l in lines.iter().rev().filter(|l| !l.trim().is_empty()).take(16) {
             let t = l.trim().trim_matches(|c: char| "│┃ ".contains(c)).trim_start_matches(['❯', '>', ' ']).trim();
             let mut chars = t.chars();
             let (Some(d), Some('.')) = (chars.next(), chars.next()) else { continue };
@@ -561,8 +571,8 @@ pub(super) fn options(parser: Option<&vt100::Parser>) -> Vec<String> {
         }
     }
     out.sort();
-    if out.is_empty() || out[0].0 != 1 {
-        return vec!["Yes".into(), "Always".into(), "No".into()];
+    if out.first().is_none_or(|(n, _)| *n != 1) {
+        return Vec::new();
     }
     out.into_iter().take(9).map(|(_, l)| l).collect()
 }
