@@ -169,8 +169,8 @@ fn install(tag: &str, target: &str, asset: &str, tmp: &Path, say: bool) -> Resul
 /// renamed, so the old one steps aside (and is cleaned up on a later start).
 fn replace_exe(new: &Path, exe: &Path) -> Result<()> {
     if cfg!(windows) {
-        let old = old_path(exe);
-        let _ = std::fs::remove_file(&old);
+        tidy_beside(exe);
+        let old = free_old_path(exe);
         std::fs::rename(exe, &old).with_context(|| format!("moving the old {} aside", exe.display()))?;
         if let Err(e) = std::fs::copy(new, exe) {
             let _ = std::fs::rename(&old, exe);
@@ -189,16 +189,33 @@ fn replace_exe(new: &Path, exe: &Path) -> Result<()> {
     Ok(())
 }
 
-fn old_path(exe: &Path) -> PathBuf {
-    exe.with_file_name("hydra.old.exe")
+/// A name for the old program that's free. An older one moved aside can still be running
+/// (an agent's `hydra mcp` keeps going until its session ends), so it can't always be
+/// removed; the next one gets a number.
+fn free_old_path(exe: &Path) -> PathBuf {
+    std::iter::once(exe.with_file_name("hydra.old.exe"))
+        .chain((2..).map(|n| exe.with_file_name(format!("hydra.old-{n}.exe"))))
+        .find(|p| !p.exists())
+        .unwrap_or_else(|| exe.with_file_name("hydra.old.exe"))
 }
 
-/// Remove the old program an update moved aside (Windows), once nothing runs it.
+/// Remove the old programs updates moved aside beside `exe`, the ones nothing runs any more.
+fn tidy_beside(exe: &Path) {
+    let Some(dir) = exe.parent() else { return };
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = e.file_name().to_string_lossy().to_lowercase();
+        if name.starts_with("hydra.old") && name.ends_with(".exe") {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
+/// Remove the old programs an update moved aside (Windows), once nothing runs them.
 pub fn tidy() {
     if cfg!(windows)
         && let Ok(exe) = std::env::current_exe()
     {
-        let _ = std::fs::remove_file(old_path(&exe));
+        tidy_beside(&exe);
     }
 }
 
@@ -277,8 +294,33 @@ mod tests {
         replace_exe(&new, &exe).unwrap();
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "new");
         if cfg!(windows) {
-            assert_eq!(std::fs::read_to_string(old_path(&exe)).unwrap(), "old", "the old one is moved aside");
+            assert_eq!(std::fs::read_to_string(exe.with_file_name("hydra.old.exe")).unwrap(), "old", "the old one is moved aside");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An older program moved aside is still running (an agent's `hydra mcp`): the update
+    /// steps past it instead of failing.
+    #[cfg(windows)]
+    #[test]
+    fn an_old_program_still_running_doesnt_stop_an_update() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = std::env::temp_dir().join(format!("hydra-swap-busy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("hydra.exe");
+        let new = dir.join("new-build");
+        std::fs::write(&exe, "current").unwrap();
+        std::fs::write(&new, "new").unwrap();
+        std::fs::write(dir.join("hydra.old.exe"), "running").unwrap();
+        // Open with no delete sharing, the way a running program holds its file.
+        const FILE_SHARE_READ: u32 = 1;
+        let held = std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(dir.join("hydra.old.exe")).unwrap();
+        replace_exe(&new, &exe).unwrap();
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "new");
+        assert_eq!(std::fs::read_to_string(dir.join("hydra.old-2.exe")).unwrap(), "current", "the next free name");
+        drop(held);
+        tidy_beside(&exe);
+        assert!(!dir.join("hydra.old.exe").exists() && !dir.join("hydra.old-2.exe").exists(), "both tidied once nothing runs them");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
