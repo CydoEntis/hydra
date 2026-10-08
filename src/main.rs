@@ -1,5 +1,6 @@
 mod alert;
 mod cli;
+mod checkpoint;
 mod clock;
 mod client;
 mod config;

@@ -67,6 +67,8 @@ pub enum Ev {
         result: Result<(PathBuf, String), String>,
     },
     WorktreeRemoved { client: ClientId, path: PathBuf, result: Result<(), String> },
+    /// A checkpoint of this checkout was saved (or failed; it's logged).
+    CheckpointTaken(PathBuf),
     /// A queued task's worktree was made (or not).
     QueueWorktree { id: u64, result: Result<(PathBuf, String), String> },
     /// Telling a ticket's tracker how it's going finished.
@@ -157,6 +159,8 @@ struct Daemon {
     last_codex: Instant,
     /// Hydra's queue of work.
     queue: Vec<QueueItem>,
+    /// Checkouts a checkpoint is being saved for (one at a time each).
+    checkpointing: std::collections::HashSet<PathBuf>,
     next_queue_id: u64,
     /// Extensions (their hooks run here).
     exts: Vec<crate::ext::Ext>,
@@ -413,6 +417,7 @@ impl Daemon {
             codex_busy: false,
             queue: Vec::new(),
             next_queue_id: 1,
+            checkpointing: Default::default(),
             last_codex: Instant::now() - Duration::from_secs(3600),
             next_env: Vec::new(),
             next_once: false,
@@ -829,6 +834,9 @@ impl Daemon {
             }
             Ev::CodexUsage { usage, limits } => self.codex_usage(usage, limits),
             Ev::QueueWorktree { id, result } => self.queue_worktree(id, result),
+            Ev::CheckpointTaken(top) => {
+                self.checkpointing.remove(&top);
+            }
             Ev::TicketMarked(result) => {
                 let msg = match result {
                     Ok(m) => m,

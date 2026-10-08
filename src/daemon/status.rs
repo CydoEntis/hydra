@@ -193,6 +193,22 @@ impl Daemon {
         if t.status == new {
             return;
         }
+        // An agent's turn ended: save where its folder got to.
+        if t.status == Status::Working && matches!(new, Status::Done | Status::Idle) && t.agent.is_some() && self.cfg.checkpoints
+            && let Some(top) = t.head.as_ref().map(|h| h.top.clone())
+        {
+            let what = format!("{}: {}", t.agent.clone().unwrap_or_default(), if t.summary.is_empty() { t.first_prompt.clone() } else { t.summary.clone() });
+            if self.checkpointing.insert(top.clone()) {
+                let tx = self.tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    if let Err(e) = crate::checkpoint::take(&top, &what) {
+                        tracing::info!("checkpoint of {}: {e:#}", top.display());
+                    }
+                    let _ = tx.blocking_send(Ev::CheckpointTaken(top));
+                });
+            }
+        }
+        let Some(t) = self.terms.get_mut(&term) else { return };
         t.blocked_at = (new == Status::Blocked).then(Instant::now);
         t.status = new;
         t.status_since = term::unix_now();

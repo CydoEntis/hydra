@@ -37,6 +37,8 @@ pub enum Act {
     GitInit(PathBuf),
     OpenWorktree(usize),
     Dev(PathBuf, crate::protocol::DevAction),
+    /// Roll a checkout back to a checkpoint (its folder, the commit).
+    Checkpoint(PathBuf, String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -360,6 +362,7 @@ impl App {
                 self.hy.pending_split = Some((t, std::time::Instant::now()));
                 self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd: None });
             }
+            Act::Checkpoint(top, commit) => self.restore_checkpoint(top, commit),
             Act::GitInit(dir) => {
                 self.notify("making it a git repo…".into(), false);
                 self.spawn_bg(move || {

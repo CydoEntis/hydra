@@ -494,6 +494,8 @@ impl App {
             Action::Map => self.open_map(),
             Action::Inbox => self.open_tickets(),
             Action::Queue => self.open_queue(),
+            Action::Checkpoints => self.open_checkpoints(),
+            Action::Chats => self.open_chats(),
             Action::Race => self.open_race_new(),
             Action::Ship => {
                 let dir = self.hy_target_dir();
@@ -1268,6 +1270,30 @@ impl App {
                         let v = (**v).clone();
                         self.on_tickets_key(v, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                     }
+                }
+            }
+            HyHit::HistoryRow(i) => {
+                let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+                match &mut self.mode {
+                    Mode::Checkpoints(v) => {
+                        let again = v.sel == i;
+                        v.sel = i;
+                        if again || double {
+                            let v = (**v).clone();
+                            self.on_checkpoints_key(v, &enter);
+                        }
+                    }
+                    Mode::Chats(v) => {
+                        let again = v.sel == i;
+                        v.sel = i;
+                        // The list is for what was searched: Enter picks, not searches again.
+                        v.query = v.searched.clone();
+                        if again || double {
+                            let v = (**v).clone();
+                            self.on_chats_key(v, &enter);
+                        }
+                    }
+                    _ => {}
                 }
             }
             HyHit::RaceAgent(i) => {

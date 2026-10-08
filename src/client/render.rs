@@ -105,6 +105,14 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::The
             let v = (**v).clone();
             super::work::draw_race_new(app, f, area, &t, &v);
         }
+        Mode::Checkpoints(v) => {
+            let v = (**v).clone();
+            super::history::draw_checkpoints(app, f, area, &t, &v);
+        }
+        Mode::Chats(v) => {
+            let v = (**v).clone();
+            super::history::draw_chats(app, f, area, &t, &v);
+        }
         Mode::Race(v) => {
             let v = (**v).clone();
             super::work::draw_race(app, f, area, &t, &v);

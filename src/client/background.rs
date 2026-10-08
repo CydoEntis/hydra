@@ -221,6 +221,24 @@ impl App {
                 self.dirty = true;
                 return;
             }
+            Bg::Checkpoints(top, list) => {
+                if let Mode::Checkpoints(v) = &mut self.mode
+                    && v.top == top
+                {
+                    v.list = Some(list);
+                }
+                self.dirty = true;
+                return;
+            }
+            Bg::Chats(query, list) => {
+                if let Mode::Chats(v) = &mut self.mode
+                    && v.searched == query
+                {
+                    v.list = Some(list);
+                }
+                self.dirty = true;
+                return;
+            }
             Bg::Tickets(dir, tab, list) => {
                 if let Mode::Tickets(v) = &mut self.mode
                     && v.dir == dir

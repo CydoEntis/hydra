@@ -344,6 +344,37 @@ async fn the_queue_runs_so_many_at_once_and_moves_on() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agents_turn_ending_saves_a_checkpoint() {
+    let repo = std::env::temp_dir().join(format!("hydra-turn-cp-{}", std::process::id()));
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success(), "git {args:?}");
+    git(&["init", "-q"]);
+    git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first"]);
+    let (mut d, mut rx) = daemon();
+    let t = d.spawn(None, &repo, 80, 24).unwrap();
+    {
+        let p = d.terms.get_mut(&t).unwrap();
+        (p.agent, p.status, p.summary) = (Some("claude".into()), Status::Working, "add a readme".into());
+        p.head = crate::gitfs::head(&repo);
+    }
+    std::fs::write(repo.join("README.md"), "hi\n").unwrap();
+    d.set_status(t, Status::Done);
+    let top = tokio::task::block_in_place(|| loop {
+        match rx.blocking_recv() {
+            Some(Ev::CheckpointTaken(top)) => break top,
+            Some(_) => continue,
+            None => panic!("no checkpoint"),
+        }
+    });
+    d.handle(Ev::CheckpointTaken(top.clone()));
+    let cps = crate::checkpoint::list(&top).unwrap();
+    assert_eq!(cps.len(), 1);
+    assert_eq!(cps[0].what, "claude: add a readme");
+    close(&mut d, &[t]);
+    let _ = std::fs::remove_dir_all(&repo);
+}
+
 #[test]
 fn closing_the_last_pane_keeps_an_open_window() {
     let (mut d, _rx) = daemon();

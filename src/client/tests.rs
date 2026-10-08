@@ -1197,6 +1197,41 @@ mod hydra_tests {
     }
 
     #[test]
+    fn checkpoints_and_past_chats_show() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let cp = |what: &str, ago: u64, change: &str| crate::checkpoint::Checkpoint { commit: format!("{what:0>40}"), at: now - ago, what: what.into(), change: change.into() };
+        app.mode = Mode::Checkpoints(Box::new(history::CheckpointsView {
+            top: std::path::PathBuf::from("/code/shop-api"),
+            list: Some(Ok(vec![cp("claude: add rate limiting", 120, "3 files, +40 −12"), cp("claude: fix login", 3600, "1 file, +2")])),
+            sel: 1,
+        }));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("Checkpoints") && o.contains("2m ago") && o.contains("claude: add rate limiting") && o.contains("3 files, +40 −12"));
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(matches!(&app.mode, Mode::Confirm(c) if c.what == "claude: fix login" && c.danger), "going back asks first");
+        app.mode = Mode::Chats(Box::new(history::ChatsView {
+            query: "webhook".into(),
+            searched: "webhook".into(),
+            list: Some(Ok(vec![history::ChatHit {
+                agent: "claude".into(),
+                id: "abc".into(),
+                cwd: std::path::PathBuf::from("/code/shop-api"),
+                title: "Fix the flaky checkout test".into(),
+                snippet: "The race is in the payment webhook handler.".into(),
+                at: now - 7200,
+            }])),
+            sel: 0,
+        }));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("Past chats") && o.contains("shop-api") && o.contains("Fix the flaky checkout test") && o.contains("payment webhook handler"));
+        assert!(o.contains("pick it up again"), "Enter resumes it once the list is for what's typed");
+        assert!(app.palette_commands().contains(&Action::Checkpoints) && app.palette_commands().contains(&Action::Chats));
+    }
+
+    #[test]
     fn a_newer_hydra_has_an_update_button() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         let o = draw(&mut app, 160, 45);

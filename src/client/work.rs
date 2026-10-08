@@ -612,7 +612,7 @@ fn chip(t: &Theme, text: &str, on: bool, hov: bool) -> Seg {
     seg(format!(" {text} "), st)
 }
 
-fn input_row(buf: &mut Buffer, r: Rect, y: u16, t: &Theme, text: &str, placeholder: &str, focused: bool) {
+pub(super) fn input_row(buf: &mut Buffer, r: Rect, y: u16, t: &Theme, text: &str, placeholder: &str, focused: bool) {
     let row = Rect { x: r.x + 1, y, width: r.width - 2, height: 1 };
     fill(buf, row, t.card2);
     let s = Style::default().bg(t.card2);

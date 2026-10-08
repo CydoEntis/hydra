@@ -16,6 +16,7 @@ mod render;
 mod tasks;
 mod toolbox;
 mod views;
+mod history;
 mod work;
 mod actions;
 mod background;
@@ -81,6 +82,10 @@ enum Mode {
     Ship(Box<ShipAsk>),
     Ideas(Box<work::IdeasView>),
     Tickets(Box<work::TicketsView>),
+    /// A folder's checkpoints, to roll it back.
+    Checkpoints(Box<history::CheckpointsView>),
+    /// Past agent chats, to search and pick up again.
+    Chats(Box<history::ChatsView>),
     RaceNew(Box<work::RaceNew>),
     Race(Box<work::RaceView>),
     /// A right-click menu (hydra layout).
@@ -134,6 +139,10 @@ pub(super) enum Bg {
     TreeRecent(PathBuf, Vec<files::FileEntry>),
     /// A finished action: its message, and whether the open review should reload.
     Done(Result<String, String>, bool),
+    /// A checkout's checkpoints.
+    Checkpoints(PathBuf, Result<Vec<crate::checkpoint::Checkpoint>, String>),
+    /// Past chats found for a search.
+    Chats(String, Result<Vec<history::ChatHit>, String>),
     /// A worktree's branch merged (or not): then the worktree and its branch go.
     Merged(Result<String, String>, PathBuf),
     /// Your open pull requests in a project (by key).

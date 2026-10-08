@@ -966,6 +966,8 @@ pub(super) enum HyHit {
     IdeaRow(usize),
     TicketTab(usize),
     TicketRow(usize),
+    /// A row in Checkpoints or Past chats.
+    HistoryRow(usize),
     RaceAgent(usize),
     RaceGo,
     RaceRow(usize),

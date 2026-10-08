@@ -211,6 +211,10 @@ pub enum Action {
     Inbox,
     /// Hydra's queue of work (the Tickets view's Queue tab).
     Queue,
+    /// The focused session's checkpoints (roll its folder back).
+    Checkpoints,
+    /// Search past agent chats and pick one up again.
+    Chats,
     /// Each AI tool's MCP servers, skills, plugins, hooks.
     Toolbox,
     /// The + Pane menu: what to run, and in which folder.
@@ -335,6 +339,8 @@ impl Action {
             Action::Files => "Files".into(),
             Action::Inbox => "Tickets (GitHub, Linear, Plane)".into(),
             Action::Queue => "Queue (work waiting for an agent)".into(),
+            Action::Checkpoints => "Checkpoints (undo an agent's changes)".into(),
+            Action::Chats => "Past chats (search, pick one up again)".into(),
             Action::Toolbox => "Agent tools (MCP, skills, plugins)".into(),
             Action::NewPane => "New agent (task, agent, model, worktree)".into(),
             Action::Talk => "Message an agent".into(),
@@ -428,6 +434,8 @@ impl Action {
             Action::Files => "files".into(),
             Action::Inbox => "inbox".into(),
             Action::Queue => "queue".into(),
+            Action::Checkpoints => "checkpoints".into(),
+            Action::Chats => "chats".into(),
             Action::Toolbox => "toolbox".into(),
             Action::NewPane => "new".into(),
             Action::Jump => "jump".into(),
@@ -535,6 +543,8 @@ impl FromStr for Action {
             "files" => Action::Files,
             "inbox" => Action::Inbox,
             "queue" => Action::Queue,
+            "checkpoints" => Action::Checkpoints,
+            "chats" => Action::Chats,
             "toolbox" => Action::Toolbox,
             "new-pane" | "new" => Action::NewPane,
             "jump" => Action::Jump,

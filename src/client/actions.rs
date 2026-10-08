@@ -298,6 +298,8 @@ impl App {
             Action::Ship,
             Action::Inbox,
             Action::Queue,
+            Action::Checkpoints,
+            Action::Chats,
             Action::Ideas,
             Action::Race,
             Action::Toolbox,

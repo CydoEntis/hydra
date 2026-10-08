@@ -168,6 +168,7 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "shell", label: "Shell", kind: Kind::Program(SHELLS), cat: Cat::General, help: "The shell new sessions run. Empty: pwsh / powershell on Windows, $SHELL elsewhere." },
     Setting { path: "shell_integration", label: "PowerShell folder tracking", kind: Kind::Bool, cat: Cat::General, help: "Lets hydra see where PowerShell sessions cd to." },
     // Sessions
+    Setting { path: "checkpoints", label: "Checkpoints", kind: Kind::Bool, cat: Cat::Sessions, help: "After each agent turn, save its folder's state (outside your branch) so you can roll back to it." },
     Setting { path: "queue_at_once", label: "Queued tasks at once", kind: Kind::Int { step: 1, min: 1, max: 12 }, cat: Cat::Sessions, help: "How many agents the queue runs at the same time; the next starts when one finishes." },
     Setting { path: "auto_continue", label: "Continue after a limit", kind: Kind::Bool, cat: Cat::Sessions, help: "An agent stopped by its plan limit is told \"continue\" once the limit resets." },
     Setting { path: "ui.attention_sort", label: "Sort sidebar by attention", kind: Kind::Bool, cat: Cat::Sessions, help: "Sessions that need you float to the top, then done, then working, then idle." },

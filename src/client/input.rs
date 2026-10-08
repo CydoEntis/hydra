@@ -34,6 +34,7 @@ impl App {
             Mode::GoTo { query, .. } => query.push_str(s.lines().next().unwrap_or("").trim()),
             Mode::Branch(v) => v.query.push_str(s.lines().next().unwrap_or("").trim()),
             Mode::Tickets(v) => v.query.push_str(s.lines().next().unwrap_or("")),
+            Mode::Chats(v) => v.query.push_str(s.lines().next().unwrap_or("")),
             Mode::RaceNew(v) => v.text.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
             Mode::Finder(fd) => {
                 fd.q.push_str(s.lines().next().unwrap_or("").trim());
@@ -122,6 +123,8 @@ impl App {
             Mode::Side => self.on_side_key(&k),
             Mode::Ideas(v) => self.on_ideas_key(*v, &k),
             Mode::Tickets(v) => self.on_tickets_key(*v, &k),
+            Mode::Checkpoints(v) => self.on_checkpoints_key(*v, &k),
+            Mode::Chats(v) => self.on_chats_key(*v, &k),
             Mode::RaceNew(v) => self.on_race_new_key(*v, &k),
             Mode::Race(v) => self.on_race_key(*v, &k),
             Mode::HyMenu(m) => self.on_hy_menu_key(*m, &k),

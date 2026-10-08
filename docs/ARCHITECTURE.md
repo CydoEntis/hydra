@@ -84,7 +84,8 @@ src/
     menu.rs, views.rs, files.rs, find.rs, branch.rs, work.rs, pr.rs, toolbox.rs, …
     tests.rs     rendering and behaviour tests
   mcp.rs, ext.rs, project.rs, gitfs.rs, alert.rs, reveal.rs, update.rs, sync.rs,
-  tickets.rs (trackers: list yours, mark progress; used by the client and the queue)
+  tickets.rs (trackers: list yours, mark progress; used by the client and the queue),
+  checkpoint.rs (save and restore a checkout's state after agent turns)
 docs/            these docs, the roadmap, design briefs
 config.example.toml
 ```
@@ -183,7 +184,9 @@ Rules for the language live in `docs/stack/rust.md`.
   `daemon/persist.rs`, `gitfs.rs`, `alert.rs`, `tmux_shim.rs` (a tmux for agent teams), `reveal.rs` (notification links,
   bringing the window forward), `update.rs`, `sync.rs`, `ext.rs`, `mcp.rs`, `tickets.rs`
   (GitHub, Linear, Plane), `daemon/usage.rs` (agents' usage, limits, continue after a
-  limit), `daemon/queue.rs` (queued work, started so many at a time).
+  limit), `daemon/queue.rs` (queued work, started so many at a time), `checkpoint.rs`
+  (checkpoints as git commits under `refs/hydra/checkpoints/`), `client/history.rs`
+  (Checkpoints and Past chats views).
 - **Application:** `daemon/mod.rs` (the server loop: commands in, state and
   output out) and `client/mod.rs` (the client loop: events in, commands out).
 - **Presentation:** `client/hydra/` (the layout and its popups),

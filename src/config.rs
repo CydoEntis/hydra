@@ -54,6 +54,8 @@ pub struct Config {
     pub auto_continue: bool,
     /// How many queued tasks run at once.
     pub queue_at_once: u8,
+    /// Save a checkpoint of an agent's folder after each of its turns (to roll back to).
+    pub checkpoints: bool,
     pub worktree: Worktree,
     pub quick: Quick,
     pub icons: Icons,
@@ -445,6 +447,7 @@ impl Default for Config {
             auto_workspace: false,
             auto_continue: true,
             queue_at_once: 3,
+            checkpoints: true,
             worktree: Worktree::default(),
             quick: Quick::default(),
             icons: Icons::default(),

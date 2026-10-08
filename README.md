@@ -85,6 +85,11 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
   is told "continue" once the limit resets (Settings → Continue after a limit). Claude's numbers
   come from its status line: `hydra integrate claude` makes hydra's run first and then yours,
   which looks the same as before.
+- **Undo an agent, find an old chat.** After each agent turn hydra saves its folder's state as
+  a checkpoint (git commits under `refs/hydra/checkpoints/`, off your branch and index);
+  "Checkpoints" in the palette rolls the folder back to any of them, saving what's there first.
+  "Past chats" lists your recent Claude and Codex conversations, searches all of them (Enter),
+  and picks one up again in its own folder.
 - **Detection without setup.** The process tree finds `claude`, `codex`, `gemini`, `opencode`,
   `cursor-agent`, `copilot`, `amp`, `qwen`, `aider` and others, and screen patterns tell
   working from blocked. Hooks (`hydra integrate claude`) make it exact.
