@@ -102,6 +102,10 @@ Everything below is shipped on `dev` unless marked.
 - Dev server per worktree (`.hydra.toml`) — shipped — `src/project.rs`
 - Ideas, map of the project, tasks — shipped — `Action::Ideas`, `Action::Map`, `src/client/tasks.rs`
 - Agent tools view (MCP, skills, plugins; per project / global) — shipped — `src/client/toolbox.rs`
+- Own worktree for `claude`/`codex` typed into a shell in a repo's main folder — shipped 0.9.12 — `hydra agent-dir`, `daemon/term.rs` `agent_functions`
+- Usage and limits meter, context per agent, continue after a limit — shipped 0.10.0 — `hydra statusline`, `src/daemon/usage.rs`
+- Queue (tickets and typed tasks, N at once, tracker follows); merge that cleans up — shipped 0.11.0 — `src/daemon/queue.rs`, `src/tickets.rs`
+- Checkpoints after agent turns, Past chats (search, resume) — shipped 0.12.0 — `src/checkpoint.rs`, `src/client/history.rs`
 
 **Extras**
 - Extensions (manifest, commands, hooks) — shipped — `src/ext.rs`
