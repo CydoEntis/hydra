@@ -84,7 +84,7 @@ pub struct Ui {
     pub workspace_colors: Vec<String>,
     /// The welcome screen when hydra starts.
     pub splash: bool,
-    /// Look for a newer hydra once a day and say so (`hydra update` installs it).
+    /// Look for a newer hydra when the window opens (and every few hours) and say so.
     pub update_check: bool,
     /// Where plain `hydra` opens its first shell (and the one after you close everything).
     /// Empty: wherever you run hydra. `~` is your home folder.

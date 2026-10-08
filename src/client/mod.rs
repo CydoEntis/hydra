@@ -42,6 +42,8 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 /// How often the client looks at its timers (spinners, toasts, pending focus).
+/// How often an open window asks again whether a newer hydra is out.
+const UPDATE_CHECK_EVERY: Duration = Duration::from_secs(3 * 60 * 60);
 const TICK: Duration = Duration::from_millis(50);
 /// The shortest time between two frames (about 80 a second at most).
 const MIN_FRAME: Duration = Duration::from_millis(12);
@@ -317,8 +319,10 @@ enum PickTarget {
 }
 
 pub struct App {
-    /// A newer release found by the daily check (shown on the splash).
+    /// A newer release, found when hydra opened or since (the Update button shows).
     update_available: Option<String>,
+    /// When hydra last asked whether a newer release is out.
+    update_checked: Option<Instant>,
     /// An update is downloading.
     updating: bool,
     /// Installed a newer hydra: start it here once this one has closed.
@@ -435,17 +439,7 @@ async fn run_async(opts: Options) -> Result<Option<PathBuf>> {
     if crate::sync::enabled() {
         app.spawn_bg(|| Bg::Synced(crate::sync::pull().unwrap_or(false)));
     }
-    if app.cfg.ui.update_check {
-        app.spawn_bg(|| {
-            let newer = crate::update::newer_release();
-            Bg::Then(Box::new(move |app: &mut App| {
-                if let Some(v) = newer {
-                    app.notify(format!("hydra {v} is out: click Update at the bottom left"), false);
-                    app.update_available = Some(v);
-                }
-            }))
-        });
-    }
+    app.check_for_update();
     if let Some(e) = err {
         app.notify(format!("config error: {e}"), true);
     }
@@ -503,6 +497,7 @@ impl App {
         let keymap = cfg.keymap();
         let mut app = App {
             update_available: None,
+            update_checked: None,
             updating: false,
             restart: None,
             theme: cfg.theme(),
@@ -604,6 +599,9 @@ impl App {
                     }
                 },
                 _ = tick.tick() => {
+                    if self.update_checked.is_some_and(|at| at.elapsed() >= UPDATE_CHECK_EVERY) {
+                        self.check_for_update();
+                    }
                     // What agents ask (read off their screens) can change without a state
                     // message; look again now and then.
                     if last_fresh.elapsed() >= Duration::from_secs(1) {
@@ -685,6 +683,26 @@ impl App {
 
     fn send(&self, msg: ClientMsg) {
         let _ = self.out.send(msg);
+    }
+
+    /// Ask (in the background) whether a newer hydra is out: when the window opens, then now
+    /// and then while it stays open. A new one brings up the Update button.
+    fn check_for_update(&mut self) {
+        if !self.cfg.ui.update_check {
+            return;
+        }
+        self.update_checked = Some(Instant::now());
+        self.spawn_bg(|| {
+            let newer = crate::update::newer_release();
+            Bg::Then(Box::new(move |app: &mut App| {
+                if let Some(v) = newer
+                    && app.update_available.as_ref() != Some(&v)
+                {
+                    app.notify(format!("hydra {v} is out: click Update at the bottom left"), false);
+                    app.update_available = Some(v);
+                }
+            }))
+        });
     }
 
     fn cmd(&self, c: Command) {

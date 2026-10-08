@@ -1,5 +1,5 @@
-//! Updating hydra from its GitHub releases: `hydra update`, and a quiet daily check that
-//! says when a newer version is out. Downloads go through the GitHub CLI while the repo is
+//! Updating hydra from its GitHub releases: `hydra update`, and a quiet check (when the
+//! window opens, then every few hours) that says when a newer version is out. Downloads go through the GitHub CLI while the repo is
 //! private (your sign-in), and straight from GitHub once it's public.
 
 use anyhow::{Context, Result, bail};
@@ -7,8 +7,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const REPO: &str = "CydoEntis/hydra";
-/// How often the background check asks GitHub.
-const CHECK_EVERY_SECS: u64 = 24 * 60 * 60;
 
 /// The release build that runs on this machine.
 pub fn target() -> Option<&'static str> {
@@ -105,7 +103,6 @@ fn sha256_hex(path: &Path) -> Result<String> {
 pub fn run(check: bool, force: bool) -> Result<()> {
     let current = env!("CARGO_PKG_VERSION");
     let tag = latest_tag().map_err(|e| anyhow::anyhow!(e))?;
-    remember(&tag);
     if !is_newer(&tag) && !force {
         println!("hydra {current} is the latest version.");
         return Ok(());
@@ -131,7 +128,6 @@ pub fn run(check: bool, force: bool) -> Result<()> {
 /// screen printing would garble). Returns the version installed and where it went.
 pub fn install_latest() -> Result<(String, PathBuf)> {
     let tag = latest_tag().map_err(|e| anyhow::anyhow!(e))?;
-    remember(&tag);
     let Some(target) = target() else { bail!("there's no release build for this machine; build from source") };
     let asset = asset_for(target);
     let tmp = std::env::temp_dir().join(format!("hydra-update-{}", std::process::id()));
@@ -219,40 +215,12 @@ pub fn tidy() {
     }
 }
 
-// ---- the daily check ----------------------------------------------------------------------
+// ---- the check ------------------------------------------------------------------------------
 
-fn state_path() -> PathBuf {
-    crate::config::data_dir().join("update-check.json")
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Default)]
-struct Checked {
-    at: u64,
-    latest: String,
-}
-
-fn now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
-}
-
-fn remember(tag: &str) {
-    let c = Checked { at: now(), latest: tag.to_string() };
-    if let Ok(s) = serde_json::to_string(&c) {
-        let _ = crate::config::write_atomic(&state_path(), s);
-    }
-}
-
-/// A newer release's version, asking GitHub at most once a day (otherwise the answer from
-/// the last time). Slow (network): call it off the UI thread.
+/// A newer release's version, if there is one. Asks GitHub each time (slow, network): call
+/// it off the UI thread.
 pub fn newer_release() -> Option<String> {
-    let last: Checked = crate::config::read_state(&state_path());
-    let tag = if now().saturating_sub(last.at) < CHECK_EVERY_SECS && !last.latest.is_empty() {
-        last.latest
-    } else {
-        let t = latest_tag().ok()?;
-        remember(&t);
-        t
-    };
+    let tag = latest_tag().ok()?;
     is_newer(&tag).then(|| tag.trim_start_matches('v').to_string())
 }
 

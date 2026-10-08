@@ -159,7 +159,7 @@ pub const SETTINGS: &[Setting] = &[
     // General
     Setting { path: "prefix", label: "Leader key", kind: Kind::Key, cat: Cat::General, help: "Press it, let go, then a key. Enter, then press the new leader." },
     Setting { path: "ui.splash", label: "Splash screen", kind: Kind::Bool, cat: Cat::General, help: "Show the hydra and what happened while you were away when you start." },
-    Setting { path: "ui.update_check", label: "Check for updates", kind: Kind::Bool, cat: Cat::General, help: "Once a day, see whether a newer hydra is out; `hydra update` installs it." },
+    Setting { path: "ui.update_check", label: "Check for updates", kind: Kind::Bool, cat: Cat::General, help: "When hydra opens (and every few hours while it's open), see whether a newer one is out; the Update button installs it." },
     Setting { path: "ui.mouse", label: "Mouse", kind: Kind::Bool, cat: Cat::General, help: "Click, hover, scroll and drag. Hold Shift to select text with your terminal instead." },
     Setting { path: "ui.which_key", label: "Keys after a pause", kind: Kind::Bool, cat: Cat::General, help: "After the leader key, show every shortcut if you pause." },
     Setting { path: "ui.sidebar_position", label: "Sidebar side", kind: Kind::Choice(&["left", "right"]), cat: Cat::General, help: "Which edge the sidebar sits on." },
