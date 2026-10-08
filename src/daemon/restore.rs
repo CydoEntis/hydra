@@ -23,6 +23,37 @@ impl Daemon {
         }
     }
 
+    /// Save panes' output to disk so their history survives the server restarting: what
+    /// changed, off the loop (`all`: everything, now, for a server that's stopping).
+    pub(super) fn save_outputs(&mut self, all: bool) {
+        if !self.cfg.restore.enabled {
+            return;
+        }
+        let live: Vec<TermId> = self.terms.values().filter(|t| !t.spare).map(|t| t.id).collect();
+        let outputs: Vec<(TermId, Vec<u8>)> = self
+            .terms
+            .values_mut()
+            .filter(|t| !t.spare && (all || t.output_changed))
+            .map(|t| {
+                t.output_changed = false;
+                (t.id, t.kept_output())
+            })
+            .collect();
+        if outputs.is_empty() && !all {
+            return;
+        }
+        let save = move || {
+            if let Err(e) = persist::save_outputs(&outputs, &live) {
+                tracing::warn!("saving panes' output: {e:#}");
+            }
+        };
+        if all {
+            save();
+        } else {
+            tokio::task::spawn_blocking(save);
+        }
+    }
+
     pub(super) fn saved(&self) -> persist::Saved {
         let pane = |term: &Term| persist::SavedPane {
             cwd: Some(term.cwd.clone()),
@@ -99,6 +130,9 @@ impl Daemon {
                     match self.spawn(cmd.as_deref(), &cwd, 120, 32) {
                         Ok(new) => {
                             if let Some(t) = self.terms.get_mut(&new) {
+                                if let Some(out) = persist::take_output(old) {
+                                    t.seed_output(&out);
+                                }
                                 // Keep the original identity so the next save matches this one.
                                 t.cmd = pane.cmd.clone();
                                 t.session = pane.session.clone();

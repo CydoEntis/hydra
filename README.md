@@ -70,6 +70,8 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
   (ConPTY on Windows). `<leader> q` detaches, and running `hydra` again reattaches.
 - **Survives restarts.** Sessions are saved as they change; after a reboot `hydra` rebuilds them
   in the right folders and resumes agents (`claude --resume <id>`, `codex resume --last`, ...).
+  Each pane's recent output is kept on disk too, so its history is still there to scroll
+  back through, above a line marking the restart.
 - **One screen for everything.** A sidebar of your projects and the sessions in each (agent icon,
   name, status), panes on the right with tabs and splits, and popups for the rest. The leader is
   `Ctrl+Space`; keys follow herdr's where they overlap (`v`/`-` split, `h j k l` focus, `x` close,

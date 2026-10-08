@@ -497,6 +497,7 @@ impl Daemon {
                     persist::forget();
                 } else {
                     self.persist(true);
+                    self.save_outputs(true);
                 }
                 for t in self.terms.values_mut() {
                     t.kill_tree();

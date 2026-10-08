@@ -97,4 +97,46 @@ pub fn forget() {
         return;
     }
     let _ = std::fs::remove_file(path());
+    let _ = std::fs::remove_dir_all(output_dir());
+}
+
+/// Where each pane's recent output is kept, so its history is still there after the server
+/// restarts (an update, a reboot): one file per pane, named by its id.
+pub fn output_dir() -> PathBuf {
+    if cfg!(test) {
+        return std::env::temp_dir().join(format!("hydra-test-output-{}", std::process::id()));
+    }
+    let label = std::env::var("HYDRA_SOCKET").unwrap_or_else(|_| "default".into());
+    crate::config::data_dir().join(format!("output-{label}"))
+}
+
+fn output_file(term: TermId) -> PathBuf {
+    output_dir().join(format!("{term}.bin"))
+}
+
+/// Keep `bytes` as pane `term`'s output, and drop the files of panes not in `live`.
+pub fn save_outputs(outputs: &[(TermId, Vec<u8>)], live: &[TermId]) -> Result<()> {
+    let dir = output_dir();
+    std::fs::create_dir_all(&dir)?;
+    for (term, bytes) in outputs {
+        let path = output_file(*term);
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(&tmp, &path)?;
+    }
+    for e in std::fs::read_dir(&dir)?.flatten() {
+        let id = e.path().file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse::<TermId>().ok());
+        if id.is_none_or(|id| !live.contains(&id)) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+    Ok(())
+}
+
+/// A pane's kept output, taken (its file goes: the pane it's restored into saves its own).
+pub fn take_output(term: TermId) -> Option<Vec<u8>> {
+    let path = output_file(term);
+    let bytes = std::fs::read(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    Some(bytes)
 }

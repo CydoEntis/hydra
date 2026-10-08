@@ -78,6 +78,8 @@ pub struct Term {
     pub parser: vt100::Parser<Callbacks>,
     ring: VecDeque<u8>,
     ring_cap: usize,
+    /// Output since it was last saved to disk.
+    pub output_changed: bool,
     pub cols: u16,
     pub rows: u16,
     pub process: String,
@@ -454,6 +456,7 @@ impl Term {
             parser: vt100::Parser::new_with_callbacks(size.rows, size.cols, 0, Callbacks::default()),
             ring: VecDeque::new(),
             ring_cap: cfg.replay_bytes.max(64 * 1024),
+            output_changed: false,
             cols: size.cols,
             rows: size.rows,
             process,
@@ -543,6 +546,7 @@ impl Term {
             self.cwd_reported = true;
         }
         self.ring.extend(data);
+        self.output_changed = true;
         let excess = self.ring.len().saturating_sub(self.ring_cap);
         if excess > 0 {
             self.ring.drain(..excess);
@@ -585,6 +589,32 @@ impl Term {
             rest = &rest[at + len..];
         }
         self.parser.process(rest);
+    }
+
+    #[cfg(test)]
+    pub fn ring_push_for_test(&mut self, data: &[u8]) {
+        self.ring.extend(data);
+    }
+
+    /// The output kept for replay, as one piece (for saving it).
+    pub fn kept_output(&self) -> Vec<u8> {
+        let (a, b) = self.ring.as_slices();
+        [a, b].concat()
+    }
+
+    /// Put the output of the pane this one replaces (before the server restarted) above its
+    /// own, so its history is still there to scroll back through. The old screen is pushed
+    /// up into history and a line marks where the restart was; modes the old program left
+    /// on (its full screen, mouse, a scroll region) are turned off first.
+    pub fn seed_output(&mut self, old: &[u8]) {
+        let mut seed = old.to_vec();
+        seed.extend_from_slice(b"\x1b[0m\x1b[?1049l\x1b[r\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?25h");
+        seed.extend_from_slice(format!("\x1b[{};1H", self.rows).as_bytes());
+        seed.extend(std::iter::repeat_n(b"\r\n".as_slice(), self.rows as usize).flatten());
+        seed.extend_from_slice(b"\x1b[2m-- hydra restarted here: what's above is from before --\x1b[0m\r\n");
+        seed.extend(self.ring.drain(..));
+        let excess = seed.len().saturating_sub(self.ring_cap);
+        self.ring = seed.into_iter().skip(excess).collect();
     }
 
     pub fn replay(&self) -> Vec<u8> {

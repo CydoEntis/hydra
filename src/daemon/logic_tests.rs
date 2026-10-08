@@ -379,6 +379,31 @@ async fn an_agents_turn_ending_saves_a_checkpoint() {
 }
 
 #[test]
+fn a_panes_history_survives_the_server_restarting() {
+    let (mut d, _rx) = daemon();
+    d.cfg.restore.enabled = true;
+    d.command(0, Command::NewWorkspace { cwd: Some(std::env::temp_dir()), name: None, cmd: None }).unwrap();
+    let t = *d.terms.keys().next().unwrap();
+    d.terms.get_mut(&t).unwrap().ring_push_for_test(b"line from before the restart\r\n");
+    let saved = d.saved();
+    d.save_outputs(true);
+    // A new server: the pane comes back, with what it showed above what it shows now.
+    let (mut d2, _rx2) = daemon();
+    d2.cfg.restore.enabled = true;
+    d2.restore(saved);
+    let new = *d2.terms.keys().next().unwrap();
+    let replay = String::from_utf8_lossy(&d2.terms[&new].replay()).into_owned();
+    assert!(replay.contains("line from before the restart") && replay.contains("hydra restarted here"), "{replay}");
+    let mut p = vt100::Parser::new(24, 80, 1000);
+    p.process(&d2.terms[&new].replay());
+    p.screen_mut().set_scrollback(usize::MAX);
+    assert!(p.screen().scrollback() >= 24, "the old screen went up into history: {}", p.screen().scrollback());
+    assert!(persist::take_output(t).is_none(), "taken once");
+    close(&mut d, &[t]);
+    close(&mut d2, &[new]);
+}
+
+#[test]
 fn closing_the_last_pane_keeps_an_open_window() {
     let (mut d, _rx) = daemon();
     let t = pane(&mut d);

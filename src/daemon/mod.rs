@@ -40,6 +40,8 @@ const TICK: Duration = Duration::from_millis(250);
 const GIT_POLL_EVERY: Duration = Duration::from_secs(3);
 /// How often a changed session is saved to disk.
 const SAVE_EVERY: Duration = Duration::from_secs(2);
+/// How often panes' new output is saved to disk (what's lost if the server is killed).
+const OUTPUT_SAVE_EVERY: Duration = Duration::from_secs(30);
 /// How often idle agents are checked for putting to sleep.
 const SLEEP_CHECK_EVERY: Duration = Duration::from_secs(30);
 /// A daemon nothing ever used (no panes, no clients) exits after this.
@@ -148,6 +150,7 @@ struct Daemon {
     git_busy: bool,
     last_git: Instant,
     last_save: Instant,
+    last_output_save: Instant,
     last_saved: String,
     /// Worktrees hydra created; closing the last thing in one removes it.
     made_worktrees: Vec<PathBuf>,
@@ -410,6 +413,7 @@ impl Daemon {
             git_busy: false,
             last_git: crate::clock::ago(GIT_POLL_EVERY),
             last_save: Instant::now(),
+            last_output_save: Instant::now(),
             last_saved: String::new(),
             made_worktrees: Vec::new(),
             limits: BTreeMap::new(),
@@ -457,6 +461,10 @@ impl Daemon {
                     if self.last_save.elapsed() > SAVE_EVERY {
                         self.last_save = Instant::now();
                         self.persist(false);
+                    }
+                    if self.last_output_save.elapsed() > OUTPUT_SAVE_EVERY && !self.mass_exit() {
+                        self.last_output_save = Instant::now();
+                        self.save_outputs(false);
                     }
                 }
             }
