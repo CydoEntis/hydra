@@ -119,8 +119,12 @@ pub fn run(check: bool, force: bool) -> Result<()> {
     let _ = std::fs::remove_dir_all(&tmp);
     let exe = result?;
     println!("Updated hydra {current} -> {} ({}).", tag.trim_start_matches('v'), exe.display());
-    println!("Your running sessions still use the old version until the server restarts:");
-    println!("  hydra kill-server, then hydra (agents stop, and resume when it starts)");
+    if crate::cli::server_running() {
+        println!("Your running sessions still use the old version until the server restarts:");
+        println!("  hydra kill-server, then hydra (agents stop, and resume when it starts)");
+    } else {
+        println!("Run hydra to start it.");
+    }
     Ok(())
 }
 

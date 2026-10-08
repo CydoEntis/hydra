@@ -390,7 +390,19 @@ pub fn close(pane: Option<TermId>) -> Result<()> {
     command(Command::ClosePane { term: resolve_pane(pane)? })
 }
 
+/// Whether a hydra server is running (for this socket).
+pub(crate) fn server_running() -> bool {
+    block_on(async { ipc::connect().await.map(|_| ()).map_err(anyhow::Error::from) }).is_ok()
+}
+
 pub fn kill_server(forget: bool) -> Result<()> {
+    if ipc::remote().is_none() && !server_running() {
+        if forget {
+            crate::daemon::forget_session();
+        }
+        println!("no hydra server is running; nothing to stop");
+        return Ok(());
+    }
     match command(Command::KillServer { forget }) {
         // Another version can't be asked to stop: stop its process instead.
         Err(e) if e.chain().any(|c| c.is::<ipc::OtherVersion>()) => {
