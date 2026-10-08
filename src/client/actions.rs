@@ -297,6 +297,7 @@ impl App {
             Action::PullRequest,
             Action::Ship,
             Action::Inbox,
+            Action::Queue,
             Action::Ideas,
             Action::Race,
             Action::Toolbox,

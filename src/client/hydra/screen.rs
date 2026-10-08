@@ -976,6 +976,21 @@ fn limits_line(app: &App, t: &Theme, s: Style) -> Vec<Seg> {
         }
         out.push(seg("   ", s));
     }
+    // The queue at a glance: running, waiting, ready for review.
+    let q = &app.snap.queue;
+    let count = |f: fn(&crate::protocol::QueueState) -> bool| q.iter().filter(|x| f(&x.state)).count();
+    let running = count(|s| matches!(s, crate::protocol::QueueState::Starting | crate::protocol::QueueState::Running(_)));
+    let waiting = count(|s| *s == crate::protocol::QueueState::Waiting);
+    let review = count(|s| matches!(s, crate::protocol::QueueState::Review(_)));
+    if running + waiting + review > 0 {
+        let mut parts = Vec::new();
+        for (n, what) in [(running, "running"), (waiting, "waiting"), (review, "to review")] {
+            if n > 0 {
+                parts.push(format!("{n} {what}"));
+            }
+        }
+        out.push(seg(format!("queue {}   ", parts.join(" · ")), s.fg(if review > 0 { t.done } else { t.muted })));
+    }
     if app.snap.spent_today >= 0.01 {
         out.push(seg(format!("${:.2} today   ", app.snap.spent_today), s.fg(t.muted)));
     }

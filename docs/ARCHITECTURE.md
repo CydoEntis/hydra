@@ -83,7 +83,8 @@ src/
     render.rs, design.rs  drawing entry point and shared helpers
     menu.rs, views.rs, files.rs, find.rs, branch.rs, work.rs, pr.rs, toolbox.rs, …
     tests.rs     rendering and behaviour tests
-  mcp.rs, ext.rs, project.rs, gitfs.rs, alert.rs, reveal.rs, update.rs, sync.rs
+  mcp.rs, ext.rs, project.rs, gitfs.rs, alert.rs, reveal.rs, update.rs, sync.rs,
+  tickets.rs (trackers: list yours, mark progress; used by the client and the queue)
 docs/            these docs, the roadmap, design briefs
 config.example.toml
 ```
@@ -180,7 +181,9 @@ Rules for the language live in `docs/stack/rust.md`.
 - **Infrastructure:** `ipc.rs` (sockets, SSH proxy), `daemon/term.rs` (PTY +
   emulator per pane), `daemon/scan.rs` (status detection), `daemon/git.rs`,
   `daemon/persist.rs`, `gitfs.rs`, `alert.rs`, `tmux_shim.rs` (a tmux for agent teams), `reveal.rs` (notification links,
-  bringing the window forward), `update.rs`, `sync.rs`, `ext.rs`, `mcp.rs`.
+  bringing the window forward), `update.rs`, `sync.rs`, `ext.rs`, `mcp.rs`, `tickets.rs`
+  (GitHub, Linear, Plane), `daemon/usage.rs` (agents' usage, limits, continue after a
+  limit), `daemon/queue.rs` (queued work, started so many at a time).
 - **Application:** `daemon/mod.rs` (the server loop: commands in, state and
   output out) and `client/mod.rs` (the client loop: events in, commands out).
 - **Presentation:** `client/hydra/` (the layout and its popups),

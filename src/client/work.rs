@@ -5,7 +5,7 @@ use super::design::{BtnKind, Seg, fill, path_key, put, seg, segs_width, tilde};
 use super::hydra::{HyHit, Proj, btn, dim_all, find, folder_name, hints, hit, hovered, panel, sel_row};
 use super::render::truncate;
 use super::{App, Bg, Mode};
-use crate::protocol::{Command, Status};
+use crate::protocol::{Command, QueueItem, QueueState, QueuedTicket, Status};
 use crate::theme::Theme;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Frame;
@@ -13,22 +13,10 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use crate::proc::quiet;
 use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthStr;
-use crate::proc::quiet;
-
-/// `fix the flaky checkout test` → `fix-the-flaky-checkout`
-pub fn slug(s: &str, words: usize) -> String {
-    let mut out = String::new();
-    for w in s.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).take(words) {
-        if !out.is_empty() {
-            out.push('-');
-        }
-        out.push_str(&w.to_ascii_lowercase());
-    }
-    out.chars().take(40).collect::<String>().trim_end_matches('-').to_string()
-}
+pub use crate::tickets::{Source, Ticket, slug, sources};
 
 fn now() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
@@ -79,229 +67,6 @@ pub struct IdeasView {
 
 // ---- tickets ---------------------------------------------------------------------------------
 
-/// A ticket from any tracker.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Ticket {
-    /// "#57", "ENG-123"
-    pub key: String,
-    pub title: String,
-    pub url: String,
-    pub state: String,
-    pub meta: String,
-    pub body: String,
-}
-
-impl Ticket {
-    /// What the agent is told.
-    pub fn prompt(&self, source: &str) -> String {
-        let body: String = self.body.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(700).collect();
-        let mut p = format!("Work on {source} ticket {}: {}.", self.key, self.title);
-        if !body.is_empty() {
-            p.push_str(&format!(" Details: {body}"));
-        }
-        if !self.url.is_empty() {
-            p.push_str(&format!(" ({})", self.url));
-        }
-        p
-    }
-
-    pub fn branch(&self) -> String {
-        let key = slug(&self.key, 3);
-        let title = slug(&self.title, 4);
-        if key.is_empty() { title } else { format!("{key}-{title}") }
-    }
-}
-
-/// A place tickets come from. Adding a tracker is one more of these.
-pub trait Source {
-    /// Config name ("github", "linear", "plane").
-    fn id(&self) -> &'static str;
-    /// Tab label.
-    fn label(&self) -> &'static str;
-    /// Open tickets for you, for the repo at `dir`.
-    fn list(&self, dir: &Path) -> Result<Vec<Ticket>, String>;
-}
-
-fn s(v: &Value, k: &str) -> String {
-    v.get(k).and_then(Value::as_str).unwrap_or("").to_string()
-}
-
-
-/// An HTTP request through curl, with the secret header passed on stdin (`-H @-`) so it
-/// never appears in the process list.
-fn curl(method: &str, url: &str, secret_header: &str, body: Option<&str>) -> Result<Value, String> {
-    use std::io::Write;
-    let mut cmd = std::process::Command::new("curl");
-    cmd.args(["-s", "--max-time", "20", "-X", method, url, "-H", "Content-Type: application/json", "-H", "@-"]);
-    if let Some(b) = body {
-        cmd.args(["-d", b]);
-    }
-    cmd.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
-    let mut child = quiet(&mut cmd).spawn().map_err(|_| "`curl` isn't installed or isn't on PATH".to_string())?;
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = writeln!(stdin, "{secret_header}");
-    }
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    serde_json::from_slice(&out.stdout).map_err(|_| format!("{url} sent back something unexpected"))
-}
-
-pub struct GitHubIssues;
-
-impl Source for GitHubIssues {
-    fn id(&self) -> &'static str {
-        "github"
-    }
-    fn label(&self) -> &'static str {
-        "GitHub issues"
-    }
-    fn list(&self, dir: &Path) -> Result<Vec<Ticket>, String> {
-        let mut cmd = std::process::Command::new("gh");
-        cmd.current_dir(dir).args(["issue", "list", "--state", "open", "--limit", "50", "--json", "number,title,url,labels,assignees,updatedAt,body"]);
-        let out = quiet(&mut cmd).output().map_err(|_| "`gh` isn't installed or isn't on PATH".to_string())?;
-        if !out.status.success() {
-            return Err(String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("gh failed").to_string());
-        }
-        parse_github(&String::from_utf8_lossy(&out.stdout))
-    }
-}
-
-pub fn parse_github(out: &str) -> Result<Vec<Ticket>, String> {
-    let v: Value = serde_json::from_str(out).map_err(|e| e.to_string())?;
-    Ok(v.as_array()
-        .into_iter()
-        .flatten()
-        .map(|i| {
-            let labels: Vec<String> = i.get("labels").and_then(Value::as_array).into_iter().flatten().map(|l| s(l, "name")).collect();
-            let who: Vec<String> = i.get("assignees").and_then(Value::as_array).into_iter().flatten().map(|a| s(a, "login")).collect();
-            Ticket {
-                key: format!("#{}", i.get("number").and_then(Value::as_u64).unwrap_or(0)),
-                title: s(i, "title"),
-                url: s(i, "url"),
-                state: if labels.is_empty() { "open".into() } else { labels.join(", ") },
-                meta: if who.is_empty() { "unassigned".into() } else { format!("assigned {}", who.join(", ")) },
-                body: s(i, "body"),
-            }
-        })
-        .collect())
-}
-
-pub struct Linear {
-    pub key: String,
-}
-
-impl Source for Linear {
-    fn id(&self) -> &'static str {
-        "linear"
-    }
-    fn label(&self) -> &'static str {
-        "Linear"
-    }
-    fn list(&self, _dir: &Path) -> Result<Vec<Ticket>, String> {
-        if self.key.is_empty() {
-            return Err("Set LINEAR_API_KEY (Linear → Settings → API → personal key), or [tickets] linear_key in config.local.toml.".into());
-        }
-        let query = r#"{"query":"{ viewer { assignedIssues(first: 50, filter: { state: { type: { nin: [\"completed\", \"canceled\"] } } }, orderBy: updatedAt) { nodes { identifier title url description priorityLabel state { name } team { key } } } } }"}"#;
-        let v = curl("POST", "https://api.linear.app/graphql", &format!("Authorization: {}", self.key), Some(query))?;
-        if let Some(err) = v.get("errors").and_then(|e| e.get(0)).map(|e| s(e, "message")) {
-            return Err(format!("Linear: {err}"));
-        }
-        Ok(v.pointer("/data/viewer/assignedIssues/nodes")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .map(|n| Ticket {
-                key: s(n, "identifier"),
-                title: s(n, "title"),
-                url: s(n, "url"),
-                state: n.get("state").map(|st| s(st, "name")).unwrap_or_default(),
-                meta: format!("{} · {}", s(n, "priorityLabel"), n.get("team").map(|t| s(t, "key")).unwrap_or_default()),
-                body: s(n, "description"),
-            })
-            .collect())
-    }
-}
-
-pub struct Plane {
-    pub api: String,
-    pub app: String,
-    pub workspace: String,
-    pub key: String,
-}
-
-impl Source for Plane {
-    fn id(&self) -> &'static str {
-        "plane"
-    }
-    fn label(&self) -> &'static str {
-        "Plane"
-    }
-    fn list(&self, _dir: &Path) -> Result<Vec<Ticket>, String> {
-        if self.key.is_empty() || self.workspace.is_empty() {
-            return Err("Set PLANE_API_KEY and [tickets] plane_workspace (your workspace slug); self-hosted: plane_url.".into());
-        }
-        let api = self.api.trim_end_matches('/');
-        let header = format!("X-API-Key: {}", self.key);
-        let me = curl("GET", &format!("{api}/api/v1/users/me/"), &header, None)?;
-        let my_id = s(&me, "id");
-        if my_id.is_empty() {
-            return Err(format!("Plane: {}", s(&me, "detail").chars().take(80).collect::<String>()));
-        }
-        let projects = curl("GET", &format!("{api}/api/v1/workspaces/{}/projects/", self.workspace), &header, None)?;
-        let list = projects.get("results").or(Some(&projects)).and_then(Value::as_array).cloned().unwrap_or_default();
-        let mut out = Vec::new();
-        for p in list.iter().take(12) {
-            let (pid, ident) = (s(p, "id"), s(p, "identifier"));
-            let issues = curl("GET", &format!("{api}/api/v1/workspaces/{}/projects/{pid}/issues/?per_page=100", self.workspace), &header, None)?;
-            out.extend(parse_plane(&issues, &my_id, &ident, &format!("{}/{}/projects/{pid}/issues", self.app.trim_end_matches('/'), self.workspace)));
-        }
-        Ok(out)
-    }
-}
-
-/// Plane's issues for one project: the open ones assigned to `me`.
-pub fn parse_plane(v: &Value, me: &str, ident: &str, url_base: &str) -> Vec<Ticket> {
-    v.get("results")
-        .or(Some(v))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|i| i.get("assignees").and_then(Value::as_array).is_some_and(|a| a.iter().any(|x| x.as_str() == Some(me))))
-        .filter(|i| i.get("completed_at").is_none_or(Value::is_null) && i.get("archived_at").is_none_or(Value::is_null))
-        .map(|i| {
-            let seq = i.get("sequence_id").and_then(Value::as_u64).unwrap_or(0);
-            Ticket {
-                key: format!("{ident}-{seq}"),
-                title: s(i, "name"),
-                url: format!("{url_base}/{}", s(i, "id")),
-                state: s(i, "priority"),
-                meta: ident.to_string(),
-                body: s(i, "description_stripped"),
-            }
-        })
-        .collect()
-}
-
-/// The ticket sources turned on in config, in order.
-pub fn sources(cfg: &crate::config::Tickets) -> Vec<Box<dyn Source + Send>> {
-    let env = |name: &str, given: &str| if given.is_empty() { std::env::var(name).unwrap_or_default() } else { given.to_string() };
-    cfg.sources
-        .iter()
-        .filter_map(|id| -> Option<Box<dyn Source + Send>> {
-            match id.as_str() {
-                "github" => Some(Box::new(GitHubIssues)),
-                "linear" => Some(Box::new(Linear { key: env("LINEAR_API_KEY", &cfg.linear_key) })),
-                "plane" => Some(Box::new(Plane {
-                    api: cfg.plane_url.clone(),
-                    app: cfg.plane_app_url.clone(),
-                    workspace: cfg.plane_workspace.clone(),
-                    key: env("PLANE_API_KEY", &cfg.plane_key),
-                })),
-                _ => None,
-            }
-        })
-        .collect()
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct TicketsView {
     pub dir: PathBuf,
@@ -313,7 +78,15 @@ pub struct TicketsView {
     pub sel: usize,
 }
 
+/// The Tickets view's last tab: hydra's queue.
+pub const QUEUE_TAB: &str = "queue";
+
 impl TicketsView {
+    /// On the Queue tab (its list is the server's queue, and what you type is a new task).
+    pub fn on_queue(&self) -> bool {
+        self.tabs.get(self.tab).is_some_and(|(id, _)| id == QUEUE_TAB)
+    }
+
     pub fn visible(&self) -> Vec<&Ticket> {
         let Some(Some(Ok(list))) = self.lists.get(self.tab) else { return Vec::new() };
         let q = self.query.to_lowercase();
@@ -470,11 +243,8 @@ impl App {
 
     pub(super) fn open_tickets(&mut self) {
         let srcs = sources(&self.cfg.tickets);
-        if srcs.is_empty() {
-            self.notify("no ticket sources: set [tickets] sources in config".into(), true);
-            return;
-        }
-        let tabs: Vec<(String, String)> = srcs.iter().map(|s| (s.id().to_string(), s.label().to_string())).collect();
+        let mut tabs: Vec<(String, String)> = srcs.iter().map(|s| (s.id().to_string(), s.label().to_string())).collect();
+        tabs.push((QUEUE_TAB.into(), "Queue".into()));
         let proj = self.current_project();
         let dir = proj.as_ref().map(|p| p.path.clone()).unwrap_or_else(|| self.here_dir());
         // The project's own tracker opens first.
@@ -483,8 +253,42 @@ impl App {
             .and_then(|id| tabs.iter().position(|(t, _)| *t == id))
             .unwrap_or(0);
         let n = tabs.len();
-        self.mode = Mode::Tickets(Box::new(TicketsView { dir: dir.clone(), tabs, tab, lists: vec![None; n], query: String::new(), sel: 0 }));
-        self.load_tickets(dir, tab);
+        let mut lists = vec![None; n];
+        lists[n - 1] = Some(Ok(Vec::new()));
+        let v = TicketsView { dir: dir.clone(), tabs, tab, lists, query: String::new(), sel: 0 };
+        if !v.on_queue() {
+            self.load_tickets(dir, tab);
+        }
+        self.mode = Mode::Tickets(Box::new(v));
+    }
+
+    /// Open the Tickets view on its Queue tab.
+    pub(super) fn open_queue(&mut self) {
+        self.open_tickets();
+        if let Mode::Tickets(v) = &mut self.mode {
+            v.tab = v.tabs.len() - 1;
+        }
+    }
+
+    /// Put work in hydra's queue, for the agent new work goes to.
+    fn queue_work(&mut self, dir: &Path, prompt: &str, title: &str, branch: &str, ticket: Option<QueuedTicket>) {
+        let agent = self.hy_agent();
+        let item = QueueItem {
+            id: 0,
+            project: dir.to_path_buf(),
+            agent: agent.clone(),
+            cmd: self.agent_cmd(&agent, prompt),
+            title: title.to_string(),
+            branch: branch.to_string(),
+            ticket,
+            state: QueueState::Waiting,
+            worked: false,
+        };
+        self.cmd(Command::Enqueue { item });
+        let busy = self.snap.queue.iter().filter(|q| !matches!(q.state, QueueState::Review(_) | QueueState::Failed(_))).count();
+        let at_once = self.cfg.queue_at_once.max(1) as usize;
+        let when = if busy < at_once { "starting now".to_string() } else { format!("{} ahead of it", busy + 1 - at_once) };
+        self.notify(format!("queued {title} for {agent}: {when}"), false);
     }
 
     fn load_tickets(&self, dir: PathBuf, tab: usize) {
@@ -498,7 +302,36 @@ impl App {
 
     pub(super) fn on_tickets_key(&mut self, mut v: TicketsView, k: &KeyEvent) {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-        let n = v.visible().len();
+        let n = if v.on_queue() { self.snap.queue.len() } else { v.visible().len() };
+        if v.on_queue() {
+            match k.code {
+                // A task typed in joins the queue; with nothing typed, Enter opens the one picked.
+                KeyCode::Enter if !v.query.trim().is_empty() => {
+                    let task = std::mem::take(&mut v.query);
+                    let title: String = task.trim().chars().take(60).collect();
+                    let dir = v.dir.clone();
+                    self.queue_work(&dir, task.trim(), &title, &slug(&task, 4), None);
+                    self.mode = Mode::Tickets(Box::new(v));
+                    return;
+                }
+                KeyCode::Enter => {
+                    if let Some(QueueState::Running(term) | QueueState::Review(term)) = self.snap.queue.get(v.sel).map(|q| q.state.clone()) {
+                        self.mode = Mode::Normal;
+                        self.hy_focus(term);
+                        return;
+                    }
+                }
+                KeyCode::Delete => {
+                    if let Some(q) = self.snap.queue.get(v.sel) {
+                        self.cmd(Command::Dequeue { id: q.id });
+                        v.sel = v.sel.min(n.saturating_sub(2));
+                    }
+                    self.mode = Mode::Tickets(Box::new(v));
+                    return;
+                }
+                _ => {}
+            }
+        }
         match k.code {
             KeyCode::Esc => {
                 self.mode = Mode::Normal;
@@ -508,6 +341,7 @@ impl App {
                 let d = if k.code == KeyCode::Tab { 1 } else { v.tabs.len() - 1 };
                 v.tab = (v.tab + d) % v.tabs.len();
                 v.sel = 0;
+                v.query.clear();
                 if v.lists[v.tab].is_none() {
                     self.load_tickets(v.dir.clone(), v.tab);
                 }
@@ -519,11 +353,20 @@ impl App {
                     super::files::open_url(&t.url);
                 }
             }
-            KeyCode::Char('r') if ctrl => {
+            KeyCode::Char('r') if ctrl && !v.on_queue() => {
                 v.lists[v.tab] = None;
                 self.load_tickets(v.dir.clone(), v.tab);
             }
-            KeyCode::Enter => {
+            KeyCode::Char('q') if ctrl && !v.on_queue() => {
+                if let Some(t) = v.visible().get(v.sel).map(|t| (*t).clone()) {
+                    let (source, label) = v.tabs[v.tab].clone();
+                    let ticket = QueuedTicket { source, key: t.key.clone(), id: t.id.clone(), url: t.url.clone() };
+                    let dir = v.dir.clone();
+                    self.queue_work(&dir, &t.prompt(&label), &format!("{} {}", t.key, t.title), &t.branch(), Some(ticket));
+                    v.sel = (v.sel + 1).min(n.saturating_sub(1));
+                }
+            }
+            KeyCode::Enter if !v.on_queue() => {
                 let Some(t) = v.visible().get(v.sel).map(|t| (*t).clone()) else { return };
                 let source = v.tabs[v.tab].1.clone();
                 let agent = self.hy_agent();
@@ -853,10 +696,24 @@ pub(super) fn draw_tickets(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, 
         hit(app, tr, HyHit::TicketTab(i));
         x += w + 2;
     }
-    input_row(buf, r, r.y + 4, t, &v.query, "type to filter", true);
+    let queued = v.on_queue();
+    input_row(buf, r, r.y + 4, t, &v.query, if queued { "type a task, Enter queues it" } else { "type to filter" }, true);
     let list_x = r.x + 3;
     let preview_x = r.x + r.width * 55 / 100;
     let mut y = r.y + 6;
+    if queued {
+        draw_queue(app, buf, r, y, t, v.sel);
+        let agent = app.hy_agent();
+        let at_once = format!("{} at once", app.cfg.queue_at_once.max(1));
+        put(
+            buf,
+            r.x + 3,
+            r.bottom() - 2,
+            &hints(t, &[("Enter", &format!("queue for {agent} / open")), ("Del", "remove"), ("Tab", "tickets"), ("", &at_once), ("Esc", "close")]),
+            r.right(),
+        );
+        return;
+    }
     match v.lists.get(v.tab) {
         Some(None) | None => {
             put(buf, list_x, y, &[seg("loading…", c.fg(t.muted))], r.right());
@@ -880,11 +737,16 @@ pub(super) fn draw_tickets(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, 
                 if sel {
                     put(buf, r.x + 1, y, &[seg(">", st.fg(t.accent).add_modifier(Modifier::BOLD))], r.right());
                 }
+                let in_queue = app.snap.queue.iter().any(|q| q.ticket.as_ref().is_some_and(|qt| qt.key == it.key && qt.source == v.tabs[v.tab].0));
                 put(
                     buf,
                     list_x,
                     y,
-                    &[seg(format!("{:<9}", truncate(&it.key, 9)), st.fg(t.accent)), seg(truncate(&it.title, (preview_x - list_x - 12) as usize), st.fg(t.strong))],
+                    &[
+                        seg(format!("{:<9}", truncate(&it.key, 9)), st.fg(t.accent)),
+                        seg(if in_queue { "◷ " } else { "" }, st.fg(t.working)),
+                        seg(truncate(&it.title, (preview_x - list_x - 14) as usize), st.fg(t.strong)),
+                    ],
                     preview_x - 1,
                 );
                 hit(app, row, HyHit::TicketRow(i));
@@ -917,9 +779,53 @@ pub(super) fn draw_tickets(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, 
         buf,
         r.x + 3,
         r.bottom() - 2,
-        &hints(t, &[("Enter", &format!("{agent} on it, own worktree")), ("Tab", "source"), ("Ctrl+O", "open"), ("Ctrl+R", "reload"), ("Esc", "close")]),
+        &hints(t, &[("Enter", &format!("{agent} on it now")), ("Ctrl+Q", "queue it"), ("Tab", "source"), ("Ctrl+O", "open"), ("Ctrl+R", "reload"), ("Esc", "close")]),
         r.right(),
     );
+}
+
+/// The queue, in order: what's waiting, starting, running, ready for review or failed.
+fn draw_queue(app: &mut App, buf: &mut Buffer, r: Rect, mut y: u16, t: &Theme, sel: usize) {
+    let c = Style::default().bg(t.card);
+    let queue = app.snap.queue.clone();
+    if queue.is_empty() {
+        put(buf, r.x + 3, y, &[seg("Nothing queued. Ctrl+Q on a ticket queues it; or type a task above.", c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right() - 2);
+        return;
+    }
+    let max = (r.bottom() - 3 - y) as usize;
+    let start = sel.saturating_sub(max.saturating_sub(1));
+    for (i, q) in queue.iter().enumerate().skip(start).take(max) {
+        let row = Rect { x: r.x + 1, y, width: r.width - 2, height: 1 };
+        let bg = if i == sel || hovered(app, row) { t.hov } else { t.card };
+        fill(buf, row, bg);
+        let st = Style::default().bg(bg);
+        if i == sel {
+            put(buf, r.x + 1, y, &[seg(">", st.fg(t.accent).add_modifier(Modifier::BOLD))], r.right());
+        }
+        let (label, col) = match &q.state {
+            QueueState::Waiting => ("waiting".to_string(), t.muted),
+            QueueState::Starting => ("starting…".to_string(), t.working),
+            QueueState::Running(term) => match app.snap.terms.get(term).map(|x| x.status) {
+                Some(Status::Blocked) => ("needs you".to_string(), t.blocked),
+                _ => ("working".to_string(), t.working),
+            },
+            QueueState::Review(_) => ("review".to_string(), t.done),
+            QueueState::Failed(e) => (format!("failed: {e}"), t.err),
+        };
+        let where_ = format!("  {} · {}", q.agent, q.branch);
+        put(
+            buf,
+            r.x + 3,
+            y,
+            &[seg(format!("{:<11}", truncate(&label, 11)), st.fg(col).add_modifier(Modifier::BOLD)), seg(truncate(&q.title, 60), st.fg(t.strong)), seg(where_, st.fg(t.muted))],
+            r.right() - 2,
+        );
+        if let QueueState::Failed(e) = &q.state {
+            let _ = e;
+        }
+        hit(app, row, HyHit::TicketRow(i));
+        y += 1;
+    }
 }
 
 pub(super) fn draw_race_new(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, v: &RaceNew) {
@@ -1011,41 +917,6 @@ pub(super) fn draw_race(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, v: 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn slugs_and_prompts() {
-        assert_eq!(slug("Fix the flaky checkout test!", 4), "fix-the-flaky-checkout");
-        let t = Ticket { key: "ENG-123".into(), title: "Checkout fails on Safari".into(), url: "https://x".into(), state: "".into(), meta: "".into(), body: "Steps:\n1. open".into() };
-        assert_eq!(t.branch(), "eng-123-checkout-fails-on-safari");
-        let p = t.prompt("Linear");
-        assert!(p.starts_with("Work on Linear ticket ENG-123: Checkout fails on Safari.") && p.contains("Steps: 1. open") && p.ends_with("(https://x)"));
-    }
-
-    #[test]
-    fn plane_issues_for_me() {
-        let v: Value = serde_json::from_str(
-            r#"{"results":[
-                {"id":"a","name":"Mine","sequence_id":12,"assignees":["me"],"priority":"high","description_stripped":"do it","completed_at":null},
-                {"id":"b","name":"Theirs","sequence_id":13,"assignees":["you"],"priority":"low"},
-                {"id":"c","name":"Done","sequence_id":14,"assignees":["me"],"completed_at":"2026-01-01"}]}"#,
-        )
-        .unwrap();
-        let t = parse_plane(&v, "me", "WEB", "https://app.plane.so/team/projects/p1/issues");
-        assert_eq!(t.len(), 1);
-        assert_eq!(t[0].key, "WEB-12");
-        assert_eq!(t[0].url, "https://app.plane.so/team/projects/p1/issues/a");
-    }
-
-    #[test]
-    fn github_issues_parse() {
-        let t = parse_github(r#"[{"number":57,"title":"Crash","url":"u","labels":[{"name":"bug"}],"assignees":[],"body":"b"}]"#).unwrap();
-        assert_eq!((t[0].key.as_str(), t[0].state.as_str(), t[0].meta.as_str()), ("#57", "bug", "unassigned"));
-    }
-}
-
-#[cfg(test)]
 mod live {
     /// `HYDRA_PR_DIR=<clone> cargo test tickets_live -- --ignored --nocapture`
     #[test]
@@ -1053,7 +924,7 @@ mod live {
     fn tickets_live() {
         use super::Source;
         let dir = std::path::PathBuf::from(std::env::var("HYDRA_PR_DIR").unwrap());
-        let list = super::GitHubIssues.list(&dir).unwrap();
+        let list = crate::tickets::GitHubIssues.list(&dir).unwrap();
         println!("{} open issues", list.len());
         for t in list.iter().take(3) {
             println!("{} {} -> branch {}", t.key, t.title, t.branch());

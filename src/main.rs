@@ -15,6 +15,7 @@ mod proc;
 mod protocol;
 mod sync;
 mod theme;
+mod tickets;
 mod update;
 mod reveal;
 mod tmux_shim;

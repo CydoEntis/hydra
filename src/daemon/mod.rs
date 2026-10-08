@@ -11,6 +11,7 @@ mod term;
 mod commands;
 mod contain;
 mod restore;
+mod queue;
 mod status;
 mod usage;
 mod worktrees;
@@ -66,12 +67,16 @@ pub enum Ev {
         result: Result<(PathBuf, String), String>,
     },
     WorktreeRemoved { client: ClientId, path: PathBuf, result: Result<(), String> },
+    /// A queued task's worktree was made (or not).
+    QueueWorktree { id: u64, result: Result<(PathBuf, String), String> },
+    /// Telling a ticket's tracker how it's going finished.
+    TicketMarked(Result<String, String>),
     /// Numbers read from Codex's session files (`usage::poll_codex`).
     CodexUsage { usage: Vec<(TermId, Usage)>, limits: Option<Vec<Limit>> },
     /// A worktree made for an agent started from a shell (`Command::AgentWorktree`).
     AgentWorktreeMade { client: ClientId, result: Result<PathBuf, String> },
     /// A worktree removed (or kept) after its last pane closed.
-    WorktreeAutoRemoved { client: ClientId, path: PathBuf, result: Result<(), String> },
+    WorktreeAutoRemoved { client: ClientId, path: PathBuf, result: Result<bool, String> },
     WorktreeList { client: ClientId, result: Result<Vec<WorktreeEntry>, String> },
     /// A worktree hook ran: what to tell people.
     HookRan(String),
@@ -150,6 +155,9 @@ struct Daemon {
     spent: Vec<(u64, f64)>,
     codex_busy: bool,
     last_codex: Instant,
+    /// Hydra's queue of work.
+    queue: Vec<QueueItem>,
+    next_queue_id: u64,
     /// Extensions (their hooks run here).
     exts: Vec<crate::ext::Ext>,
     /// Extra environment for the next pane spawned (a dev server's PORT).
@@ -324,14 +332,23 @@ impl Daemon {
     /// The grant a command needs.
     fn may_command(&self, client: ClientId, cmd: &Command) -> anyhow::Result<()> {
         match cmd {
-            Command::NewWorkspace { .. } | Command::NewTab { .. } | Command::Split { .. } | Command::NewWorktree { .. } | Command::Dev { .. } | Command::Popup { .. } => {
+            Command::NewWorkspace { .. }
+            | Command::NewTab { .. }
+            | Command::Split { .. }
+            | Command::NewWorktree { .. }
+            | Command::Dev { .. }
+            | Command::Popup { .. }
+            | Command::Enqueue { .. }
+            | Command::Dequeue { .. } => {
                 self.may(client, Grant::Start, None)
             }
             Command::ClosePane { term } => self.may(client, Grant::Admin, Some(*term)).or_else(|e| {
                 // Closing itself is fine.
                 if self.clients.get(&client).and_then(|c| c.from) == Some(*term) { Ok(()) } else { Err(e) }
             }),
-            Command::CloseWorkspace { .. } | Command::CloseTab { .. } | Command::RemoveWorktree { .. } | Command::KillServer { .. } => self.may(client, Grant::Admin, None),
+            Command::CloseWorkspace { .. } | Command::CloseTab { .. } | Command::RemoveWorktree { .. } | Command::CloseWorktree { .. } | Command::KillServer { .. } => {
+                self.may(client, Grant::Admin, None)
+            }
             Command::AnswerHuman { id, .. } => {
                 let asker = self.questions.iter().find(|(q, ..)| q.id == *id).map(|(q, ..)| q.term);
                 self.may(client, Grant::Respond, asker.filter(|_| false))
@@ -394,6 +411,8 @@ impl Daemon {
             limits: BTreeMap::new(),
             spent: Vec::new(),
             codex_busy: false,
+            queue: Vec::new(),
+            next_queue_id: 1,
             last_codex: Instant::now() - Duration::from_secs(3600),
             next_env: Vec::new(),
             next_once: false,
@@ -423,6 +442,7 @@ impl Daemon {
                 _ = tick.tick() => {
                     self.update_statuses();
                     self.auto_continue();
+                    self.run_queue();
                     self.poll_codex();
                     if self.last_sleep_check.elapsed() >= SLEEP_CHECK_EVERY {
                         self.last_sleep_check = Instant::now();
@@ -800,13 +820,22 @@ impl Daemon {
                 self.pending_ops -= 1;
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 let msg = match result {
-                    Ok(()) => format!("removed worktree {name} (its branch is kept)"),
+                    Ok(true) => format!("removed worktree {name} and its merged branch"),
+                    Ok(false) => format!("removed worktree {name} (its branch is kept)"),
                     Err(_) => format!("kept worktree {name}: it has uncommitted changes"),
                 };
                 self.send(client, ServerMsg::Notice(msg));
                 self.dirty = true;
             }
             Ev::CodexUsage { usage, limits } => self.codex_usage(usage, limits),
+            Ev::QueueWorktree { id, result } => self.queue_worktree(id, result),
+            Ev::TicketMarked(result) => {
+                let msg = match result {
+                    Ok(m) => m,
+                    Err(e) => format!("couldn't update the ticket: {e}"),
+                };
+                self.broadcast(|c| c.attach, ServerMsg::Notice(msg));
+            }
             Ev::WorktreeRemoved { client, path, result } => {
                 self.pending_ops -= 1;
                 match result {
@@ -990,6 +1019,7 @@ impl Daemon {
             questions: self.questions.iter().map(|(q, ..)| q.clone()).collect(),
             limits: self.limits.iter().map(|(a, l)| (a.clone(), l.clone())).collect(),
             spent_today: self.spent_today(),
+            queue: self.queue.clone(),
         }
     }
 

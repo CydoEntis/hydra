@@ -330,6 +330,32 @@ impl Daemon {
                 });
                 return Ok(false);
             }
+            Command::Enqueue { item } => self.enqueue(item),
+            Command::Dequeue { id } => self.queue.retain(|q| q.id != id),
+            Command::CloseWorktree { path } => {
+                let path = clean_path(path);
+                let head = crate::gitfs::head(&path).filter(|h| h.linked).ok_or_else(|| anyhow::anyhow!("{} is not a linked git worktree", path.display()))?;
+                let terms: Vec<TermId> = self.terms.values().filter(|t| t.head.as_ref().is_some_and(|h| same_path(&h.top, &head.top))).map(|t| t.id).collect();
+                for t in terms {
+                    self.close_term(t);
+                }
+                self.made_worktrees.retain(|m| !same_path(m, &head.top));
+                let tx = self.tx.clone();
+                self.pending_ops += 1;
+                let hook = self.hook_job(&head.top, false);
+                self.ext_event("worktree_remove", Some(&head.top), None);
+                let top = head.top;
+                tokio::task::spawn_blocking(move || {
+                    if let Some(h) = hook {
+                        let _ = h();
+                    }
+                    // Give the closed programs a moment to let go of the folder (Windows locks it).
+                    std::thread::sleep(Duration::from_millis(800));
+                    let result = git::remove_worktree(&top, false, true).map_err(|e| format!("{e:#}"));
+                    let _ = tx.blocking_send(Ev::WorktreeRemoved { client, path: top, result });
+                });
+                return Ok(false);
+            }
             Command::RemoveWorktree { ws, force, delete_branch } => {
                 let w = self.ws_mut(ws)?;
                 let path = w.cwd.clone();

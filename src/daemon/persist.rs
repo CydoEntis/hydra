@@ -16,6 +16,9 @@ pub struct Saved {
     /// Worktrees hydra created (the only ones it may remove by itself).
     #[serde(default)]
     pub made_worktrees: Vec<PathBuf>,
+    /// Queued work not started yet.
+    #[serde(default)]
+    pub queue: Vec<crate::protocol::QueueItem>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

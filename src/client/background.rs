@@ -418,6 +418,16 @@ impl App {
                     v.refresh_preview();
                 }
             }
+            (Bg::Merged(result, dir), _) => match result {
+                Ok(msg) => {
+                    self.notify(format!("{msg}; closing its sessions and removing the worktree and branch"), false);
+                    self.cmd(Command::CloseWorktree { path: dir });
+                    if matches!(self.view, Some(View::Changes(_))) {
+                        self.view = None;
+                    }
+                }
+                Err(e) => self.notify(e, true),
+            },
             (Bg::Done(result, reload), _) => {
                 match result {
                     Ok(msg) => self.notify(msg, false),

@@ -326,7 +326,7 @@ mod hydra_tests {
         assert!(o.contains("Ideas") && o.contains("for ▌shop-api") && o.contains("SHOP-API") && o.contains("✦ dark mode for the dashboard"));
         assert!(o.contains("ANY PROJECT") && o.contains("start claude on it"));
 
-        let t = work::Ticket { key: "ENG-123".into(), title: "Checkout fails on Safari".into(), url: "u".into(), state: "Todo".into(), meta: "High · ENG".into(), body: "Steps to reproduce".into() };
+        let t = work::Ticket { key: "ENG-123".into(), id: "x".into(), title: "Checkout fails on Safari".into(), url: "u".into(), state: "Todo".into(), meta: "High · ENG".into(), body: "Steps to reproduce".into() };
         app.mode = Mode::Tickets(Box::new(work::TicketsView {
             dir: root.clone(),
             tabs: vec![("github".into(), "GitHub issues".into()), ("linear".into(), "Linear".into()), ("plane".into(), "Plane".into())],
@@ -338,7 +338,7 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains(" GitHub issues ") && o.contains(" Linear ") && o.contains(" Plane"));
-        assert!(o.contains("ENG-123") && o.contains("Checkout fails on Safari") && o.contains("Todo · High · ENG") && o.contains("claude on it, own worktree"));
+        assert!(o.contains("ENG-123") && o.contains("Checkout fails on Safari") && o.contains("Todo · High · ENG") && o.contains("claude on it now") && o.contains("queue it"));
 
         app.mode = Mode::RaceNew(Box::new(work::RaceNew { text: "add rate limiting".into(), picked: vec![true, true, false], row: 0, cur: 0 }));
         let o = draw(&mut app, 160, 45);
@@ -1151,6 +1151,49 @@ mod hydra_tests {
         app.snap.terms.get_mut(&agent).unwrap().resume_at = Some(now + 600);
         let o = draw(&mut app, 160, 45);
         assert!(o.contains("resumes in 10m") || o.contains("resumes in 9m"), "waiting on a limit, on its row");
+    }
+
+    #[test]
+    fn tickets_can_be_queued_and_the_queue_shows() {
+        use crate::protocol::{ClientMsg, Command, QueueItem, QueueState};
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        app.out = tx;
+        let t = work::Ticket { key: "ENG-7".into(), id: "abc".into(), title: "Checkout fails".into(), url: "u".into(), state: String::new(), meta: String::new(), body: String::new() };
+        app.mode = Mode::Tickets(Box::new(work::TicketsView {
+            dir: std::path::PathBuf::from("/code/shop-api"),
+            tabs: vec![("linear".into(), "Linear".into()), (work::QUEUE_TAB.into(), "Queue".into())],
+            tab: 0,
+            lists: vec![Some(Ok(vec![t])), Some(Ok(Vec::new()))],
+            query: String::new(),
+            sel: 0,
+        }));
+        app.on_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
+        let sent = std::iter::from_fn(|| rx.try_recv().ok()).find_map(|m| match m {
+            ClientMsg::Command(Command::Enqueue { item }) => Some(item),
+            _ => None,
+        });
+        let item = sent.expect("Ctrl+Q queues the ticket");
+        assert_eq!((item.branch.as_str(), item.ticket.as_ref().map(|t| (t.source.as_str(), t.id.as_str()))), ("eng-7-checkout-fails", Some(("linear", "abc"))));
+        assert!(item.cmd.contains("ENG-7"), "the agent is told about the ticket: {}", item.cmd);
+        // The server's queue, on the Queue tab and in the footer.
+        let q = |id: u64, title: &str, state: QueueState| QueueItem { id, state, title: title.into(), ..item.clone() };
+        app.snap.queue = vec![q(1, "ENG-7 Checkout fails", QueueState::Review(1)), q(2, "ENG-8 Search is slow", QueueState::Running(2)), q(3, "tidy the readme", QueueState::Waiting)];
+        app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("review") && o.contains("ENG-7 Checkout fails") && o.contains("waiting"), "the Queue tab lists it");
+        assert!(o.contains("queue 1 running · 1 waiting · 1 to review"), "and the footer counts it");
+        // A task typed there joins the queue.
+        for c in "tidy up".chars() {
+            app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let typed = std::iter::from_fn(|| rx.try_recv().ok()).find_map(|m| match m {
+            ClientMsg::Command(Command::Enqueue { item }) => Some(item),
+            _ => None,
+        });
+        assert_eq!(typed.map(|i| (i.title, i.ticket.is_none())), Some(("tidy up".to_string(), true)));
     }
 
     #[test]

@@ -166,6 +166,7 @@ fn restore_gives_panes_new_ids_and_keeps_their_layout() {
         }],
         active: 0,
         made_worktrees: Vec::new(),
+        queue: Vec::new(),
     };
     d.restore(saved);
     assert_eq!(d.workspaces.len(), 1);
@@ -204,7 +205,15 @@ fn an_agent_typed_into_a_shell_gets_its_own_worktree() {
     let head = crate::gitfs::head(&made).unwrap();
     assert!(head.linked && crate::gitfs::WT_NAMES.contains(&head.branch.as_str()), "a linked worktree on a made-up branch: {head:?}");
     let again = worktrees::agent_worktree(&repo, "{repo_parent}/{repo}-worktrees/{branch}").unwrap();
-    assert_ne!(crate::gitfs::head(&again).unwrap().branch, head.branch, "the next one gets its own branch");
+    let other = crate::gitfs::head(&again).unwrap().branch;
+    assert_ne!(other, head.branch, "the next one gets its own branch");
+    // Closing them: a merged branch goes with its worktree, one with work of its own stays.
+    let wt = |dir: &std::path::Path, args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(dir).args(args).output().unwrap().status.success(), "git {args:?}");
+    wt(&again, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work"]);
+    git::remove_worktree(&crate::gitfs::head(&made).unwrap().top, false, false).unwrap();
+    git::remove_worktree(&again, false, false).unwrap();
+    assert!(git::delete_if_merged(&repo, &head.branch), "nothing on it that main doesn't have: deleted");
+    assert!(!git::delete_if_merged(&repo, &other), "a commit main doesn't have: kept");
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
@@ -276,6 +285,63 @@ fn claude_reports_what_its_session_used() {
     assert!((snap.spent_today - 1.75).abs() < 1e-9, "1.50 then 0.25 after the clear: {}", snap.spent_today);
     assert_eq!(snap.limits[0].0, "claude");
     close(&mut d, &[t]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_queue_runs_so_many_at_once_and_moves_on() {
+    let tmp = std::env::temp_dir().join(format!("hydra-queue-{}", std::process::id()));
+    let repo = tmp.join("shop");
+    std::fs::create_dir_all(&repo).unwrap();
+    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success(), "git {args:?}");
+    git(&["init", "-q"]);
+    git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first"]);
+    let (mut d, mut rx) = daemon();
+    d.cfg.queue_at_once = 1;
+    let item = |title: &str| QueueItem {
+        id: 0,
+        project: repo.clone(),
+        agent: "claude".into(),
+        cmd: String::new(),
+        title: title.into(),
+        branch: crate::tickets::slug(title, 3),
+        ticket: None,
+        state: QueueState::Failed("set by the server".into()),
+        worked: true,
+    };
+    d.enqueue(item("fix login"));
+    d.enqueue(item("fix login"));
+    assert!(d.queue.iter().all(|q| q.state == QueueState::Waiting && !q.worked), "it starts out waiting");
+    d.run_queue();
+    assert_eq!(d.queue.iter().map(|q| q.state.clone()).collect::<Vec<_>>(), [QueueState::Starting, QueueState::Waiting], "one at a time");
+    let next_made = |rx: &mut mpsc::Receiver<Ev>| loop {
+        match rx.blocking_recv() {
+            Some(Ev::QueueWorktree { id, result }) => break (id, result),
+            Some(_) => continue,
+            None => panic!("no worktree came"),
+        }
+    };
+    let (id, result) = tokio::task::block_in_place(|| next_made(&mut rx));
+    d.queue_worktree(id, result);
+    let QueueState::Running(first) = d.queue[0].state else { panic!("running: {:?}", d.queue[0].state) };
+    assert!(d.terms[&first].cwd.to_string_lossy().contains("fix-login"), "in its own worktree: {}", d.terms[&first].cwd.display());
+    // It works, then finishes: yours to review, and the next one starts.
+    d.terms.get_mut(&first).unwrap().status = Status::Working;
+    d.run_queue();
+    assert_eq!(d.queue[1].state, QueueState::Waiting, "still one at a time");
+    d.terms.get_mut(&first).unwrap().status = Status::Done;
+    d.run_queue();
+    assert_eq!(d.queue[0].state, QueueState::Review(first));
+    assert_eq!(d.queue[1].state, QueueState::Starting);
+    assert_eq!(d.queue[1].branch, "fix-login-2", "its own branch, even with the same task");
+    let (id, result) = tokio::task::block_in_place(|| next_made(&mut rx));
+    d.queue_worktree(id, result);
+    // Closing what you reviewed takes it off the list.
+    let second = match d.queue[1].state { QueueState::Running(t) => t, ref s => panic!("{s:?}") };
+    close(&mut d, &[first]);
+    d.run_queue();
+    assert_eq!(d.queue.len(), 1);
+    close(&mut d, &[second]);
+    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 #[test]

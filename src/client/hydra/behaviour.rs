@@ -493,6 +493,7 @@ impl App {
             Action::Ideas => self.open_ideas(),
             Action::Map => self.open_map(),
             Action::Inbox => self.open_tickets(),
+            Action::Queue => self.open_queue(),
             Action::Race => self.open_race_new(),
             Action::Ship => {
                 let dir = self.hy_target_dir();

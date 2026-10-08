@@ -150,6 +150,16 @@ pub fn ahead_of(dir: &Path, base: &str) -> u32 {
     git(dir, &["rev-list", "--count", &format!("{base}..HEAD")]).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0)
 }
 
+/// The branch a checkout is on (None when detached).
+pub fn branch_of(dir: &Path) -> Option<String> {
+    git(dir, &["rev-parse", "--abbrev-ref", "HEAD"]).ok().map(|b| b.trim().to_string()).filter(|b| b != "HEAD")
+}
+
+/// Delete `branch` if it's merged (`git branch -d` refuses otherwise). Whether it went.
+pub fn delete_if_merged(repo: &Path, branch: &str) -> bool {
+    !branch.starts_with('-') && git(repo, &["branch", "-d", branch]).is_ok()
+}
+
 /// Remove a linked worktree (and optionally its branch). Retries briefly: on Windows the
 /// panes' processes may still hold the directory for a moment after being killed.
 pub fn remove_worktree(path: &Path, force: bool, delete_branch: bool) -> Result<()> {

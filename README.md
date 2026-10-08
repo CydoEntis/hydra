@@ -248,7 +248,20 @@ shop-api = "linear"                        # which tab a project opens on
 ```
 
 Keys come from `LINEAR_API_KEY` / `PLANE_API_KEY`, or `linear_key` / `plane_key` in
-`config.local.toml` (never synced). A new tracker is one more `Source` in `src/client/work.rs`.
+`config.local.toml` (never synced). A new tracker is one more `Source` in `src/tickets.rs`.
+
+**The queue.** In Tickets, Enter starts an agent on a ticket now; `Ctrl+Q` queues it instead.
+The server starts queued work `queue_at_once` at a time (Settings → Queued tasks at once,
+default 3), each in its own worktree, and starts the next when one finishes, with the window
+closed too. The tracker follows: Linear and Plane move the issue to In Progress and then to
+a review state if the team has one; GitHub gets a comment at each step. The **Queue** tab
+(last in Tickets, or "Queue" in the palette) lists it all, takes a typed task without a
+ticket, opens a running one (Enter) and removes one (Del). The footer counts what's running,
+waiting and ready for review.
+
+**Merging.** In Changes, `m` merges a worktree's branch into the main one, then closes its
+sessions and removes the worktree and the branch. Closing the last session in a worktree
+hydra made removes the folder; its branch goes too when it's already merged.
 
 ## Recipes
 

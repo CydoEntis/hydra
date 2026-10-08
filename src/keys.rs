@@ -209,6 +209,8 @@ pub enum Action {
     Files,
     /// GitHub pull requests and issues, Linear tickets.
     Inbox,
+    /// Hydra's queue of work (the Tickets view's Queue tab).
+    Queue,
     /// Each AI tool's MCP servers, skills, plugins, hooks.
     Toolbox,
     /// The + Pane menu: what to run, and in which folder.
@@ -332,6 +334,7 @@ impl Action {
             Action::BrowseTree => "Focus the sidebar".into(),
             Action::Files => "Files".into(),
             Action::Inbox => "Tickets (GitHub, Linear, Plane)".into(),
+            Action::Queue => "Queue (work waiting for an agent)".into(),
             Action::Toolbox => "Agent tools (MCP, skills, plugins)".into(),
             Action::NewPane => "New agent (task, agent, model, worktree)".into(),
             Action::Talk => "Message an agent".into(),
@@ -424,6 +427,7 @@ impl Action {
             Action::BrowseTree => "browse-tree".into(),
             Action::Files => "files".into(),
             Action::Inbox => "inbox".into(),
+            Action::Queue => "queue".into(),
             Action::Toolbox => "toolbox".into(),
             Action::NewPane => "new".into(),
             Action::Jump => "jump".into(),
@@ -530,6 +534,7 @@ impl FromStr for Action {
             "browse-tree" | "browse" => Action::BrowseTree,
             "files" => Action::Files,
             "inbox" => Action::Inbox,
+            "queue" => Action::Queue,
             "toolbox" => Action::Toolbox,
             "new-pane" | "new" => Action::NewPane,
             "jump" => Action::Jump,

@@ -94,7 +94,10 @@ impl App {
                 && let Some(r) = &v.review {
                     let task = r.task.clone();
                     match action {
-                        'm' => self.spawn_bg(move || Bg::Done(tasks::merge(&task), true)),
+                        'm' => {
+                            let dir = task.dir.clone();
+                            self.spawn_bg(move || Bg::Merged(tasks::merge(&task), dir));
+                        }
                         'p' => self.spawn_bg(move || Bg::Done(tasks::pull_request(&task), true)),
                         'd' => {
                             if let Some(ws) = self.snap.workspaces.iter().find(|w| design::path_key(&w.cwd) == design::path_key(&v.dir)).map(|w| w.id) {
@@ -170,7 +173,7 @@ impl App {
                 self.open_pr(dir, branch);
                 return true_and_replace();
             }
-            KeyCode::Char('m') if v.linked => v.confirm = Some((format!("Merge {} into {}?", r.task.branch, r.task.base), 'm')),
+            KeyCode::Char('m') if v.linked => v.confirm = Some((format!("Merge {} into {}, then close it and remove its worktree and branch?", r.task.branch, r.task.base), 'm')),
             KeyCode::Char('p') => v.confirm = Some((format!("Push {} and open a pull request?", r.task.branch), 'p')),
             KeyCode::Char('d') if v.linked => v.confirm = Some((format!("Throw away {} (folder and branch)?", r.task.branch), 'd')),
             KeyCode::Char('r') => {

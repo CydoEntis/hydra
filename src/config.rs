@@ -52,6 +52,8 @@ pub struct Config {
     pub auto_workspace: bool,
     /// An agent stopped by a plan limit is told "continue" once the limit resets.
     pub auto_continue: bool,
+    /// How many queued tasks run at once.
+    pub queue_at_once: u8,
     pub worktree: Worktree,
     pub quick: Quick,
     pub icons: Icons,
@@ -442,6 +444,7 @@ impl Default for Config {
             restore: Restore::default(),
             auto_workspace: false,
             auto_continue: true,
+            queue_at_once: 3,
             worktree: Worktree::default(),
             quick: Quick::default(),
             icons: Icons::default(),

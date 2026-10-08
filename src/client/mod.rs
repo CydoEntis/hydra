@@ -134,6 +134,8 @@ pub(super) enum Bg {
     TreeRecent(PathBuf, Vec<files::FileEntry>),
     /// A finished action: its message, and whether the open review should reload.
     Done(Result<String, String>, bool),
+    /// A worktree's branch merged (or not): then the worktree and its branch go.
+    Merged(Result<String, String>, PathBuf),
     /// Your open pull requests in a project (by key).
     Prs(String, Vec<pr::PrBrief>),
     /// One pull request (by number or branch), and its diff.
