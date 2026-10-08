@@ -186,9 +186,7 @@ mod hydra_tests {
         assert!(!text.contains("Rate limit /login"), "under a session only its question, as in the redesign");
         assert!(text.contains("\u{f489}   shell") && !text.contains("shell 2"), "a shell in the project's folder is just 'shell' (a terminal icon), no age");
         assert!(!text.contains("session"), "no 'session' wording on screen");
-        for part in ["● answer", " Yes 1 ", " Always 2 ", " No 3"] {
-            assert!(text.contains(part), "the answer bar has {part:?}");
-        }
+        assert!(!text.contains("● answer") && !text.contains(" Yes 1 "), "an agent's own question is answered in its own prompt: no answer bar");
         assert!(!text.contains("click or press T"), "no footer under the pane");
         assert!(lines[0].contains("✻ claude  Fix flaky checkout test · shop-api · main") && lines[0].contains("● needs you"), "every pane has a title bar, at the top: {}", lines[0]);
         assert!(lines[2].contains("> fix the flaky checkout test"), "a blank row under the bar, then the output");

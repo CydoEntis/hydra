@@ -831,11 +831,9 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
     }
 
     // A blank row under the bar; output starts two cells in.
-    // Only for a question that's really there: a "needs you" with nothing to pick (one auto
-    // mode settled) gets no buttons that would just type a digit.
-    let ask = st == Status::Blocked
-        && info.agent.is_some()
-        && (app.pending_question(term).is_some() || !super::choices(app.parsers.get(&term)).is_empty());
+    // Answer buttons only for a question asked through hydra (ask-human), which has nowhere
+    // else to be answered: an agent's own question is answered in its own prompt.
+    let ask = st == Status::Blocked && info.agent.is_some() && app.pending_question(term).is_some();
     let bot = r.bottom().saturating_sub(if ask { 2 } else { 0 });
     let top = r.y + 2;
     let inner = Rect { x: r.x + 2, y: top, width: r.width.saturating_sub(3), height: bot.saturating_sub(top) };
@@ -908,7 +906,7 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
         put(f.buffer_mut(), x, inner.y + inner.height / 2, &note, inner.right());
     }
 
-    // Answer bar: the agent's own numbered choices, so a key sends the same keystroke.
+    // Answer bar: the choices of the question asked through hydra.
     if ask && bot + 2 <= r.bottom() {
         let bot = r.bottom() - 1;
         fill(f.buffer_mut(), Rect { x: r.x, y: bot, width: r.width, height: 1 }, t.card2);
