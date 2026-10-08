@@ -12,6 +12,7 @@ mod commands;
 mod contain;
 mod restore;
 mod status;
+mod usage;
 mod worktrees;
 
 use status::*;
@@ -65,6 +66,8 @@ pub enum Ev {
         result: Result<(PathBuf, String), String>,
     },
     WorktreeRemoved { client: ClientId, path: PathBuf, result: Result<(), String> },
+    /// Numbers read from Codex's session files (`usage::poll_codex`).
+    CodexUsage { usage: Vec<(TermId, Usage)>, limits: Option<Vec<Limit>> },
     /// A worktree made for an agent started from a shell (`Command::AgentWorktree`).
     AgentWorktreeMade { client: ClientId, result: Result<PathBuf, String> },
     /// A worktree removed (or kept) after its last pane closed.
@@ -141,6 +144,12 @@ struct Daemon {
     last_saved: String,
     /// Worktrees hydra created; closing the last thing in one removes it.
     made_worktrees: Vec<PathBuf>,
+    /// Plan limits by agent, as last reported.
+    limits: BTreeMap<String, Vec<Limit>>,
+    /// What sessions cost, as it was reported (when, US dollars), over the last day.
+    spent: Vec<(u64, f64)>,
+    codex_busy: bool,
+    last_codex: Instant,
     /// Extensions (their hooks run here).
     exts: Vec<crate::ext::Ext>,
     /// Extra environment for the next pane spawned (a dev server's PORT).
@@ -382,6 +391,10 @@ impl Daemon {
             last_save: Instant::now(),
             last_saved: String::new(),
             made_worktrees: Vec::new(),
+            limits: BTreeMap::new(),
+            spent: Vec::new(),
+            codex_busy: false,
+            last_codex: Instant::now() - Duration::from_secs(3600),
             next_env: Vec::new(),
             next_once: false,
             // Tests don't load the user's extensions.
@@ -409,6 +422,8 @@ impl Daemon {
                 }
                 _ = tick.tick() => {
                     self.update_statuses();
+                    self.auto_continue();
+                    self.poll_codex();
                     if self.last_sleep_check.elapsed() >= SLEEP_CHECK_EVERY {
                         self.last_sleep_check = Instant::now();
                         self.sleep_idle();
@@ -791,6 +806,7 @@ impl Daemon {
                 self.send(client, ServerMsg::Notice(msg));
                 self.dirty = true;
             }
+            Ev::CodexUsage { usage, limits } => self.codex_usage(usage, limits),
             Ev::WorktreeRemoved { client, path, result } => {
                 self.pending_ops -= 1;
                 match result {
@@ -846,6 +862,11 @@ impl Daemon {
                 let job = HookJob { root: pane.pid.filter(|_| pid != 0), pid, known: pane.trusted.clone(), msg };
                 if self.hook_jobs.send(job).is_err() {
                     tracing::error!("the hook thread is gone; status reports are lost");
+                }
+            }
+            ClientMsg::Usage { term, token, usage, limits } => {
+                if self.terms.get(&term).is_some_and(|t| term::same_secret(&t.token, &token)) {
+                    self.report_usage(term, usage, limits);
                 }
             }
             ClientMsg::Command(cmd) => {
@@ -956,6 +977,8 @@ impl Daemon {
                     since: t.status_since,
                     asleep: t.asleep,
                     win32_input: t.win32_input,
+                    usage: t.usage.clone(),
+                    resume_at: t.resume_at,
                     subagents: t.subagents.iter().map(|(_, k)| k.clone()).collect(),
                 })
             })
@@ -965,6 +988,8 @@ impl Daemon {
             active_ws: self.active_ws,
             terms,
             questions: self.questions.iter().map(|(q, ..)| q.clone()).collect(),
+            limits: self.limits.iter().map(|(a, l)| (a.clone(), l.clone())).collect(),
+            spent_today: self.spent_today(),
         }
     }
 

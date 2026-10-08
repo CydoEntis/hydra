@@ -79,6 +79,12 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
   `<leader> ?` lists every key.
 - **Status at a glance.** Working (yellow, its name shimmering), needs you (red), done (green until
   you look), idle. An alert or a sound tells you when one needs you or finishes out of view.
+- **Usage and limits.** The footer shows your plan limits (Claude's 5-hour and weekly, Codex's)
+  and what sessions cost today; each agent's bar shows how full its context is and what its
+  session has cost, and a row shows the context once it's past half. An agent stopped by a limit
+  is told "continue" once the limit resets (Settings → Continue after a limit). Claude's numbers
+  come from its status line: `hydra integrate claude` makes hydra's run first and then yours,
+  which looks the same as before.
 - **Detection without setup.** The process tree finds `claude`, `codex`, `gemini`, `opencode`,
   `cursor-agent`, `copilot`, `amp`, `qwen`, `aider` and others, and screen patterns tell
   working from blocked. Hooks (`hydra integrate claude`) make it exact.

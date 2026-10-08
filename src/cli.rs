@@ -1037,6 +1037,127 @@ fn this_exe() -> Result<String> {
     Ok(std::env::current_exe()?.to_string_lossy().replace('\\', "/"))
 }
 
+/// Context, cost and plan limits from the JSON Claude Code hands its status line.
+pub(crate) fn statusline_facts(json: &str) -> (Usage, Vec<Limit>) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else { return (Usage::default(), Vec::new()) };
+    let usage = Usage { context: v["context_window"]["used_percentage"].as_f64().map(|p| p as f32), cost: v["cost"]["total_cost_usd"].as_f64() };
+    let limits = [("five_hour", "5h"), ("seven_day", "week")]
+        .iter()
+        .filter_map(|(k, name)| {
+            let l = &v["rate_limits"][k];
+            Some(Limit { name: name.to_string(), used: l["used_percentage"].as_f64()? as f32, resets_at: l["resets_at"].as_u64()? })
+        })
+        .collect();
+    (usage, limits)
+}
+
+/// Where the status line you had before hydra's is kept (hydra's runs it after its own).
+fn statusline_before() -> PathBuf {
+    crate::config::data_dir().join("claude-statusline.txt")
+}
+
+/// Whether a status line command is hydra's.
+fn is_our_statusline(cmd: &str) -> bool {
+    cmd.contains("hydra") && cmd.trim_end().ends_with(" statusline")
+}
+
+/// Make Claude's status line hydra's (or with `uninstall`, put yours back). Yours keeps
+/// showing: hydra's runs it with the same input and prints what it prints.
+fn statusline_setting(root: &mut Value, exe: &str, uninstall: bool, kept: &std::path::Path) -> Result<()> {
+    let cur = root.get("statusLine").and_then(|s| s.get("command")).and_then(Value::as_str).map(String::from);
+    let ours = cur.as_deref().is_some_and(is_our_statusline);
+    let before = std::fs::read_to_string(kept).unwrap_or_default();
+    let obj = root.as_object_mut().ok_or_else(|| anyhow!("settings.json is not an object"))?;
+    if uninstall {
+        if ours {
+            match before.trim() {
+                "" => {
+                    obj.remove("statusLine");
+                }
+                b => obj["statusLine"]["command"] = json!(b),
+            }
+        }
+        let _ = std::fs::remove_file(kept);
+        return Ok(());
+    }
+    if !ours {
+        if let Some(dir) = kept.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(kept, cur.unwrap_or_default())?;
+    }
+    let line = obj.entry("statusLine").or_insert_with(|| json!({ "type": "command" }));
+    if !line.is_object() {
+        *line = json!({ "type": "command" });
+    }
+    line["command"] = json!(format!("\"{exe}\" statusline"));
+    Ok(())
+}
+
+/// `hydra statusline`, Claude Code's status line command: hands what the session has used
+/// to hydra (inside a hydra pane), then shows the status line you had before, if any.
+pub fn statusline() {
+    use std::io::Write;
+    let mut input = String::new();
+    let _ = std::io::stdin().read_to_string(&mut input);
+    let term = std::env::var("HYDRA_TERM_ID").ok().and_then(|s| s.parse::<TermId>().ok());
+    if let (Some(term), Ok(token)) = (term, std::env::var("HYDRA_PANE_TOKEN")) {
+        let (usage, limits) = statusline_facts(&input);
+        let msg = ClientMsg::Usage { term, token, usage, limits };
+        // Never hold up Claude's screen for it; a report that doesn't get there is skipped.
+        let sent = block_on(async {
+            tokio::time::timeout(Duration::from_millis(800), async {
+                let (_r, mut w) = ipc::open(false).await?;
+                ipc::send(&mut w, &msg).await
+            })
+            .await
+            .unwrap_or_else(|_| Err(anyhow!("timed out")))
+        });
+        if let Err(e) = sent {
+            tracing::debug!("status line report: {e:#}");
+        }
+    }
+    let before = std::fs::read_to_string(statusline_before()).unwrap_or_default();
+    let before = before.trim();
+    if before.is_empty() || is_our_statusline(before) {
+        return;
+    }
+    let mut cmd = shell_line(before);
+    cmd.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::inherit()).stderr(std::process::Stdio::null());
+    if let Ok(mut child) = crate::proc::quiet(&mut cmd).spawn() {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(input.as_bytes());
+        }
+        let _ = child.wait();
+    }
+}
+
+/// A command line run the way Claude Code runs its own: by bash (Git Bash on Windows, where
+/// cmd stands in when there's none).
+fn shell_line(line: &str) -> std::process::Command {
+    if cfg!(windows) {
+        let bash = std::env::var_os("CLAUDE_CODE_GIT_BASH_PATH")
+            .map(PathBuf::from)
+            .or_else(|| ["C:/Program Files/Git/bin/bash.exe", "C:/Program Files (x86)/Git/bin/bash.exe"].iter().map(PathBuf::from).find(|p| p.is_file()));
+        match bash {
+            Some(b) => {
+                let mut c = std::process::Command::new(b);
+                c.args(["-c", line]);
+                c
+            }
+            None => {
+                let mut c = std::process::Command::new("cmd");
+                c.args(["/C", line]);
+                c
+            }
+        }
+    } else {
+        let mut c = std::process::Command::new("sh");
+        c.args(["-c", line]);
+        c
+    }
+}
+
 /// Add (or with `uninstall`, remove) hydra's hooks in Claude Code's settings.
 fn claude_hooks(uninstall: bool) -> Result<PathBuf> {
     json_hooks(&claude_settings(), "claude", CLAUDE_EVENTS, 5, uninstall)
@@ -1079,6 +1200,9 @@ fn json_hooks(path: &std::path::Path, agent: &str, events: &[(&str, Option<&str>
         }
     }
     hooks.retain(|_, v| v.as_array().is_none_or(|a| !a.is_empty()));
+    if agent == "claude" {
+        statusline_setting(&mut root, &exe, uninstall, &statusline_before())?;
+    }
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -1115,6 +1239,15 @@ fn stale_in(root: &Value, want: &str) -> Vec<String> {
     stale
 }
 
+/// Hydra's Claude hooks are in, but not its status line (installed before there was one).
+fn needs_statusline() -> bool {
+    let Ok(text) = std::fs::read_to_string(claude_settings()) else { return false };
+    let Ok(root) = serde_json::from_str::<Value>(&text) else { return false };
+    let hooked = root.get("hooks").and_then(Value::as_object).is_some_and(|h| h.values().filter_map(Value::as_array).flatten().any(is_ours));
+    let cmd = root.get("statusLine").and_then(|s| s.get("command")).and_then(Value::as_str).unwrap_or_default();
+    hooked && !is_our_statusline(cmd)
+}
+
 /// Point hydra's Claude hooks at this hydra if they name another one. A hook from a
 /// different version can't talk to this server, and hooks fail silently by design, so
 /// every agent would look idle. Run when the server starts.
@@ -1126,7 +1259,7 @@ pub fn refresh_claude_hooks() {
     if side || dev_build {
         return;
     }
-    if !stale_claude_hooks().is_empty() {
+    if !stale_claude_hooks().is_empty() || needs_statusline() {
         match claude_hooks(false) {
             Ok(p) => tracing::info!("pointed hydra's Claude hooks in {} at this hydra", p.display()),
             Err(e) => tracing::warn!("couldn't update hydra's Claude hooks: {e:#}"),
@@ -1312,6 +1445,35 @@ pub fn allow(dir: Option<std::path::PathBuf>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hydras_status_line_keeps_yours() {
+        let kept = std::env::temp_dir().join(format!("hydra-statusline-{}.txt", std::process::id()));
+        let mut root = serde_json::json!({ "statusLine": { "type": "command", "command": "chm statusline", "padding": 1 } });
+        super::statusline_setting(&mut root, "C:/x/hydra.exe", false, &kept).unwrap();
+        assert_eq!(root["statusLine"]["command"], "\"C:/x/hydra.exe\" statusline");
+        assert_eq!(root["statusLine"]["padding"], 1, "your settings for it stay");
+        assert_eq!(std::fs::read_to_string(&kept).unwrap(), "chm statusline", "and yours still runs after hydra's");
+        super::statusline_setting(&mut root, "C:/y/hydra.exe", false, &kept).unwrap();
+        assert_eq!(std::fs::read_to_string(&kept).unwrap(), "chm statusline", "installing again doesn't lose yours");
+        super::statusline_setting(&mut root, "C:/y/hydra.exe", true, &kept).unwrap();
+        assert_eq!(root["statusLine"]["command"], "chm statusline", "uninstalling puts yours back");
+        let mut none = serde_json::json!({});
+        super::statusline_setting(&mut none, "C:/x/hydra.exe", false, &kept).unwrap();
+        super::statusline_setting(&mut none, "C:/x/hydra.exe", true, &kept).unwrap();
+        assert!(none.get("statusLine").is_none(), "none before: none after");
+    }
+
+    #[test]
+    fn claude_says_what_it_used_through_its_status_line() {
+        let json = r#"{"cost":{"total_cost_usd":1.25},"context_window":{"context_window_size":200000,"used_percentage":42},
+            "rate_limits":{"five_hour":{"used_percentage":23.5,"resets_at":1738425600},"seven_day":{"used_percentage":41.2,"resets_at":1738857600}}}"#;
+        let (u, l) = super::statusline_facts(json);
+        assert_eq!(u, crate::protocol::Usage { context: Some(42.0), cost: Some(1.25) });
+        assert_eq!(l.iter().map(|x| (x.name.as_str(), x.used, x.resets_at)).collect::<Vec<_>>(), [("5h", 23.5, 1738425600), ("week", 41.2, 1738857600)]);
+        let (u, l) = super::statusline_facts(r#"{"context_window":{"used_percentage":null}}"#);
+        assert_eq!((u, l.len()), (crate::protocol::Usage::default(), 0), "early in a session, or not on a plan: nothing yet");
+    }
+
     #[test]
     fn only_new_work_gets_a_worktree() {
         let w = |a: &[&str]| super::starts_new_work(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>());

@@ -227,6 +227,58 @@ fn only_a_pane_shell_asks_for_an_agent_worktree() {
 }
 
 #[test]
+fn an_agent_stopped_by_a_limit_is_told_to_continue_when_it_resets() {
+    let (mut d, _rx) = daemon();
+    let t = pane(&mut d);
+    let now = term::unix_now();
+    d.limits.insert("claude".into(), vec![Limit { name: "5h".into(), used: 100.0, resets_at: now + 600 }, Limit { name: "week".into(), used: 40.0, resets_at: now + 90_000 }]);
+    {
+        let p = d.terms.get_mut(&t).unwrap();
+        (p.agent, p.status) = (Some("claude".into()), Status::Idle);
+        p.parser.process(&b"\r\n".repeat(30));
+        p.parser.process(b"\r\n  \xe2\x8e\xbf  Claude usage limit reached. Your limit will reset at 3pm\r\n> ");
+    }
+    d.auto_continue();
+    assert_eq!(d.terms[&t].resume_at, Some(now + 600 + 60), "a minute after the spent limit resets");
+    assert!(d.snapshot().terms[&t].resume_at.is_some(), "and the window says so");
+    d.auto_continue();
+    assert!(d.terms[&t].pending_input.is_none(), "not before");
+    d.terms.get_mut(&t).unwrap().resume_at = Some(now - 1);
+    d.auto_continue();
+    assert_eq!(d.terms[&t].pending_input.as_ref().map(|(b, _)| b.as_slice()), Some(&b"continue\r"[..]), "then it's told to go on");
+    d.terms.get_mut(&t).unwrap().pending_input = None;
+    d.auto_continue();
+    assert!(d.terms[&t].resume_at.is_none(), "the old line still on screen doesn't start another wait");
+    // Off in Settings: nothing.
+    d.cfg.auto_continue = false;
+    d.terms.get_mut(&t).unwrap().continued = None;
+    d.auto_continue();
+    assert!(d.terms[&t].resume_at.is_none());
+    close(&mut d, &[t]);
+}
+
+#[test]
+fn claude_reports_what_its_session_used() {
+    let (mut d, _rx) = daemon();
+    let t = pane(&mut d);
+    let token = d.terms[&t].token.clone();
+    d.terms.get_mut(&t).unwrap().agent = Some("claude".into());
+    let usage = |cost: f64| Usage { context: Some(30.0), cost: Some(cost) };
+    let limits = vec![Limit { name: "5h".into(), used: 23.0, resets_at: term::unix_now() + 100 }];
+    d.handle(Ev::Msg(1, ClientMsg::Usage { term: t, token: "wrong".into(), usage: usage(9.0), limits: Vec::new() }));
+    assert_eq!(d.terms[&t].usage, Usage::default(), "only with the pane's secret");
+    d.handle(Ev::Msg(1, ClientMsg::Usage { term: t, token: token.clone(), usage: usage(1.0), limits: limits.clone() }));
+    d.handle(Ev::Msg(1, ClientMsg::Usage { term: t, token: token.clone(), usage: usage(1.5), limits }));
+    // /clear: a new session, counting from zero again.
+    d.handle(Ev::Msg(1, ClientMsg::Usage { term: t, token, usage: usage(0.25), limits: Vec::new() }));
+    let snap = d.snapshot();
+    assert_eq!(snap.terms[&t].usage.context, Some(30.0));
+    assert!((snap.spent_today - 1.75).abs() < 1e-9, "1.50 then 0.25 after the clear: {}", snap.spent_today);
+    assert_eq!(snap.limits[0].0, "claude");
+    close(&mut d, &[t]);
+}
+
+#[test]
 fn closing_the_last_pane_keeps_an_open_window() {
     let (mut d, _rx) = daemon();
     let t = pane(&mut d);

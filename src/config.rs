@@ -50,6 +50,8 @@ pub struct Config {
     pub restore: Restore,
     /// Starting an agent inside a repo that isn't a workspace yet makes it one.
     pub auto_workspace: bool,
+    /// An agent stopped by a plan limit is told "continue" once the limit resets.
+    pub auto_continue: bool,
     pub worktree: Worktree,
     pub quick: Quick,
     pub icons: Icons,
@@ -439,6 +441,7 @@ impl Default for Config {
             ui: Ui::default(),
             restore: Restore::default(),
             auto_workspace: false,
+            auto_continue: true,
             worktree: Worktree::default(),
             quick: Quick::default(),
             icons: Icons::default(),

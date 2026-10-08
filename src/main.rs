@@ -204,6 +204,10 @@ enum Cmd {
         /// The repo (default: here).
         dir: Option<PathBuf>,
     },
+    /// (Claude Code's status line) hand what the session used to hydra, then show the
+    /// status line you had before.
+    #[command(hide = true)]
+    Statusline,
     /// (Run by `--remote` over ssh) connect stdin/stdout to this machine's server.
     #[command(hide = true)]
     Proxy,
@@ -294,6 +298,10 @@ fn main() {
         Some(Cmd::Reveal { target }) => reveal::run(&target),
         Some(Cmd::Teach { pane }) => cli::teach(pane),
         Some(Cmd::TmuxShim { cmd }) => tmux_shim::run(cmd),
+        Some(Cmd::Statusline) => {
+            cli::statusline();
+            Ok(())
+        }
         Some(Cmd::AgentDir { cmd }) => {
             cli::agent_dir(&cmd);
             Ok(())

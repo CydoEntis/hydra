@@ -53,6 +53,8 @@ mod design_tests {
             win32_input: false,
             remote: None,
             popup: false,
+            usage: Default::default(),
+            resume_at: None,
         }
     }
 
@@ -1129,6 +1131,26 @@ mod hydra_tests {
         // It stays when the agent reports its folder again.
         app.hy_fresh();
         assert!(groups(&app).iter().any(|(n, ts)| n == "web" && ts.contains(&1)));
+    }
+
+    #[test]
+    fn usage_limits_and_a_wait_for_one_show() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        app.snap.limits = vec![("claude".into(), vec![crate::protocol::Limit { name: "5h".into(), used: 82.0, resets_at: now + 3600 + 1200 }])];
+        app.snap.spent_today = 4.2;
+        let agent = app.snap.terms.values().find(|t| t.agent.is_some()).map(|t| t.id).unwrap();
+        let ti = app.snap.terms.get_mut(&agent).unwrap();
+        ti.usage = crate::protocol::Usage { context: Some(76.0), cost: Some(1.2) };
+        app.hy_focus(agent);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("claude 5h 82% (1h20m)") && o.contains("$4.20 today"), "the plan limit and spend in the footer");
+        assert!(o.contains("ctx 76% · $1.20"), "context and cost on its bar");
+        assert!(o.contains("76% "), "a filling context on its row");
+        app.snap.terms.get_mut(&agent).unwrap().resume_at = Some(now + 600);
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("resumes in 10m") || o.contains("resumes in 9m"), "waiting on a limit, on its row");
     }
 
     #[test]

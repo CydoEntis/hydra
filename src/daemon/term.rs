@@ -136,6 +136,12 @@ pub struct Term {
     pub pending_input: Option<(Vec<u8>, Instant)>,
     /// The agent's conversation file (from hooks).
     pub transcript: Option<PathBuf>,
+    /// Context and cost, as the agent last reported them.
+    pub usage: crate::protocol::Usage,
+    /// Stopped by a plan limit: "continue" goes at this time (unix seconds).
+    pub resume_at: Option<u64>,
+    /// When hydra last said "continue" to it.
+    pub continued: Option<Instant>,
     /// A worktree this agent moves into when its turn ends.
     pub pending_move: Option<PathBuf>,
     /// A prewarmed agent waiting in a spare worktree: not shown anywhere until it's used.
@@ -480,6 +486,9 @@ impl Term {
             restore_unseen: false,
             pending_input: None,
             transcript: None,
+            usage: Default::default(),
+            resume_at: None,
+            continued: None,
             pending_move: None,
             dev: None,
             spare: false,

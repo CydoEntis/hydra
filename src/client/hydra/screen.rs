@@ -439,6 +439,8 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                     tg
                 } else if s.asleep {
                     vec![seg("asleep", st.fg(ink.unwrap_or(t.muted)))]
+                } else if let Some(at) = s.resume_at {
+                    vec![seg(format!("⏸ limit · resumes in {}", until(at)), st.fg(ink.unwrap_or(t.working)))]
                 } else if s.is_agent {
                     // branch · age (in a repo), state · age (outside one); amber when it needs you.
                     let first = if model[*pi].git && !wt.branch.is_empty() && wt.branch != s.name { wt.branch.clone() } else { state_label(s.status).to_string() };
@@ -447,15 +449,19 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                         Status::Done => t.done,
                         _ => t.muted,
                     };
-                    vec![seg(format!("{} · {}", truncate(&first, 18), age(s.since)), st.fg(ink.unwrap_or(col)))]
+                    let mut tail = context_tag(s, st, ink, t);
+                    tail.push(seg(format!("{} · {}", truncate(&first, 18), age(s.since)), st.fg(ink.unwrap_or(col))));
+                    tail
                 } else {
                     vec![]
                 };
                 // The name comes first: when it doesn't fit, the branch gives way (the age stays).
                 let room = right.saturating_sub(x0 + 6) as usize;
-                let tail = if s.is_agent && !sel && pr.is_none() && !s.asleep && segs_width(&left) as usize + segs_width(&tail) as usize + 2 > room {
+                let tail = if s.is_agent && !sel && pr.is_none() && !s.asleep && s.resume_at.is_none() && segs_width(&left) as usize + segs_width(&tail) as usize + 2 > room {
                     let col = if s.status == Status::Blocked { t.blocked } else { t.muted };
-                    vec![seg(age(s.since), st.fg(ink.unwrap_or(col)))]
+                    let mut tail = context_tag(s, st, ink, t);
+                    tail.push(seg(age(s.since), st.fg(ink.unwrap_or(col))));
+                    tail
                 } else {
                     tail
                 };
@@ -753,6 +759,21 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
         right.push(seg(format!("↑{n}   "), Style::default().fg(ink(t.accent)).bg(bg)));
     }
     if info.agent.is_some() {
+        let u = &info.usage;
+        let mut used = Vec::new();
+        if let Some(c) = u.context {
+            used.push(seg(format!("ctx {c:.0}%"), Style::default().fg(if focused { t.acc_ink } else { fullness(t, c) }).bg(bg)));
+        }
+        if let Some(c) = u.cost.filter(|c| *c >= 0.01) {
+            used.push(seg(format!("{}${c:.2}", if used.is_empty() { "" } else { " · " }), Style::default().fg(ink(t.muted)).bg(bg)));
+        }
+        if !used.is_empty() {
+            used.push(seg("   ", Style::default().bg(bg)));
+            right.extend(used);
+        }
+        if let Some(at) = info.resume_at {
+            right.push(seg(format!("⏸ limit · says continue in {}   ", until(at)), Style::default().fg(ink(t.working)).bg(bg)));
+        }
         let mut s = Style::default().fg(ink(t.status(st))).bg(bg);
         if st == Status::Blocked {
             s = s.add_modifier(Modifier::BOLD);
@@ -930,6 +951,37 @@ pub(in crate::client) fn draw_toast(app: &mut App, buf: &mut Buffer, panes: Rect
     }
 }
 
+/// "72% " in front of an agent's row once its context is getting full.
+fn context_tag(s: &Session, st: Style, ink: Option<Color>, t: &Theme) -> Vec<Seg> {
+    match s.context.filter(|c| *c >= CONTEXT_SHOWN_FROM) {
+        Some(c) => vec![seg(format!("{c:.0}% "), st.fg(ink.unwrap_or(fullness(t, c))))],
+        None => Vec::new(),
+    }
+}
+
+/// The footer's plan limits and spend: "claude 5h 23% · week 41%   codex week 12%   $4.20 today".
+fn limits_line(app: &App, t: &Theme, s: Style) -> Vec<Seg> {
+    let mut out = Vec::new();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    for (agent, limits) in &app.snap.limits {
+        let live: Vec<_> = limits.iter().filter(|l| l.resets_at > now).collect();
+        if live.is_empty() {
+            continue;
+        }
+        out.push(seg(format!("{agent} "), s.fg(t.muted)));
+        for (i, l) in live.iter().enumerate() {
+            let sep = if i == 0 { "" } else { " · " };
+            let soon = if l.used >= 70.0 { format!(" ({})", until(l.resets_at)) } else { String::new() };
+            out.push(seg(format!("{sep}{} {:.0}%{soon}", l.name, l.used), s.fg(fullness(t, l.used))));
+        }
+        out.push(seg("   ", s));
+    }
+    if app.snap.spent_today >= 0.01 {
+        out.push(seg(format!("${:.2} today   ", app.snap.spent_today), s.fg(t.muted)));
+    }
+    out
+}
+
 pub(in crate::client) fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
     let surf = t.sidebar_bg;
     fill(buf, r, surf);
@@ -981,7 +1033,7 @@ pub(in crate::client) fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, m
             Vec::new()
         }
     };
-    let mut right = Vec::new();
+    let mut right = limits_line(app, t, s);
     if let Some(host) = crate::ipc::remote() {
         right.push(seg(format!(" ⇄ {host} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)));
         right.push(seg(" ", s));

@@ -367,6 +367,10 @@ pub(super) struct Session {
     pub dev: Option<crate::protocol::DevInfo>,
     /// It rang the bell and you haven't looked.
     pub bell: bool,
+    /// How full its context is, 0–100, when it says.
+    pub context: Option<f32>,
+    /// Stopped by a plan limit: hydra says "continue" then (unix seconds).
+    pub resume_at: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -502,6 +506,33 @@ pub(super) fn age(since: u64) -> String {
         _ => format!("{}d", s / 86_400),
     }
 }
+
+/// How long until `at` (unix seconds): "1h20m", "5m", "now".
+pub(super) fn until(at: u64) -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let s = at.saturating_sub(now);
+    match s {
+        0..=59 => "now".into(),
+        60..=3599 => format!("{}m", s / 60),
+        3600..=86_399 if (s % 3600) / 60 > 0 => format!("{}h{}m", s / 3600, (s % 3600) / 60),
+        3600..=86_399 => format!("{}h", s / 3600),
+        _ => format!("{}d", s / 86_400),
+    }
+}
+
+/// How full a context (or used a limit) is worth showing, and in what colour.
+pub(super) fn fullness(t: &crate::theme::Theme, pct: f32) -> Color {
+    if pct >= 90.0 {
+        t.blocked
+    } else if pct >= 70.0 {
+        t.working
+    } else {
+        t.muted
+    }
+}
+
+/// A context this full is shown on the sidebar row (below it, only on the pane's bar).
+pub(super) const CONTEXT_SHOWN_FROM: f32 = 50.0;
 
 /// An agent's numbered choices on screen ("❯ 1. Yes", "  2. Yes, and always allow …"),
 /// shortened for buttons. Falls back to Yes / Always / No.
@@ -667,6 +698,8 @@ impl App {
                     dev: t.dev.clone(),
                     bell: t.bell,
                     model: t.model.clone(),
+                    context: t.usage.context,
+                    resume_at: t.resume_at,
                 });
             }
             // The repo's other worktrees, even with nothing running in them.

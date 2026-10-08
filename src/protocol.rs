@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 29;
+pub const PROTOCOL_VERSION: u32 = 30;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -58,7 +58,29 @@ pub enum ClientMsg {
         /// The name you gave the conversation in the agent (Claude's /rename).
         name: Option<String>,
     },
+    /// What an agent in a pane has used (from Claude's status line), with the pane's secret.
+    Usage { term: TermId, token: String, usage: Usage, limits: Vec<Limit> },
     Query(Query),
+}
+
+/// What an agent's session has used.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Usage {
+    /// How full its context is, 0–100.
+    pub context: Option<f32>,
+    /// What the session has cost so far at list price, in US dollars (Claude's estimate).
+    pub cost: Option<f64>,
+}
+
+/// One of an agent's plan limits: how much is used and when it starts over.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Limit {
+    /// Which window: "5h", "week".
+    pub name: String,
+    /// 0–100.
+    pub used: f32,
+    /// Unix seconds.
+    pub resets_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -247,6 +269,12 @@ pub struct Snapshot {
     /// Questions agents asked you (`hydra ask-human`), waiting for an answer.
     #[serde(default)]
     pub questions: Vec<HumanQuestion>,
+    /// Plan limits by agent ("claude", "codex"), as last reported.
+    #[serde(default)]
+    pub limits: Vec<(String, Vec<Limit>)>,
+    /// What Claude sessions in hydra have cost today (local day), at list price.
+    #[serde(default)]
+    pub spent_today: f64,
 }
 
 /// A question an agent asked you, with the answers it allows.
@@ -372,6 +400,12 @@ pub struct TermInfo {
     /// Windows' console layer asked for native key records (win32-input-mode), so keys
     /// plain VT can't express (Ctrl+Shift+letter, Ctrl+Enter) can be sent exactly.
     pub win32_input: bool,
+    /// Context and cost, when the agent reports them.
+    #[serde(default)]
+    pub usage: Usage,
+    /// It hit a plan limit; hydra says "continue" at this time (unix seconds).
+    #[serde(default)]
+    pub resume_at: Option<u64>,
 }
 
 impl TermInfo {

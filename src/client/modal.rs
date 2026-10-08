@@ -168,6 +168,7 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "shell", label: "Shell", kind: Kind::Program(SHELLS), cat: Cat::General, help: "The shell new sessions run. Empty: pwsh / powershell on Windows, $SHELL elsewhere." },
     Setting { path: "shell_integration", label: "PowerShell folder tracking", kind: Kind::Bool, cat: Cat::General, help: "Lets hydra see where PowerShell sessions cd to." },
     // Sessions
+    Setting { path: "auto_continue", label: "Continue after a limit", kind: Kind::Bool, cat: Cat::Sessions, help: "An agent stopped by its plan limit is told \"continue\" once the limit resets." },
     Setting { path: "ui.attention_sort", label: "Sort sidebar by attention", kind: Kind::Bool, cat: Cat::Sessions, help: "Sessions that need you float to the top, then done, then working, then idle." },
     Setting { path: "notify.desktop", label: "Desktop notifications", kind: Kind::Bool, cat: Cat::Sessions, help: "A notification when an agent you're not looking at needs you or finishes, even with hydra closed." },
     Setting { path: "notify.sound_needs", label: "Sound when one needs you", kind: Kind::Choice(crate::alert::SOUNDS), cat: Cat::Sessions, help: "Or set a path to your own sound file in config.toml." },
