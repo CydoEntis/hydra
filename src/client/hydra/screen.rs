@@ -548,7 +548,12 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     hline(buf, x0 + 2, by, w.saturating_sub(4), t, surf);
     let mut hx = x0 + 2;
     for (key, label, h) in [(k(app, &Action::ShellHere), "new", HyHit::NewPane), (k(app, &Action::GoTo), "go to", HyHit::GoTo), (k(app, &Action::Settings), "settings", HyHit::Settings)] {
-        let segs = vec![seg(key, plain.fg(t.accent).add_modifier(Modifier::BOLD)), seg(format!(" {label}"), plain.fg(t.text))];
+        let hot = plain.fg(t.accent).add_modifier(Modifier::BOLD);
+        // A key that's the label's first letter is that letter, lit: "new", not "n new".
+        let segs = match label.strip_prefix(key.as_str()) {
+            Some(rest) => vec![seg(key.clone(), hot), seg(rest.to_string(), plain.fg(t.text))],
+            None => vec![seg(key, hot), seg(format!(" {label}"), plain.fg(t.text))],
+        };
         let sw = segs_width(&segs);
         // A narrow sidebar shows the hints that fit, whole.
         if hx + sw > r.right().saturating_sub(1) {
@@ -746,7 +751,7 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
             (String::new(), String::new(), agent)
         });
     let st = info.status;
-    let _ = (split, &title, &wt);
+    let _ = (&title, &wt);
     // While the sidebar has the keys, no pane shows as focused.
     let focused = focused && app.mode != Mode::Side;
     // Title bar: name and where on the left (project · branch, cut with … before the right
@@ -781,6 +786,15 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
         let extra = if st == Status::Working { format!(" {}", age(info.since)) } else { String::new() };
         right.push(seg(format!("{} {}{extra}   ", glyph(app, st), state_label(st)), s));
     }
+    // A session shown on its own, with no tab bar yet: + tab opens a shell beside it, in its
+    // folder, as its second tab.
+    let tab_button = !split && app.session_tabs().len() < 2;
+    let tr = Rect { x: r.right().saturating_sub(10), y: r.y, width: 5, height: 1 };
+    if tab_button {
+        let st = if hovered(app, tr) { Style::default().fg(t.strong).bg(t.hov) } else { Style::default().fg(ink(t.muted)).bg(bg) };
+        right.push(seg("+ tab", st));
+        right.push(seg("   ", Style::default().bg(bg)));
+    }
     let xr = Rect { x: r.right().saturating_sub(2), y: r.y, width: 1, height: 1 };
     right.push(seg("✕", Style::default().fg(if hovered(app, xr) { t.err } else { ink(t.muted) }).bg(bg)));
     let rw = segs_width(&right);
@@ -812,6 +826,9 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
     put(f.buffer_mut(), r.right().saturating_sub(rw + 1), r.y, &right, r.right());
     app.pane_frames.push((term, r));
     hit(app, Rect { x: r.right().saturating_sub(3), y: r.y, width: 3, height: 1 }, HyHit::CloseSplit(term));
+    if tab_button {
+        hit(app, tr, HyHit::TabNew);
+    }
 
     // A blank row under the bar; output starts two cells in.
     let ask = st == Status::Blocked && info.agent.is_some();

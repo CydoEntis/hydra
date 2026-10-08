@@ -173,7 +173,7 @@ mod hydra_tests {
         let bottom = lines.iter().rev().find(|l| !l.trim().is_empty()).unwrap();
         assert!(bottom.contains("● 1 needs you") && !bottom.contains("›"), "the bottom bar: what needs you, no path (the pane's title has it): {bottom}");
         assert!(lines[1].contains("── Agents") && !lines[1].contains("+ open"), "the list starts at the top, with its first section: {}", lines[1]);
-        assert!(text.contains("n new") && text.contains("g go to") && text.contains(", settings"), "quiet hints at the bottom of the sidebar");
+        assert!(text.contains(" new    go to    , settings") && !text.contains("n new"), "quiet hints at the bottom of the sidebar, the key lit in the word");
         // Projects and their sessions, nothing in between.
         assert!(text.contains("▾ ▌shop-api") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
         assert!(!text.contains("main folder"), "no 'main folder' wording");
@@ -742,6 +742,8 @@ mod hydra_tests {
         let rows = |app: &App| app.hy_model().iter().flat_map(|p| p.sessions().map(|s| s.term).collect::<Vec<_>>()).collect::<Vec<_>>();
         app.hy.tabs.clear();
         app.hy_place(1, None);
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("+ tab") && app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::TabNew)), "a + tab in the pane's bar while it has one tab");
         // Ctrl+Space c in claude's session: the next session to show is a tab of claude's.
         app.act(Action::NewTab);
         assert!(matches!(app.hy.new_tab, Some((_, 1))), "a new tab for claude's session: {:?}", app.hy.new_tab);
@@ -752,6 +754,7 @@ mod hydra_tests {
         show(&o);
         assert_eq!(app.session_tabs().len(), 2);
         assert!(o.contains(" 1 claude") && o.contains(" 2 shell"), "claude's tab bar");
+        assert!(!o.contains("+ tab"), "the tab bar's + makes the next one");
         // Another session: its own view, with no tab bar.
         app.hy_place(2, Some(3));
         let o = draw(&mut app, 160, 45);
