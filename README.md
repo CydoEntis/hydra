@@ -439,20 +439,6 @@ stop seshi), grant it: `seshi grant 4 read,write,start,respond` (`seshi grant 4 
 back), or change the default in `[mcp] grants`. Only you can grant: not from inside a pane. These
 are guardrails for agents that behave, not a sandbox.
 
-## Claude Code agent teams
-
-Claude Code's agent teams can put each teammate in its own pane, through tmux. In a seshi pane
-(macOS, Linux):
-
-```sh
-seshi tmux-shim -- env CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude
-```
-
-Claude sees a tmux, and every teammate it starts opens as a seshi pane beside it: in the
-sidebar under Agents, with its status, in the Inbox. They close when the team is done. The shim
-changes nothing outside that command; a real tmux still works inside it. Calls it doesn't
-handle yet are logged in `tmux-shim/calls.log` in seshi's data folder.
-
 ## Script it
 
 ```sh

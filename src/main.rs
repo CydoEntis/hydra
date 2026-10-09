@@ -17,7 +17,6 @@ mod sync;
 mod theme;
 mod update;
 mod reveal;
-mod tmux_shim;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -117,12 +116,6 @@ enum Cmd {
         /// An allowed answer (repeat for each).
         #[arg(short = 'o', long = "option")]
         options: Vec<String>,
-    },
-    /// Run a command (default: your shell) with a `tmux` that opens seshi panes, so Claude
-    /// Code's agent teams put each teammate in a pane: `seshi tmux-shim -- claude`.
-    TmuxShim {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        cmd: Vec<String>,
     },
     /// Go to a session and bring seshi's window forward: what clicking a notification runs.
     /// Takes a seshi:// link or a pane number.
@@ -262,10 +255,6 @@ enum ConfigCmd {
 }
 
 fn main() {
-    // Run under the name `tmux` (the shim's link): answer as tmux.
-    if tmux_shim::invoked_as_tmux() {
-        std::process::exit(tmux_shim::main(std::env::args().skip(1).collect()));
-    }
     let args = Args::parse();
     if let Some(r) = &args.remote {
         // SAFETY: set once at startup, before any thread is started.
@@ -297,7 +286,6 @@ fn main() {
         Some(Cmd::Focus { pane }) => cli::focus(pane),
         Some(Cmd::Reveal { target }) => reveal::run(&target),
         Some(Cmd::Teach { pane }) => cli::teach(pane),
-        Some(Cmd::TmuxShim { cmd }) => tmux_shim::run(cmd),
         Some(Cmd::Statusline) => {
             cli::statusline();
             Ok(())
