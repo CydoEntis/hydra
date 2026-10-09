@@ -514,7 +514,6 @@ impl App {
                 self.hy.save();
             }
             Action::Ideas => self.open_ideas(),
-            Action::Map => self.open_map(),
             Action::Inbox => self.open_tickets(),
             Action::Queue => self.open_queue(),
             Action::Checkpoints => self.open_checkpoints(),
@@ -1435,15 +1434,6 @@ impl App {
                 {
                     let from_bottom = r.bottom().saturating_sub(pos.y + 1) as usize;
                     self.scroll_to(term, (from_bottom * total / r.height.max(1) as usize).min(total));
-                }
-            }
-            HyHit::MapNode(i) => {
-                if let Some(crate::client::View::Map(v)) = &mut self.view {
-                    let again = v.sel == i;
-                    v.sel = i;
-                    if again || double {
-                        self.on_view_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-                    }
                 }
             }
             HyHit::ShipGo => {

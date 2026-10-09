@@ -248,8 +248,6 @@ pub enum Action {
     Ideas,
     /// Give one task to several agents, each in its own worktree, and compare.
     Race,
-    /// The project as a map: its folders and worktrees as boxes, coloured by status.
-    Map,
     /// Save the clipboard's image to a file and paste its path (agents attach it).
     PasteImage,
     /// Find a file (0) or search the code (1).
@@ -362,7 +360,6 @@ impl Action {
             Action::Ship => "Ship: commit, push, open the PR".into(),
             Action::Ideas => "Ideas: jot one down, start an agent on one".into(),
             Action::Race => "Race agents on one task".into(),
-            Action::Map => "Map of the project".into(),
             Action::PasteImage => "Paste the clipboard image".into(),
             Action::Presets => "Run a preset".into(),
             Action::Branches => "Switch branch".into(),
@@ -452,7 +449,6 @@ impl Action {
             Action::Ship => "ship".into(),
             Action::Ideas => "ideas".into(),
             Action::Race => "race".into(),
-            Action::Map => "map".into(),
             Action::PasteImage => "paste-image".into(),
             Action::Presets => "presets".into(),
             Action::Branches => "switch-branch".into(),
@@ -563,7 +559,6 @@ impl FromStr for Action {
             "ship" => Action::Ship,
             "ideas" => Action::Ideas,
             "race" => Action::Race,
-            "map" => Action::Map,
             "paste-image" => Action::PasteImage,
             "presets" => Action::Presets,
             "switch-branch" => Action::Branches,
@@ -664,7 +659,6 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("I", "ideas"),
     ("A", "toolbox"),
     ("C", "race"),
-    ("M", "map"),
     ("V", "paste-image"),
     ("ctrl+v", "paste-image"),
     // Seshi

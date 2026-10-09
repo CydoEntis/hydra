@@ -221,7 +221,7 @@ pub(in crate::client) fn draw_finder(app: &mut App, f: &mut Frame, area: Rect, t
     let title = if fd.for_setting.is_some() { "Choose the start folder" } else { "Open a folder" };
     let r = panel(app, buf, area, 92, 24, title, &[], t);
     let input = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: 1 };
-    fill(buf, input, t.card2);
+    strip(buf, input, t.card2);
     let s = Style::default().bg(t.card2);
     // A long path shows its end, where you're typing.
     let room = r.width.saturating_sub(10) as usize;
@@ -324,7 +324,7 @@ pub(in crate::client) fn query_list(app: &mut App, buf: &mut Buffer, area: Rect,
     let h = (rows as u16 + 8).max(12).min(area.height.saturating_sub(4));
     let r = panel(app, buf, area, w, h, title, &[], t);
     let q = Rect { x: r.x + 1, y: r.y + 2, width: r.width.saturating_sub(2), height: 1 };
-    fill(buf, q, t.card2);
+    strip(buf, q, t.card2);
     let s2 = Style::default().bg(t.card2);
     let mut qs = vec![seg("› ", s2.fg(t.accent).add_modifier(Modifier::BOLD)), seg(query.to_string(), s2.fg(t.strong)), seg("█", s2.fg(t.accent))];
     if query.is_empty() {

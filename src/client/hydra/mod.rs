@@ -1011,8 +1011,6 @@ pub(super) enum HyHit {
     RaceKey(char),
     /// A race line in the sidebar (race id).
     RaceOpen(u64),
-    /// A box on the Map.
-    MapNode(usize),
     /// A right-click menu item.
     MenuPick(usize),
     /// The sidebar's edge (drag to resize).

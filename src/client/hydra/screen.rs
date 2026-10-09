@@ -115,7 +115,6 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
                 draw_pr(app, buf, inner, t, &v);
                 app.view = Some(crate::client::View::Pr(v));
             }
-            other => app.view = Some(other),
         }
     }
     g.panes
@@ -182,8 +181,17 @@ pub(in crate::client) fn session_lines(s: &Session, t: &Theme, out: &mut Vec<Lin
     if let Some(q) = &s.question {
         out.push(Line::Note(q.clone(), blend(t.blocked, t.sidebar_bg, 0.25), s.term));
     }
+    // Several of one kind (a workflow's fleet) are one line with a count, not a wall of rows.
+    let mut kinds: Vec<(&String, usize)> = Vec::new();
     for sub in &s.subagents {
-        out.push(Line::Note(format!("↳ {sub}"), notes_c, s.term));
+        match kinds.iter_mut().find(|(k, _)| *k == sub) {
+            Some((_, n)) => *n += 1,
+            None => kinds.push((sub, 1)),
+        }
+    }
+    for (sub, n) in kinds {
+        let label = if n > 1 { format!("↳ {sub} ×{n}") } else { format!("↳ {sub}") };
+        out.push(Line::Note(label, notes_c, s.term));
     }
 }
 
@@ -575,10 +583,6 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
             v @ (crate::client::View::Changes(_) | crate::client::View::Pr(_) | crate::client::View::Files(_)) => {
                 app.view = Some(v);
                 let _ = buf;
-            }
-            crate::client::View::Map(v) => {
-                draw_map(app, buf, area, t, &v);
-                app.view = Some(crate::client::View::Map(v));
             }
         }
         if app.view.as_ref().is_some_and(|v| !matches!(v, crate::client::View::Changes(_) | crate::client::View::Pr(_) | crate::client::View::Files(_))) {

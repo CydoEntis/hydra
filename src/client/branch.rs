@@ -312,7 +312,7 @@ pub(super) fn draw_branches(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
     match &v.step {
         Step::Pick => {
             let q = Rect { x: r.x + 1, y, width: r.width - 2, height: 1 };
-            fill(buf, q, t.card2);
+            super::hydra::strip(buf, q, t.card2);
             let s = Style::default().bg(t.card2);
             let mut segs = vec![seg("› ", s.fg(t.accent).add_modifier(Modifier::BOLD)), seg(v.query.clone(), s.fg(t.strong)), seg("█", s.fg(t.accent))];
             if v.query.is_empty() {
@@ -376,7 +376,7 @@ pub(super) fn draw_branches(app: &mut App, f: &mut Frame, area: Rect, t: &Theme,
         Step::Message(m) => {
             put(buf, r.x + 3, y, &[seg("Commit message:", c.fg(t.text))], r.right() - 2);
             let q = Rect { x: r.x + 1, y: y + 2, width: r.width - 2, height: 1 };
-            fill(buf, q, t.card2);
+            super::hydra::strip(buf, q, t.card2);
             let s = Style::default().bg(t.card2);
             put(buf, r.x + 3, y + 2, &[seg(m.clone(), s.fg(t.strong)), seg("█", s.fg(t.accent))], r.right() - 2);
             put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("Enter", "commit and switch"), ("Esc", "back")]), r.right() - 1);

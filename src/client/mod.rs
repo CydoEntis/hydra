@@ -124,7 +124,6 @@ pub(super) enum View {
     Changes(Box<views::ChangesView>),
     Files(Box<views::FilesTree>),
     Pr(Box<pr::PrView>),
-    Map(Box<hydra::MapView>),
 }
 
 /// Clickable chips and buttons.

@@ -22,11 +22,6 @@ impl App {
                     self.view = Some(View::Pr(v));
                 }
             }
-            View::Map(mut v) => {
-                if self.on_map_key(&mut v, k) && self.view.is_none() {
-                    self.view = Some(View::Map(v));
-                }
-            }
         }
     }
 

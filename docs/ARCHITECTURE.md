@@ -81,7 +81,7 @@ src/
                  card, tab row, pane cards), card.rs (cards, pills, fading; the Look from
                  settings), leader.rs (key map, actions list, new tab), popups.rs,
                  dialogs.rs, splash.rs, behaviour.rs (its keys and clicks), pr_map.rs
-                 (pull request, ship, map views)
+                 (pull request, ship views)
     render.rs, design.rs  drawing entry point and shared helpers
     menu.rs, views.rs, files.rs, find.rs, branch.rs, work.rs, pr.rs, toolbox.rs, …
     tests.rs     rendering and behaviour tests

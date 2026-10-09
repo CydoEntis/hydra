@@ -90,7 +90,7 @@ pub(in crate::client) fn draw_new_pane(app: &mut App, f: &mut Frame, area: Rect,
     // The task: typed straight away, it's the agent's first prompt.
     lab(buf, r.y + 2, "TASK", 0);
     let tb = Rect { x: r.x + 14, y: r.y + 2, width: r.right().saturating_sub(r.x + 17), height: 1 };
-    fill(buf, tb, t.card2);
+    strip(buf, tb, t.card2);
     let s2 = Style::default().bg(t.card2);
     let shown = {
         let w = tb.width.saturating_sub(3) as usize;

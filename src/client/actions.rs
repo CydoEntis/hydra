@@ -303,7 +303,6 @@ impl App {
             Action::Ideas,
             Action::Race,
             Action::Toolbox,
-            Action::Map,
             Action::CopyMode,
             Action::PasteImage,
             Action::Memory,

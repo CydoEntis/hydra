@@ -553,7 +553,7 @@ fn draw_worktrees(
 }
 
 fn draw_prompt(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, label: &str, input: &str, confirm: bool) {
-    use super::design::{fill, put, seg};
+    use super::design::{put, seg};
     let buf = f.buffer_mut();
     super::hydra::dim_all(buf, area, t);
     let title = label.trim().trim_end_matches(':');
@@ -566,7 +566,7 @@ fn draw_prompt(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme
         return;
     }
     let field = Rect { x: r.x + 2, y: r.y + 2, width: r.width.saturating_sub(4), height: 1 };
-    fill(buf, field, t.card2);
+    super::hydra::strip(buf, field, t.card2);
     let s2 = Style::default().bg(t.card2);
     put(buf, field.x + 1, field.y, &[seg("› ", s2.fg(t.accent).add_modifier(Modifier::BOLD)), seg(input.to_string(), s2.fg(t.strong)), seg("█", s2.fg(t.accent))], field.right());
     let keys = super::hydra::hints(t, &[("Enter", "save"), ("Esc", "cancel")]);
@@ -619,7 +619,7 @@ fn draw_panel(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme,
     }
     if let Some(q) = &v.query {
         let field = Rect { x: inner.x, y, width: inner.width, height: 1 };
-        fill(buf, field, t.card2);
+        super::hydra::strip(buf, field, t.card2);
         let s2 = Style::default().bg(t.card2);
         let mut qs = vec![seg("› ", s2.fg(t.accent).add_modifier(Modifier::BOLD)), seg(q.clone(), s2.fg(t.strong)), seg("█", s2.fg(t.accent))];
         if q.is_empty() {

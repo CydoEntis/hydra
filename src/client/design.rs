@@ -224,7 +224,7 @@ pub(super) fn title_bar(buf: &mut Buffer, r: Rect, t: &Theme, left: &[Seg], righ
 /// The bottom action row of a view.
 fn action_row(app: &mut App, buf: &mut Buffer, r: Rect, t: &Theme, buttons: &[(&str, &str, BtnKind, Hit)], tail: &[Seg]) {
     let y = r.bottom().saturating_sub(1);
-    fill(buf, Rect { y, height: 1, ..r }, t.card2);
+    super::hydra::strip(buf, Rect { y, height: 1, ..r }, t.card2);
     // Keycap first: in a tool window you just press the key (no Ctrl+Space).
     let mut x = r.x + 2;
     for (label, key, kind, hit) in buttons {

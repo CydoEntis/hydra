@@ -888,7 +888,6 @@ impl App {
                             self.on_view_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                         }
                     }
-                    Some(View::Map(_)) => {}
                     Some(View::Pr(_)) => {}
                     None => {}
                 },

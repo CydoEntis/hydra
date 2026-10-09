@@ -614,7 +614,7 @@ fn chip(t: &Theme, text: &str, on: bool, hov: bool) -> Seg {
 
 pub(super) fn input_row(buf: &mut Buffer, r: Rect, y: u16, t: &Theme, text: &str, placeholder: &str, focused: bool) {
     let row = Rect { x: r.x + 1, y, width: r.width - 2, height: 1 };
-    fill(buf, row, t.card2);
+    super::hydra::strip(buf, row, t.card2);
     let s = Style::default().bg(t.card2);
     let mut segs = vec![seg("› ", s.fg(t.accent).add_modifier(Modifier::BOLD)), seg(text.to_string(), s.fg(t.strong))];
     if focused {

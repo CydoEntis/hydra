@@ -251,7 +251,7 @@ pub(super) fn draw_find(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, v: 
     }
     // Query
     let qrow = Rect { x: r.x + 1, y: r.y + 4, width: r.width - 2, height: 1 };
-    fill(buf, qrow, t.card2);
+    super::hydra::strip(buf, qrow, t.card2);
     let s = Style::default().bg(t.card2);
     let ph = if v.tab == 0 { " type part of a file name" } else { " type text to search for (2+ characters)" };
     let mut q = vec![seg("› ", s.fg(t.accent).add_modifier(Modifier::BOLD)), seg(v.query.clone(), s.fg(t.strong)), seg("█", s.fg(t.accent))];

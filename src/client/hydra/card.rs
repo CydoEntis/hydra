@@ -27,6 +27,19 @@ pub(in crate::client) fn ends(bg: Color) -> (Seg, Seg) {
     }
 }
 
+/// A one-row strip of `bg` across `r` with round ends (an input, a bar of buttons). The ends
+/// keep the ground under them; draw the strip's text from a column in.
+pub(in crate::client) fn strip(buf: &mut Buffer, r: Rect, bg: Color) {
+    if r.width < 3 || !ROUND.load(std::sync::atomic::Ordering::Relaxed) {
+        fill(buf, r, bg);
+        return;
+    }
+    fill(buf, Rect { x: r.x + 1, width: r.width - 2, ..r }, bg);
+    let (l, e) = ends(bg);
+    put(buf, r.x, r.y, &[l], r.x + 1);
+    put(buf, r.right() - 1, r.y, &[e], r.right());
+}
+
 /// `text` on a pill in the style's background, as wide as `" text "` would be.
 pub(in crate::client) fn chip(text: &str, st: Style) -> Vec<Seg> {
     let (l, r) = ends(st.bg.unwrap_or(Color::Reset));

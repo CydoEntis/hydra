@@ -103,7 +103,7 @@ mod design_tests {
         let rate = rate_buf.to_str().unwrap();
         let mut claude = term(1, Some("claude"), Status::Blocked, root);
         claude.branch = Some("main".into());
-        claude.subagents = vec!["Explore".into()];
+        claude.subagents = vec!["Explore".into(), "workflow-subagent".into(), "workflow-subagent".into(), "workflow-subagent".into()];
         claude.summary = "Fix flaky checkout test".into();
         claude.root = Some(PathBuf::from(root));
         claude.top = Some(PathBuf::from(root));
@@ -189,6 +189,7 @@ mod hydra_tests {
         assert!(text.contains("● claude") && text.contains("main · 3m"), "state, then the name; branch · age on the right");
         assert!(text.contains("Run npm test -- checkout?"), "the question under the agent");
         assert!(text.contains("↳ Explore"), "subagents under their agent");
+        assert!(text.contains("↳ workflow-subagent ×3") && text.matches("workflow-subagent").count() == 1, "one line per kind, counted");
         assert!(text.contains("⣾ rate") && text.contains("rate-limit · 2m"), "a worktree's session is named after it");
         assert!(!text.contains("Rate limit /login"), "under a session only its question, as in the redesign");
         assert!(text.contains("› shell") && !text.contains("shell 2"), "a shell in the project's folder is just 'shell', no age");
@@ -373,18 +374,6 @@ mod hydra_tests {
         show(&o);
         assert!(o.contains("Race · add rate limiting") && o.contains("+42 −7 · 3 files") && o.contains("not running"));
         assert!(o.contains("Keep codex's rate-limit and delete the other 1?"));
-    }
-
-    #[test]
-    fn map_view() {
-        let (_, mut app) = super::design_tests::render_with(160, 45);
-        app.view = Some(View::Map(Box::new(hydra::MapView { proj: None, sel: 1 })));
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains("map  shop-api") && o.contains("▌shop-api  ●1 ⣾1"), "the project at the top");
-        assert!(o.contains("⎇ main") && o.contains("⑂ rate") && o.contains("⑂ orders"), "a box per folder");
-        assert!(o.contains("● claude") && o.contains("needs you 3m") && o.contains("⣾ codex") && o.contains("working 2m"));
-        assert!(o.contains("┴") && (o.contains("┬") || o.contains("┼")), "boxes hang off the project");
     }
 
     #[test]
@@ -868,18 +857,6 @@ mod hydra_tests {
         app.hy.drag = None;
         app.sync_sizes();
         assert!(!app.rewrap.contains(&term), "and happens once it has");
-    }
-
-    #[test]
-    fn map_opens_from_its_key() {
-        let (_, mut app) = super::design_tests::render_with(160, 45);
-        draw(&mut app, 160, 45);
-        app.on_key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL));
-        app.on_key(KeyEvent::new(KeyCode::Char('M'), KeyModifiers::SHIFT));
-        eprintln!("view after key: {:?}", app.view.as_ref().map(std::mem::discriminant));
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(matches!(app.view, Some(View::Map(_))), "the map is open");
     }
 
     #[test]
@@ -1887,7 +1864,6 @@ mod hydra_tests {
             Action::Ideas,
             Action::Race,
             Action::Toolbox,
-            Action::Map,
             Action::Memory,
             Action::History,
             Action::Presets,
