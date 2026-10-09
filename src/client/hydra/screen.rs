@@ -287,7 +287,10 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
 
     // One row lit at a time: the one under the mouse; with the mouse elsewhere, the keyboard's
     // row or the session you're in (its bold name still says which while you point around).
-    let pointing = hovered(app, Rect { x: x0 + 2, y: top, width: w.saturating_sub(4), height: list_h as u16 });
+    let pointing = app.hover.filter(|p| Rect { x: x0 + 2, y: top, width: w.saturating_sub(4), height: list_h as u16 }.contains(*p)).is_some_and(|p| {
+        // Only rows that light up count (not a heading or a question line).
+        lines.get(scroll + (p.y - top) as usize).is_some_and(|l| matches!(l, Line::Proj(_) | Line::Sess(..)))
+    });
     let shade = |app: &App, term: TermId, row: Rect| -> Option<Color> {
         let mine = if focused_side { app.hy.cursor == Some(term) } else { Some(term) == focus };
         (hovered(app, row) || (!pointing && mine)).then_some(t.hov)
@@ -329,10 +332,8 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 put(buf, x0 + 3, y, &left, right.saturating_sub(cw + 1));
                 hit(app, row, HyHit::ToggleProj(*pi));
                 if hov && !small {
-                    row_menu_button(app, buf, Rect { x: right.saturating_sub(1), y, width: 2, height: 1 }, bg, t, HyHit::RowMenuProj(*pi));
-                    let plus = Rect { x: right.saturating_sub(5), y, width: 3, height: 1 };
-                    put(buf, plus.x, y, &[seg(" + ", Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD))], r.right());
-                    hit(app, plus, HyHit::ShellIn(*pi));
+                    row_menu_button(app, buf, Rect { x: right.saturating_sub(1), y, width: 1, height: 1 }, bg, t, HyHit::RowMenuProj(*pi));
+                    row_glyph(app, buf, Rect { x: right.saturating_sub(3), y, width: 1, height: 1 }, "+", bg, t.accent, t, HyHit::ShellIn(*pi));
                 } else {
                     put(buf, right.saturating_sub(cw), y, &c, right);
                 }
@@ -424,12 +425,15 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                     tail
                 };
                 let tw = segs_width(&tail);
+                // Pointed at: its ⋯ takes the row's last column, the right side steps in.
+                let menu = hovered(app, row) && !sel;
+                let end = if menu { right.saturating_sub(2) } else { right };
                 put(buf, x0 + 5, y, &[seg(gl, gs)], name_x);
-                put(buf, name_x, y, &left, right.saturating_sub(tw + 1));
-                put(buf, right.saturating_sub(tw), y, &tail, right);
+                put(buf, name_x, y, &left, end.saturating_sub(tw + 1));
+                put(buf, end.saturating_sub(tw), y, &tail, end);
                 hit(app, row, HyHit::Session(s.term));
-                if hovered(app, row) && !sel {
-                    row_menu_button(app, buf, Rect { x: right, y, width: 2, height: 1 }, bg, t, HyHit::RowMenuSess(s.term));
+                if menu {
+                    row_menu_button(app, buf, Rect { x: right.saturating_sub(1), y, width: 1, height: 1 }, bg, t, HyHit::RowMenuSess(s.term));
                 }
                 if sel {
                     hit(app, Rect { x: right.saturating_sub(tw), y, width: tw, height: 1 }, HyHit::Talk(s.term));
@@ -661,8 +665,18 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
 
 /// The ⋯ that opens a sidebar row's menu (for terminals that keep right-clicks).
 pub(in crate::client) fn row_menu_button(app: &mut App, buf: &mut Buffer, r: Rect, bg: Color, t: &Theme, h: HyHit) {
-    let st = if hovered(app, r) { Style::default().bg(t.btn).fg(t.strong) } else { Style::default().bg(bg).fg(t.muted) };
-    put(buf, r.x, r.y, &[seg("⋯ ", st)], r.right());
+    row_glyph(app, buf, r, "⋯", bg, t.muted, t, h);
+}
+
+/// A small glyph button on a sidebar row (⋯, +): just the glyph on the row's own ground,
+/// brightening when it's the one under the mouse.
+#[allow(clippy::too_many_arguments)]
+fn row_glyph(app: &mut App, buf: &mut Buffer, r: Rect, glyph: &str, bg: Color, fg: Color, t: &Theme, h: HyHit) {
+    let mut st = Style::default().bg(bg).fg(if hovered(app, r) { t.strong } else { fg });
+    if hovered(app, r) {
+        st = st.add_modifier(Modifier::BOLD);
+    }
+    put(buf, r.x, r.y, &[seg(glyph, st)], r.right());
     hit(app, r, h);
 }
 
