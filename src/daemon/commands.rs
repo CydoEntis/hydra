@@ -330,8 +330,6 @@ impl Daemon {
                 });
                 return Ok(false);
             }
-            Command::Enqueue { item } => self.enqueue(item),
-            Command::Dequeue { id } => self.queue.retain(|q| q.id != id),
             Command::CloseWorktree { path } => {
                 let path = clean_path(path);
                 let head = crate::gitfs::head(&path).filter(|h| h.linked).ok_or_else(|| anyhow::anyhow!("{} is not a linked git worktree", path.display()))?;

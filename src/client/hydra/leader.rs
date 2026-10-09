@@ -12,10 +12,10 @@ const MATCHES_SHOWN: usize = 12;
 /// The key map's groups: what each key does, in the design's words.
 fn groups() -> Vec<(&'static str, Vec<(Action, &'static str)>)> {
     vec![
-        ("AGENTS", vec![(Action::Jump, "inbox"), (Action::Talk, "talk to an agent"), (Action::Answer('1'), "answer"), (Action::ShellHere, "new shell here")]),
+        ("AGENTS", vec![(Action::Jump, "inbox"), (Action::ShellHere, "new shell here")]),
         ("PANES", vec![(Action::SplitRight, "new pane beside"), (Action::Zoom, "zoom"), (Action::ClosePane, "close"), (Action::Focus(Dir::Left), "move focus")]),
         ("TABS", vec![(Action::NewTab, "new tab"), (Action::SelectTab(1), "go to tab"), (Action::RenameTab, "rename")]),
-        ("PROJECT", vec![(Action::OpenProject, "open project"), (Action::Worktrees, "worktrees  ›"), (Action::Files, "files"), (Action::Changes, "changes")]),
+        ("PROJECT", vec![(Action::Worktrees, "worktrees  ›"), (Action::Files, "files"), (Action::Changes, "changes")]),
         ("SESHI", vec![(Action::Settings, "settings"), (Action::Help, "all keys"), (Action::Detach, "quit, agents keep running")]),
     ]
 }
@@ -27,7 +27,6 @@ pub(in crate::client) fn action_items() -> Vec<(&'static str, Action)> {
         ("New pane beside this", Action::SplitRight),
         ("New tab", Action::NewTab),
         ("Inbox", Action::Jump),
-        ("Talk to an agent", Action::Talk),
         ("Hide sidebar", Action::ToggleSidebar),
         ("All keys", Action::Help),
     ]
@@ -43,7 +42,7 @@ fn step_items(app: &App, step: Step) -> Vec<(char, &'static str, String, Action)
             let branch = here.map(|(_, w, _)| w.branch.clone()).unwrap_or_default();
             vec![
                 ('n', "new worktree", "own branch, new folder, new agent".into(), Action::NewWorktree(None)),
-                ('s', "switch to…", format!("{n} worktree{}", if n == 1 { "" } else { "s" }), Action::GoTo),
+                ('s', "switch to…", format!("{n} worktree{}", if n == 1 { "" } else { "s" }), Action::Jump),
                 ('m', "merge into main", branch, Action::Ship),
                 ('d', "delete worktree", "keeps the branch".into(), Action::RemoveWorktree),
             ]
@@ -65,9 +64,7 @@ fn step_key(app: &App, step: Step) -> String {
 
 /// The key a row shows: its own binding, or the group it stands for (1 2 3, arrows, Alt+1-9).
 fn key_label(app: &App, a: &Action) -> String {
-    let bound = |a: &Action| app.keymap.prefixed.iter().any(|(_, b)| b == a);
     match a {
-        Action::Answer(_) => ['1', '2', '3'].iter().filter(|c| bound(&Action::Answer(**c))).map(|c| c.to_string()).collect::<Vec<_>>().join(" "),
         Action::Focus(_) => "←↑↓→".into(),
         Action::SelectTab(_) => {
             if app.keymap.global.values().any(|b| *b == Action::SelectTab(1)) {

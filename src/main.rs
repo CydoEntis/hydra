@@ -1,6 +1,5 @@
 mod alert;
 mod cli;
-mod checkpoint;
 mod clock;
 mod client;
 mod config;
@@ -16,7 +15,6 @@ mod proc;
 mod protocol;
 mod sync;
 mod theme;
-mod tickets;
 mod update;
 mod reveal;
 mod tmux_shim;
@@ -245,7 +243,7 @@ enum Cmd {
     /// Run as an MCP server (stdio) so agents can see and steer the others.
     /// `seshi integrate mcp` registers it with Claude Code.
     Mcp,
-    /// Share your config and ideas between machines through a private GitHub repo:
+    /// Share your config between machines through a private GitHub repo:
     /// `seshi sync setup [repo]`, `seshi sync` (pull + push now), `seshi sync off`.
     Sync {
         action: Option<String>,

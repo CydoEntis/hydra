@@ -22,7 +22,7 @@
 <table>
   <tr>
     <td><img src="docs/media/02-main.png" alt="An agent asking a question, with one-key answers"></td>
-    <td><img src="docs/media/03-go-to.png" alt="Go to: find any session by typing"></td>
+    <td><img src="docs/media/03-go-to.png" alt="The inbox: what needs you, and any session by typing"></td>
   </tr>
   <tr>
     <td align="center">An agent needs you: answer with one key</td>
@@ -53,8 +53,8 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
   sessions in each, tabs as pills above the panes, and every pane a rounded card with its name,
   state and ✕ in its border; the one you're in is lit, the others fade. The leader is
   `Ctrl+Space`: a sky-blue pill says it's armed, and a pause (or `?`) shows every key.
-- **Find anything.** `<leader> j` jumps to what needs you, `<leader> g` goes to any project or
-  session by typing its name, `<leader> Space` is a command palette in plain words, `a actions`
+- **Find anything.** `<leader> j` is the inbox: what needs you first, then type to go to any
+  project or session. `<leader> Space` is a command palette in plain words, `a actions`
   at the foot of the sidebar lists the common commands, and `<leader> ?` maps every key.
 - **Status at a glance.** Working (yellow, its name shimmering), needs you (red), done (green until
   you look), idle. An alert or a sound tells you when one needs you or finishes out of view.
@@ -63,11 +63,6 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
   is told "continue" once the limit resets (Settings → Continue after a limit). Claude's numbers
   come from its status line: `seshi integrate claude` makes seshi's run first and then yours,
   which looks the same as before.
-- **Undo an agent, find an old chat.** After each agent turn seshi saves its folder's state as
-  a checkpoint (git commits under `refs/hydra/checkpoints/`, off your branch and index);
-  "Checkpoints" in the palette rolls the folder back to any of them, saving what's there first.
-  "Past chats" lists your recent Claude and Codex conversations, searches all of them (Enter),
-  and picks one up again in its own folder.
 - **Detection without setup.** The process tree finds `claude`, `codex`, `gemini`, `opencode`,
   `cursor-agent`, `copilot`, `amp`, `qwen`, `aider` and others, and screen patterns tell
   working from blocked. Hooks (`seshi integrate claude`) make it exact.
@@ -163,7 +158,7 @@ split beside a session stays with it.
   drop a session on another group (its name or one of its sessions) to move it there, within its
   section. Click to fold or open. With the sidebar focused
   (`Ctrl+Space e`), a row's menu letters work directly (the sidebar's foot lists them): `x` (or
-  Delete) closes, `r` renames, `m` messages. Settings says which seshi you're on.
+  Delete) closes, `r` renames. Settings says which seshi you're on.
 
 The leader key is `Ctrl+Space`. Press it and a sky-blue pill appears at the end of the tab row
 (the pane you're in turns sky too); press a key, or wait a moment (or press `?`) for the key map.
@@ -172,26 +167,23 @@ second step (`w` worktrees: new, switch, merge, delete; Backspace goes back).
 
 | keys (after the leader) | action |
 |---|---|
-| `j` | **jump** to what needs you (answer a question with its number, Enter goes there), then every session |
-| `T` / `m` | talk to an agent / reply to the one you're in |
-| `1` `2` `3` | answer the question of the pane you're in |
+| `j` | **inbox**: what needs you (answer a question with its number, Enter goes there), then every session; type to find one |
 | `n` / `p` | a shell right where you are (cd and run what you like; it groups itself) / a shell beside this one |
 | `z` / `x` | zoom / close |
 | arrows | focus the pane that way (left past the edge: the sidebar) |
 | `v` / `-` / `H J K L` | split right / split down / resize |
 | `t` / `r` / `]` `[` / `X` | **tabs**: new tab (a shell where you are) / rename it in its pill (or double-click it) / next, previous / close it. `Alt+1`–`9` (no leader) goes to a tab |
-| `o` / `w` / `f` / `d` | open a project / worktrees › / files / changes |
-| `g` / `e` / `Space` / `a` | go to / focus the sidebar / command palette / actions |
+| `w` / `f` / `d` | worktrees › / files / changes |
+| `e` / `Space` / `a` | focus the sidebar / command palette / actions |
 | `F` / `/` / `B` / `P` / `S` | find a file / search the code / switch branch / pull request / ship |
-| `i` / `I` / `.` / `A` / `R` | tickets / ideas / presets / agent tools / rename a session |
-| `Q` / `u` / `O` | the queue / checkpoints (roll a folder back) / past chats (search, pick one up again) |
+| `R` / `V` | rename a session / paste the clipboard's image |
 | `y` / `{` `}` / `b` | select text with keys / previous, next command in the history / sidebar on or off |
-| `,` / `?` / `U` / `N` / `q` | settings / key map / memory / history / quit (agents keep running) |
+| `,` / `?` / `N` / `q` | settings / key map / history / quit (agents keep running) |
 
 In **Files**: Enter puts the path in the agent's prompt, `e` opens it in your editor (`editor`
 in config; nvim, helix … open inside seshi), `y` copies the path. In **Changes**: `c` commit,
 `p` open a PR, `v` the PR, `e` editor, `x` mark the file reviewed (it sinks; the mark clears
-if the file changes again), `r` reply to the agent. In a **pull request**: Tab for the
+if the file changes again), `r` goes to its agent. In a **pull request**: Tab for the
 diff, `f` hands failing checks and review comments to the branch's agent, `o` opens it on GitHub.
 
 Everything also works with the mouse. Hold Shift to select text with your terminal.
@@ -230,30 +222,9 @@ Omarchy / Hyprland the window is brought forward too); on macOS, install
 to save memory. They keep their place; open one and it resumes its conversation
 (`claude --resume`, `codex resume`).
 
-## Tickets
+## Merging
 
-```toml
-[tickets]
-sources = ["github", "linear", "plane"]   # tabs, in order
-plane_workspace = "my-team"                # Plane's workspace slug
-# plane_url / plane_app_url for self-hosted Plane
-[tickets.projects]
-shop-api = "linear"                        # which tab a project opens on
-```
-
-Keys come from `LINEAR_API_KEY` / `PLANE_API_KEY`, or `linear_key` / `plane_key` in
-`config.local.toml` (never synced). A new tracker is one more `Source` in `src/tickets.rs`.
-
-**The queue.** In Tickets, Enter starts an agent on a ticket now; `Ctrl+Q` queues it instead.
-The server starts queued work `queue_at_once` at a time (Settings → Queued tasks at once,
-default 3), each in its own worktree, and starts the next when one finishes, with the window
-closed too. The tracker follows: Linear and Plane move the issue to In Progress and then to
-a review state if the team has one; GitHub gets a comment at each step. The **Queue** tab
-(last in Tickets, or "Queue" in the palette) lists it all, takes a typed task without a
-ticket, opens a running one (Enter) and removes one (Del), with what's running, waiting and
-ready for review.
-
-**Merging.** In Changes, `m` merges a worktree's branch into the main one, then closes its
+In Changes, `m` merges a worktree's branch into the main one, then closes its
 sessions and removes the worktree and the branch. Closing the last session in a worktree
 seshi made removes the folder; its branch goes too when it's already merged.
 
@@ -296,7 +267,7 @@ seshi sync setup          # other machines: picks it up (your old config is kept
 seshi sync                # pull + push now (it also happens on its own)
 ```
 
-Shared: `config.toml` and `ideas.json`. Anything for one machine only (a shell path, keys) goes in
+Shared: `config.toml`. Anything for one machine only (a shell path, keys) goes in
 `config.local.toml` next to it, which is never synced and wins over `config.toml`.
 
 ## Splash and settings
@@ -360,27 +331,17 @@ blocked_patterns = ["\\(y/n\\)"]
 | Leader + | Panel | What it does |
 |---|---|---|
 | `f` | **Files** | *Recent*: files that just appeared in Downloads, Desktop, Documents or the project (docs, zips, screenshots). *Project*: fuzzy search over the project's files. Enter types the path into your prompt; `^O` opens it, `^F` shows it in the file manager, `^Y` copies the path. |
-| `t` | **Tasks** | Every worktree task by stage: needs you, ready for review, working, no changes yet. Enter opens **review**: changed files and the diff, then `c` commit, `m` merge into the base branch, `p` push and open a pull request, `r` reply to the agent, `x` throw it away. `n` starts a new task. |
-| `i` | **Inbox** | GitHub pull requests (checks, review state, conflicts) and issues via the `gh` CLI, and your Linear tickets when `LINEAR_API_KEY` is set. Enter opens it in the browser; `^T` turns it into a task (a PR is checked out with the agent briefed to fix its checks). |
-| `T` | **Toolbox** | What Claude Code, Codex, Cursor and Gemini are set up with for this project: MCP servers, skills, plugins, sub-agents, hooks and instruction files, with where each comes from. Secret values are never shown. Enter opens the config file. |
+| `d` | **Changes** | A worktree's changed files and the diff: `c` commit, `m` merge into the base branch, `p` push and open a pull request, `r` go to its agent, `x` throw it away. |
 
 Typing in a panel filters it; the action keys that would collide with typing use Ctrl.
 
-## Quick prompt
+## Agents
 
-`<prefix> q` opens a box: type the task and press Enter. `Tab` picks the agent (from
-`[quick] agents`), `Shift+Tab` picks where it goes:
-
-- **split right / down / new tab**: the agent starts there with your task
-- **new worktree**: a branch named after the task (`q/fix-login-bug-3f2a`), its own checkout,
-  and the agent working in it
-- **this pane's agent**: the text is typed into the agent you're looking at, then Enter
-
-`Alt+Enter` adds a line break. Agents are just commands, so anything works:
+The new-agent dialog starts any agent in `[quick] agents`; `{prompt}` is the task, quoted for
+your shell. Agents are just commands, so anything works:
 
 ```toml
 [quick]
-place = "worktree"
 agents = [
   { name = "claude", command = "claude {prompt}" },
   { name = "codex", command = "codex {prompt}" },

@@ -22,20 +22,13 @@ impl App {
                     input.push_str(s.lines().next().unwrap_or(""));
                 }
             }
-            Mode::Quick(q) => q.text.push_str(&s.replace("\r\n", "\n")),
-            Mode::Toolbox(v) => v.query.push_str(s.lines().next().unwrap_or("")),
             Mode::Prompt { input, .. } | Mode::Picker { query: input, .. } | Mode::Worktrees { query: input, .. } => {
                 input.push_str(s.lines().next().unwrap_or(""));
             }
             // Seshi's own text boxes take the paste, not the pane behind them.
-            Mode::Talk { input, .. } => input.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
-            Mode::Ideas(v) => v.input.push_str(s.lines().next().unwrap_or("")),
             Mode::Find(v) => v.query.push_str(s.lines().next().unwrap_or("")),
             Mode::GoTo { query, .. } => query.push_str(s.lines().next().unwrap_or("").trim()),
             Mode::Branch(v) => v.query.push_str(s.lines().next().unwrap_or("").trim()),
-            Mode::Tickets(v) => v.query.push_str(s.lines().next().unwrap_or("")),
-            Mode::Chats(v) => v.query.push_str(s.lines().next().unwrap_or("")),
-            Mode::RaceNew(v) => v.text.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
             Mode::Finder(fd) => {
                 fd.q.push_str(s.lines().next().unwrap_or("").trim());
                 fd.sel = 0;
@@ -118,21 +111,13 @@ impl App {
                     self.forward_key(&k);
                 }
             }
-            Mode::Talk { term, input } => self.on_talk_key(term, input, &k),
             Mode::Finder(fd) => self.on_finder_key(*fd, &k),
             Mode::HyPane(np) => self.on_hy_pane_key(np, &k),
             Mode::HySettings(_) => self.hy_settings_key(&k),
             Mode::Side => self.on_side_key(&k),
-            Mode::Ideas(v) => self.on_ideas_key(*v, &k),
-            Mode::Tickets(v) => self.on_tickets_key(*v, &k),
-            Mode::Checkpoints(v) => self.on_checkpoints_key(*v, &k),
-            Mode::Chats(v) => self.on_chats_key(*v, &k),
-            Mode::RaceNew(v) => self.on_race_new_key(*v, &k),
-            Mode::Race(v) => self.on_race_key(*v, &k),
             Mode::HyMenu(m) => self.on_hy_menu_key(*m, &k),
             Mode::Find(v) => self.on_find_key(*v, &k),
             Mode::Branch(v) => self.on_branch_key(*v, &k),
-            Mode::Memory { sel } => self.on_memory_key(sel, &k),
             Mode::History { sel } => self.on_history_key(sel, &k),
             Mode::GoTo { query, sel } => self.on_goto_key(query, sel, &k),
             Mode::Confirm(c) => match k.code {
@@ -220,8 +205,6 @@ impl App {
                 }
                 self.mode = Mode::Picker { query, sel, commands };
             }
-            Mode::Quick(q) => self.on_quick_key(q, &k),
-            Mode::Toolbox(v) => self.on_toolbox_key(*v, &k),
             Mode::Worktrees { ws, cmd, items, mut query, mut sel } => {
                 let rows = self.worktree_rows(items.as_deref(), &query);
                 let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
@@ -637,10 +620,6 @@ impl App {
                     self.dirty = true;
                     return;
                 }
-            }
-            if matches!(self.mode, Mode::Talk { .. }) {
-                self.mode = Mode::Normal;
-                return;
             }
         }
         if self.on_mouse_select(&m, pos) {

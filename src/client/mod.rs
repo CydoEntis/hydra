@@ -11,13 +11,11 @@ mod hydra;
 mod menu;
 mod modal;
 mod pick;
+mod recipes;
 mod pr;
 mod render;
 mod tasks;
-mod toolbox;
 mod views;
-mod history;
-mod work;
 mod actions;
 mod background;
 mod input;
@@ -26,7 +24,6 @@ mod view_keys;
 use crate::config::{Config, Keymap};
 use crate::ipc;
 use crate::keys::{self, Action, KeySpec};
-use crate::layout::Dir;
 use crate::protocol::*;
 use crate::theme::Theme;
 use anyhow::Result;
@@ -63,14 +60,10 @@ enum Mode {
     Prefix { since: Instant },
     /// Jump list (`commands: false`) or command palette (`commands: true`).
     Picker { query: String, sel: usize, commands: bool },
-    Quick(modal::Quick),
-    Toolbox(Box<toolbox::ToolboxView>),
     Prompt { kind: PromptKind, input: String },
     Copy(Box<copy::Copy>),
     /// Pick an existing worktree of the repo, or type a branch to create one.
     Worktrees { ws: WsId, cmd: Option<String>, items: Option<Vec<WorktreeEntry>>, query: String, sel: usize },
-    /// Talking to one pane's agent in a modal.
-    Talk { term: TermId, input: String },
     /// Seshi layout: open a folder as a project.
     Finder(Box<hydra::Finder>),
     /// Seshi layout: new pane (project, worktree, what to run).
@@ -81,22 +74,12 @@ enum Mode {
     Side,
     /// Ship this branch? (what will happen, then Enter)
     Ship(Box<ShipAsk>),
-    Ideas(Box<work::IdeasView>),
-    Tickets(Box<work::TicketsView>),
-    /// A folder's checkpoints, to roll it back.
-    Checkpoints(Box<history::CheckpointsView>),
-    /// Past agent chats, to search and pick up again.
-    Chats(Box<history::ChatsView>),
-    RaceNew(Box<work::RaceNew>),
-    Race(Box<work::RaceView>),
     /// A right-click menu (seshi layout).
     HyMenu(Box<menu::HyMenu>),
     /// Find a file / search the code.
     Find(Box<find::FindView>),
     /// Switch branch.
     Branch(Box<branch::BranchView>),
-    /// Memory per session (the selected row).
-    Memory { sel: usize },
     /// Notification history (the selected row, newest first).
     History { sel: usize },
     /// "Close …?" with confirm / cancel.
@@ -138,17 +121,12 @@ pub(super) enum Btn {
 }
 
 pub(super) enum Bg {
-    Toolbox(PathBuf, Vec<toolbox::Section>),
     Changes(PathBuf, Result<Box<tasks::Review>, String>),
     Checks(PathBuf, Option<String>),
     Tree(PathBuf, Vec<views::FileNode>, std::collections::HashMap<String, char>),
     TreeRecent(PathBuf, Vec<files::FileEntry>),
     /// A finished action: its message, and whether the open review should reload.
     Done(Result<String, String>, bool),
-    /// A checkout's checkpoints.
-    Checkpoints(PathBuf, Result<Vec<crate::checkpoint::Checkpoint>, String>),
-    /// Past chats found for a search.
-    Chats(String, Result<Vec<history::ChatHit>, String>),
     /// A worktree's branch merged (or not): then the worktree and its branch go.
     Merged(Result<String, String>, PathBuf),
     /// Your open pull requests in a project (by key).
@@ -156,10 +134,6 @@ pub(super) enum Bg {
     /// One pull request (by number or branch), and its diff.
     Pr(String, Result<pr::PrInfo, String>),
     PrDiff(String, Result<String, String>),
-    /// Tickets for a folder, from the source at this tab.
-    Tickets(PathBuf, usize, Result<Vec<work::Ticket>, String>),
-    /// A race entry's diff stat: (race, entry, text).
-    RaceStat(u64, usize, String),
     /// Pulled a shared setup from another machine.
     Synced(bool),
     /// An extension's label for a worktree, or a background command's result.
@@ -252,10 +226,6 @@ fn true_and_replace() -> bool {
     false
 }
 
-/// The repository root above `p`, or `p` itself.
-fn repo_root(p: &std::path::Path) -> PathBuf {
-    p.ancestors().find(|a| a.join(".git").exists()).map(|a| a.to_path_buf()).unwrap_or_else(|| p.to_path_buf())
-}
 
 /// A row in the worktree picker.
 #[derive(Debug, Clone)]
@@ -362,7 +332,6 @@ pub struct App {
     marks: HashMap<TermId, marks::Marks>,
     sizes: HashMap<TermId, (u16, u16)>,
     mode: Mode,
-    zoomed: HashSet<TabId>,
     sidebar: bool,
     hits: Vec<(Rect, Hit)>,
     /// Inner rects of the panes drawn last frame.
@@ -525,7 +494,6 @@ impl App {
             pointer: "default",
             sizes: HashMap::new(),
             mode: Mode::Normal,
-            zoomed: HashSet::new(),
             hits: Vec::new(),
             panes: Vec::new(),
             pane_frames: Vec::new(),

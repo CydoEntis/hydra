@@ -76,7 +76,6 @@ it reads:
 | `SESHI_REMOTE` | the SSH host this client works on (from `--remote`) | seshi |
 | `SESHI_SSH`, `SESHI_REMOTE_CMD` | replace `ssh` / the remote `seshi` command | user |
 | `SESHI_TERM_ID`, `SESHI_PANE_TOKEN` | the pane's id and secret, set inside every pane | daemon |
-| `LINEAR_API_KEY` (and Plane's) | ticket sources, when not in `config.local.toml` | user |
 | `SESHI_SHOW` | tests print rendered frames | developer |
 | `SESHI_PR`, `SESHI_PR_DIR` | the live pull-request test (`cargo test pr_live -- --ignored`) | developer |
 | `EDITOR`, `VISUAL`, `SHELL`, `COMSPEC` | editor and shell defaults | OS / user |

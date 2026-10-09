@@ -93,9 +93,7 @@ impl Daemon {
             })
             .collect();
         let active = self.workspaces.iter().position(|w| Some(w.id) == self.active_ws).unwrap_or(0);
-        // Only what hasn't started: the panes of the rest come back as ordinary sessions.
-        let queue = self.queue.iter().filter(|q| matches!(q.state, QueueState::Waiting | QueueState::Starting)).map(|q| QueueItem { state: QueueState::Waiting, ..q.clone() }).collect();
-        persist::Saved { workspaces, active, made_worktrees: self.made_worktrees.clone(), queue }
+        persist::Saved { workspaces, active, made_worktrees: self.made_worktrees.clone() }
     }
 
     /// The command that brings a saved pane back: an agent's resume command, the pane's
@@ -116,8 +114,6 @@ impl Daemon {
 
     pub(super) fn restore(&mut self, mut saved: persist::Saved) {
         self.made_worktrees = std::mem::take(&mut saved.made_worktrees);
-        self.queue = std::mem::take(&mut saved.queue);
-        self.next_queue_id = self.queue.iter().map(|q| q.id + 1).max().unwrap_or(1);
         let mut restored = 0;
         for sw in saved.workspaces {
             let mut tabs = Vec::new();

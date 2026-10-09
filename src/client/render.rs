@@ -1,7 +1,6 @@
 //! Drawing: sidebar, tab bar, panes, status bar and overlays.
 
 use super::copy::Copy;
-use super::modal;
 use super::{App, Mode, PickTarget};
 use crate::protocol::Status;
 use ratatui::Frame;
@@ -69,10 +68,6 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::The
             let sel = *sel;
             super::hydra::draw_actions(app, f, area, &t, sel);
         }
-        Mode::Talk { term, input } => {
-            let (term, input) = (*term, input.clone());
-            super::hydra::draw_talk(app, f, area, &t, term, &input);
-        }
         Mode::Confirm(c) => {
             let c = (**c).clone();
             super::menu::draw_confirm(app, f, area, &t, &c);
@@ -85,10 +80,6 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::The
             let sel = *sel;
             super::hydra::draw_history(app, f, area, &t, sel);
         }
-        Mode::Memory { sel } => {
-            let sel = *sel;
-            super::hydra::draw_memory(app, f, area, &t, sel);
-        }
         Mode::Branch(v) => {
             let v = (**v).clone();
             super::branch::draw_branches(app, f, area, &t, &v);
@@ -100,30 +91,6 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::The
         Mode::HyMenu(m) => {
             let m = (**m).clone();
             super::menu::draw_menu(app, f, area, &t, &m);
-        }
-        Mode::Ideas(v) => {
-            let v = (**v).clone();
-            super::work::draw_ideas(app, f, area, &t, &v);
-        }
-        Mode::Tickets(v) => {
-            let v = (**v).clone();
-            super::work::draw_tickets(app, f, area, &t, &v);
-        }
-        Mode::RaceNew(v) => {
-            let v = (**v).clone();
-            super::work::draw_race_new(app, f, area, &t, &v);
-        }
-        Mode::Checkpoints(v) => {
-            let v = (**v).clone();
-            super::history::draw_checkpoints(app, f, area, &t, &v);
-        }
-        Mode::Chats(v) => {
-            let v = (**v).clone();
-            super::history::draw_chats(app, f, area, &t, &v);
-        }
-        Mode::Race(v) => {
-            let v = (**v).clone();
-            super::work::draw_race(app, f, area, &t, &v);
         }
         Mode::Ship(ask) => {
             let ask = (**ask).clone();
@@ -144,14 +111,6 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::The
         Mode::Picker { query, sel, commands } => {
             let (query, sel, commands) = (query.clone(), *sel, *commands);
             draw_picker(app, f, area, &t, &query, sel, commands)
-        }
-        Mode::Quick(q) => {
-            let q = q.clone();
-            draw_quick(app, f, area, &t, &q)
-        }
-        Mode::Toolbox(_) => {
-            let v = toolbox_panel(app, &t);
-            draw_panel(app, f, area, &t, v);
         }
         Mode::Prompt { kind, input } => {
             let (label, input, confirm) = (kind.label().to_string(), input.clone(), kind.is_confirm());
@@ -449,62 +408,7 @@ fn draw_picker(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme
     }
 }
 
-/// Wrap text into lines of at most `width` columns (by character, keeping explicit newlines).
-fn wrap_chars(text: &str, width: usize) -> Vec<String> {
-    let mut lines = vec![String::new()];
-    let mut w = 0;
-    for ch in text.chars() {
-        if ch == '\n' {
-            lines.push(String::new());
-            w = 0;
-            continue;
-        }
-        let cw = ch.width().unwrap_or(0);
-        if w + cw > width.max(1) {
-            lines.push(String::new());
-            w = 0;
-        }
-        lines.last_mut().unwrap().push(ch);
-        w += cw;
-    }
-    lines
-}
 
-fn draw_quick(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, q: &modal::Quick) {
-    use super::design::{fill, put, seg};
-    let agent = if q.place == modal::Place::Here {
-        app.focused().and_then(|id| app.snap.terms.get(&id)).map(|ti| ti.display_name().to_string()).unwrap_or_default()
-    } else {
-        app.cfg.quick.agents.get(q.agent).map(|a| a.name.clone()).unwrap_or_else(|| "?".into())
-    };
-    let ws = app.active_ws();
-    let ws_name = ws.map(|w| w.name.clone()).unwrap_or_default();
-    let buf = f.buffer_mut();
-    super::hydra::dim_all(buf, area, t);
-    let r = super::hydra::panel(app, buf, area, 76, 13, "Quick prompt", &[], t);
-    let c = Style::default().bg(t.card);
-    let chip = |s: String| seg(format!(" {s} "), Style::default().fg(t.strong).bg(t.btn).add_modifier(Modifier::BOLD));
-    let head = vec![chip(agent), seg("  in  ", c.fg(t.muted)), chip(q.place.label().into()), seg("  of  ", c.fg(t.muted)), chip(ws_name)];
-    put(buf, r.x + 3, r.y + 2, &head, r.right().saturating_sub(2));
-    let text_area = Rect { x: r.x + 2, y: r.y + 4, width: r.width.saturating_sub(4), height: r.height.saturating_sub(7) };
-    fill(buf, text_area, t.card2);
-    let lines = wrap_chars(&q.text, text_area.width.saturating_sub(4) as usize);
-    let visible = text_area.height as usize;
-    let skip = lines.len().saturating_sub(visible);
-    let s2 = Style::default().bg(t.card2);
-    for (i, l) in lines.iter().skip(skip).enumerate() {
-        let prefix = if i == 0 && skip == 0 { "› " } else { "  " };
-        put(buf, text_area.x + 1, text_area.y + i as u16, &[seg(prefix, s2.fg(t.accent)), seg(l.clone(), s2.fg(t.strong))], text_area.right());
-    }
-    if q.text.is_empty() {
-        put(buf, text_area.x + 1, text_area.y, &[seg("› ", s2.fg(t.accent)), seg("describe the task…", s2.fg(t.muted))], text_area.right());
-    }
-    let last = lines.last().map(|l| l.width()).unwrap_or(0) as u16;
-    let row = (lines.len() - skip).saturating_sub(1) as u16;
-    f.set_cursor_position(Position::new(text_area.x + 3 + last, text_area.y + row));
-    let keys = super::hydra::hints(t, &[("Enter", "start"), ("Tab", "agent"), ("Shift+Tab", "where"), ("Alt+Enter", "new line"), ("Esc", "cancel")]);
-    put(f.buffer_mut(), r.x + 3, r.bottom().saturating_sub(2), &keys, r.right());
-}
 
 #[allow(clippy::too_many_arguments)]
 fn draw_worktrees(
@@ -575,160 +479,9 @@ fn draw_prompt(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme
 
 // ---- panels: files, tasks, inbox, toolbox -------------------------------------------------
 
-/// What a two-column panel shows: a filterable list on the left, details on the right.
-struct PanelView {
-    title: String,
-    tabs: Vec<String>,
-    tab: usize,
-    /// None hides the search line (lists that don't filter).
-    query: Option<String>,
-    rows: Vec<Line<'static>>,
-    sel: Option<usize>,
-    detail: Vec<Line<'static>>,
-    detail_scroll: u16,
-    footer: Line<'static>,
-    /// Shown instead of rows when there are none (also used for "loading…").
-    empty: String,
-    left_pct: u16,
-}
 
-fn draw_panel(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, v: PanelView) {
-    use super::design::{fill, put, seg};
-    let w = (area.width.saturating_mul(92) / 100).clamp(60.min(area.width), area.width);
-    let h = (area.height.saturating_mul(88) / 100).clamp(16.min(area.height), area.height);
-    let title = {
-        let mut cs = v.title.chars();
-        cs.next().map(|c| c.to_uppercase().collect::<String>() + cs.as_str()).unwrap_or_default()
-    };
-    let buf = f.buffer_mut();
-    super::hydra::dim_all(buf, area, t);
-    let r = super::hydra::panel(app, buf, area, w, h, &title, &[], t);
-    let c = Style::default().bg(t.card);
-    let inner = Rect { x: r.x + 2, y: r.y + 2, width: r.width.saturating_sub(4), height: r.height.saturating_sub(3) };
-    let mut y = inner.y;
-    if !v.tabs.is_empty() {
-        let mut x = inner.x + 1;
-        for (i, name) in v.tabs.iter().enumerate() {
-            let on = i == v.tab;
-            let txt = format!(" {name} ");
-            let st = if on { Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD) } else { c.fg(t.text) };
-            x = put(buf, x, y, &[seg(txt, st)], inner.right()) + 2;
-        }
-        put(buf, x, y, &[seg("Tab", c.fg(t.accent).add_modifier(Modifier::BOLD)), seg(" switches", c.fg(t.muted))], inner.right());
-        y += 2;
-    }
-    if let Some(q) = &v.query {
-        let field = Rect { x: inner.x, y, width: inner.width, height: 1 };
-        super::hydra::strip(buf, field, t.card2);
-        let s2 = Style::default().bg(t.card2);
-        let mut qs = vec![seg("› ", s2.fg(t.accent).add_modifier(Modifier::BOLD)), seg(q.clone(), s2.fg(t.strong)), seg("█", s2.fg(t.accent))];
-        if q.is_empty() {
-            qs.push(seg(" type to filter", s2.fg(t.muted)));
-        }
-        put(buf, field.x + 1, y, &qs, field.right());
-        y += 2;
-    }
-    let body = Rect { y, height: inner.bottom().saturating_sub(y + 1), ..inner };
-    let left_w = body.width * v.left_pct / 100;
-    let left = Rect { width: left_w, ..body };
-    let right = Rect { x: body.x + left_w + 2, width: body.width.saturating_sub(left_w + 2), ..body };
-    for yy in body.y..body.bottom() {
-        if let Some(px) = buf.cell_mut((body.x + left_w, yy)) {
-            px.set_symbol("│").set_style(Style::default().fg(t.line).bg(t.card));
-        }
-    }
-    if v.rows.is_empty() {
-        f.render_widget(
-            Paragraph::new(v.empty.clone()).style(c.fg(t.muted)).wrap(ratatui::widgets::Wrap { trim: false }),
-            Rect { height: body.height.min(6), ..left },
-        );
-    }
-    let hgt = left.height as usize;
-    let sel = v.sel.unwrap_or(0);
-    let start = sel.saturating_sub(hgt.saturating_sub(1));
-    for (i, row) in v.rows.into_iter().enumerate().skip(start).take(hgt) {
-        let ry = left.y + (i - start) as u16;
-        let on = Some(i) == v.sel;
-        let bg = if on { t.hov } else { t.card };
-        let rr = Rect { y: ry, height: 1, ..left };
-        fill(f.buffer_mut(), rr, bg);
-        let row = Line::from(row.spans.into_iter().map(|sp| { let st = sp.style.bg(bg); Span::styled(sp.content, st) }).collect::<Vec<_>>());
-        f.render_widget(Paragraph::new(row).style(Style::default().bg(bg)), rr);
-    }
-    f.render_widget(Paragraph::new(v.detail).style(c.fg(t.text)).scroll((v.detail_scroll, 0)).wrap(ratatui::widgets::Wrap { trim: false }), right);
-    f.render_widget(Paragraph::new(v.footer).style(c), Rect { x: r.x + 3, y: r.bottom().saturating_sub(2), width: r.width.saturating_sub(6), height: 1 });
-}
 
-pub(super) fn hint(t: &crate::theme::Theme, pairs: &[(&str, &str)]) -> Line<'static> {
-    let mut spans = Vec::new();
-    for (i, (k, what)) in pairs.iter().enumerate() {
-        if i > 0 {
-            spans.push(Span::styled("  ·  ", Style::default().fg(t.border)));
-        }
-        spans.push(Span::styled(k.to_string(), Style::default().fg(t.accent).add_modifier(Modifier::BOLD)));
-        spans.push(Span::styled(format!(" {what}"), Style::default().fg(t.muted)));
-    }
-    Line::from(spans)
-}
 
-fn toolbox_panel(app: &App, t: &crate::theme::Theme) -> PanelView {
-    use super::toolbox::Row;
-    let Mode::Toolbox(v) = &app.mode else { unreachable!() };
-    let mut rows = Vec::new();
-    let mut sel_row = None;
-    let mut item_i = 0;
-    if let Some(sections) = &v.sections {
-        for row in v.rows() {
-            match row {
-                Row::Header(si) => {
-                    let s = &sections[si];
-                    rows.push(Line::from(vec![
-                        Span::styled(format!(" {} ", s.tool), Style::default().fg(t.accent).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!("{} ({})", s.title, s.items.len()), Style::default().fg(t.muted).add_modifier(Modifier::BOLD)),
-                    ]));
-                }
-                Row::Item(si, ii) => {
-                    let it = &sections[si].items[ii];
-                    if item_i == v.sel {
-                        sel_row = Some(rows.len());
-                    }
-                    item_i += 1;
-                    let (dot, c) = if it.enabled { ("●", t.idle) } else { ("○", t.muted) };
-                    rows.push(Line::from(vec![
-                        Span::styled(format!("   {dot} "), Style::default().fg(c)),
-                        Span::styled(format!("{} ", truncate(&it.name, 34)), Style::default().fg(if it.enabled { t.fg } else { t.muted })),
-                        Span::styled(it.scope.clone(), Style::default().fg(t.muted)),
-                    ]));
-                }
-            }
-        }
-    }
-    let mut detail = Vec::new();
-    if let Some(it) = v.selected() {
-        detail.push(Line::from(Span::styled(it.name.clone(), Style::default().fg(t.fg).add_modifier(Modifier::BOLD))));
-        detail.push(Line::from(vec![
-            Span::styled(if it.enabled { "on" } else { "off" }, Style::default().fg(if it.enabled { t.idle } else { t.muted })),
-            Span::styled(format!(" · {}", it.scope), Style::default().fg(t.muted)),
-        ]));
-        detail.push(Line::raw(""));
-        detail.extend(it.detail.iter().map(|l| Line::from(Span::styled(l.clone(), Style::default().fg(t.fg)))));
-        detail.push(Line::raw(""));
-        detail.push(Line::from(Span::styled(format!("defined in {}", it.source.display()), Style::default().fg(t.muted))));
-    }
-    PanelView {
-        title: format!("agent tools · {}", truncate(&v.project.display().to_string(), 50)),
-        tabs: vec!["This project".into(), "Everywhere".into()],
-        tab: v.everywhere as usize,
-        query: Some(v.query.clone()),
-        sel: sel_row,
-        rows,
-        detail,
-        detail_scroll: v.scroll,
-        footer: hint(t, &[("Tab", "this project / everywhere"), ("Enter", "open its config file"), ("^R", "rescan"), ("Esc", "close")]),
-        empty: if v.sections.is_none() { "  reading configs…".into() } else { "  Nothing set up here (or nothing matches).".into() },
-        left_pct: 50,
-    }
-}
 
 #[cfg(test)]
 mod tests {

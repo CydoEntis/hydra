@@ -6,7 +6,7 @@ impl App {
     pub(super) fn act(&mut self, a: Action) {
         // These read files on this machine; over ssh the files are on the other one.
         if crate::ipc::remote().is_some()
-            && matches!(a, Action::Files | Action::Changes | Action::Find(_) | Action::Branches | Action::PasteImage | Action::Ship | Action::Race)
+            && matches!(a, Action::Files | Action::Changes | Action::Find(_) | Action::Branches | Action::PasteImage | Action::Ship)
         {
             self.notify(format!("{} isn't available over ssh yet (agents, panes and worktrees are)", a.describe()), true);
             return;
@@ -19,9 +19,7 @@ impl App {
         match a {
             Action::PasteImage => self.paste_image(),
             Action::Find(tab) => self.open_find(tab),
-            Action::Presets => self.hy_presets(),
             Action::Branches => self.open_branches(None),
-            Action::Memory => self.mode = Mode::Memory { sel: 0 },
             Action::History => self.mode = Mode::History { sel: 0 },
             Action::SpawnTab(c) => {
                 if let Some(ws) = ws {
@@ -47,34 +45,11 @@ impl App {
                 }
             }
             Action::Palette => self.mode = Mode::Picker { query: String::new(), sel: 0, commands: true },
-            Action::QuickPrompt => {
-                let agent = 0;
-                let place = modal::Place::parse(&self.cfg.quick.place);
-                self.mode = Mode::Quick(modal::Quick { text: String::new(), agent, place });
-            }
-            Action::Answer(c) => if let Some(term) = focused { self.send(ClientMsg::Input { term, data: c.to_string().into_bytes() }) },
-            Action::UndoAutoWorkspace => {
-                self.undo_hint = false;
-                self.notice = None;
-                self.cmd(Command::UndoAutoWorkspace);
-            }
-            Action::OpenFolder => {
-                if let Some(p) = self.target_path() {
-                    let _ = files::open_default(&p);
-                }
-            }
             Action::StopAgent => {
                 if let Some(term) = self.target_term() {
                     self.send(ClientMsg::Input { term, data: vec![3] });
                 }
             }
-            Action::Toolbox => {
-                let dir = repo_root(&self.here_dir());
-                let d = dir.clone();
-                self.spawn_bg(move || Bg::Toolbox(d.clone(), toolbox::scan(&d)));
-                self.mode = Mode::Toolbox(Box::new(toolbox::ToolboxView::new(dir)));
-            }
-            Action::NextAttention => self.next_attention(),
             Action::ScrollUp | Action::ScrollDown => {
                 if let Some(term) = focused {
                     let half = self.sizes.get(&term).map(|s| s.1 / 2).unwrap_or(10).max(1) as i32;
@@ -141,32 +116,7 @@ impl App {
         }
     }
 
-    pub(super) fn split(&mut self, dir: Dir, cmd: Option<String>) {
-        if let Some(term) = self.focused() {
-            if let Some(t) = self.active_tab().map(|t| t.id) {
-                self.zoomed.remove(&t);
-            }
-            self.cmd(Command::Split { term, dir, cmd, cwd: None });
-        }
-    }
 
-    pub(super) fn next_attention(&mut self) {
-        let mut waiting: Vec<&TermInfo> = self
-            .snap
-            .terms
-            .values()
-            .filter(|t| matches!(t.status, Status::Blocked | Status::Done) || t.bell)
-            .collect();
-        if waiting.is_empty() {
-            self.notify("no agent is waiting on you".into(), false);
-            return;
-        }
-        waiting.sort_by_key(|t| (t.status.urgency(), t.id));
-        let cur = self.focused();
-        let i = waiting.iter().position(|t| Some(t.id) == cur).map(|i| i + 1).unwrap_or(0);
-        let term = waiting[i % waiting.len()].id;
-        self.cmd(Command::FocusPane { term });
-    }
 
     /// Run an extension's command about the worktree you're in: hidden (its last line is
     /// shown), or in a pane beside.
@@ -265,15 +215,12 @@ impl App {
     pub(super) fn palette_commands(&self) -> Vec<Action> {
         use crate::layout::Dir;
         vec![
-            Action::GoTo,
             Action::Jump,
             Action::BrowseTree,
             Action::NewPane,
             Action::ShellHere,
-            Action::OpenProject,
             Action::SplitRight,
             Action::SplitDown,
-            Action::Arrange,
             Action::Focus(Dir::Left),
             Action::Focus(Dir::Right),
             Action::Focus(Dir::Up),
@@ -285,10 +232,7 @@ impl App {
             Action::NextTab,
             Action::PrevTab,
             Action::CloseTab,
-            Action::Talk,
-            Action::Reply,
             Action::RenameWorkspace,
-            Action::Presets,
             Action::Files,
             Action::Find(0),
             Action::Find(1),
@@ -296,16 +240,8 @@ impl App {
             Action::Branches,
             Action::PullRequest,
             Action::Ship,
-            Action::Inbox,
-            Action::Queue,
-            Action::Checkpoints,
-            Action::Chats,
-            Action::Ideas,
-            Action::Race,
-            Action::Toolbox,
             Action::CopyMode,
             Action::PasteImage,
-            Action::Memory,
             Action::History,
             Action::Settings,
             Action::Help,
@@ -326,11 +262,6 @@ impl App {
         self.target_ws().and_then(|ws| self.snap.workspace(ws)).and_then(|w| w.tab()).map(|t| t.focus).or(self.focused())
     }
 
-    /// The checkout (or folder) the target pane is in.
-    pub(super) fn target_path(&self) -> Option<PathBuf> {
-        let t = self.target_term().and_then(|id| self.snap.terms.get(&id))?;
-        Some(crate::gitfs::head(&t.cwd).map(|h| h.top).unwrap_or_else(|| t.cwd.clone()))
-    }
 
     /// The ship confirm for the branch at `dir`.
     pub(super) fn ask_ship(&mut self, dir: PathBuf) {

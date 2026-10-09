@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Bump whenever a message shape changes; client and daemon refuse to talk across versions.
-pub const PROTOCOL_VERSION: u32 = 31;
+pub const PROTOCOL_VERSION: u32 = 32;
 
 pub type TermId = u32;
 pub type WsId = u32;
@@ -63,47 +63,8 @@ pub enum ClientMsg {
     Query(Query),
 }
 
-/// Work in seshi's queue: an agent starts on it, in its own worktree, once fewer than
-/// `queue.at_once` are running.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct QueueItem {
-    pub id: u64,
-    /// The repository it's for.
-    pub project: PathBuf,
-    /// Which agent ("claude") and the command that starts it on the task.
-    pub agent: String,
-    pub cmd: String,
-    pub title: String,
-    pub branch: String,
-    /// The ticket it came from; none for a task typed in.
-    pub ticket: Option<QueuedTicket>,
-    pub state: QueueState,
-    /// Its agent has been seen working (so going quiet means it's finished).
-    #[serde(default)]
-    pub worked: bool,
-}
 
-/// The ticket behind queued work, enough to tell its tracker how it's going.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct QueuedTicket {
-    /// "github", "linear", "plane".
-    pub source: String,
-    pub key: String,
-    /// The tracker's own id (see `tickets::Ticket::id`).
-    pub id: String,
-    pub url: String,
-}
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum QueueState {
-    Waiting,
-    /// Its worktree is being made.
-    Starting,
-    Running(TermId),
-    /// Its agent finished: yours to review.
-    Review(TermId),
-    Failed(String),
-}
 
 /// What an agent's session has used.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -175,10 +136,6 @@ pub enum Command {
     MovePane { term: TermId, to: Option<WsId>, name: Option<String> },
     /// Put back the pane the last automatic workspace took.
     UndoAutoWorkspace,
-    /// Put work in seshi's queue (its id and state are the server's to set).
-    Enqueue { item: QueueItem },
-    /// Take work out of the queue (an agent already on it keeps going).
-    Dequeue { id: u64 },
     /// Close everything running in a linked worktree, remove it and delete its branch (a
     /// branch just merged).
     CloseWorktree { path: PathBuf },
@@ -324,9 +281,6 @@ pub struct Snapshot {
     /// What Claude sessions in seshi have cost today (local day), at list price.
     #[serde(default)]
     pub spent_today: f64,
-    /// Seshi's queue of work, in order.
-    #[serde(default)]
-    pub queue: Vec<QueueItem>,
 }
 
 /// A question an agent asked you, with the answers it allows.

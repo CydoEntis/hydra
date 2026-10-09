@@ -8,9 +8,6 @@ use super::*;
 pub(in crate::client) use crate::gitfs::WT_NAMES;
 
 impl App {
-    pub(in crate::client) fn hy_agent(&self) -> String {
-        self.cfg.quick.agents.first().map(|a| a.name.clone()).unwrap_or_else(|| "claude".into())
-    }
 
     /// Where a session that just got the focus shows: beside the one it was opened from, in
     /// a new tab, in the tab that already shows it, or in place of the one you were on.
@@ -37,7 +34,7 @@ impl App {
         };
         if let Some(owner) = new_tab.filter(|o| *o != f) {
             take_out(&mut self.hy.tabs, f);
-            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner, used: 0, name: String::new() });
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, owner, used: 0, name: String::new() });
             self.hy.tab = self.hy.tabs.len() - 1;
             return;
         }
@@ -46,7 +43,7 @@ impl App {
             let i = match self.hy.tabs.iter().position(|t| t.layout.contains(p)) {
                 Some(i) => i,
                 None => {
-                    self.hy.tabs.push(HyTab { layout: Node::Leaf(p), focus: p, arrange: Arrange::Split, owner: p, used: 0, name: String::new() });
+                    self.hy.tabs.push(HyTab { layout: Node::Leaf(p), focus: p, owner: p, used: 0, name: String::new() });
                     self.hy.tabs.len() - 1
                 }
             };
@@ -75,7 +72,7 @@ impl App {
             return;
         }
         if self.hy.tabs.is_empty() {
-            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner: f, used: 0, name: String::new() });
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, owner: f, used: 0, name: String::new() });
             self.hy.tab = 0;
             return;
         }
@@ -96,7 +93,7 @@ impl App {
         // tab with nothing beside it is reused (this one first); a split or another session's
         // tabs stay as they are (pick its row to get them back).
         let lone = |tabs: &[HyTab], i: usize| tabs[i].layout.leaves().len() == 1 && tabs.iter().filter(|u| u.owner == tabs[i].owner).count() == 1;
-        let fresh = HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner: f, used: 0, name: String::new() };
+        let fresh = HyTab { layout: Node::Leaf(f), focus: f, owner: f, used: 0, name: String::new() };
         let reuse = if lone(&self.hy.tabs, self.hy.tab) { Some(self.hy.tab) } else { (0..self.hy.tabs.len()).find(|i| lone(&self.hy.tabs, *i)) };
         match reuse {
             Some(i) => {
@@ -178,13 +175,6 @@ impl App {
         true
     }
 
-    /// Message an agent: a small box beside its sidebar row when it has one, else centered.
-    /// From the sidebar cursor, sending returns there so the next one is a key away.
-    pub(in crate::client) fn hy_talk(&mut self, term: TermId, from_side: bool) {
-        self.hy.talk_anchor = self.hy.row_y.get(&term).copied();
-        self.hy.talk_back = from_side;
-        self.mode = Mode::Talk { term, input: String::new() };
-    }
 
     /// Show a session: it becomes the focused one.
     pub(in crate::client) fn hy_focus(&mut self, term: TermId) {
@@ -391,26 +381,10 @@ impl App {
                 self.hy_new_session(dir, None, false);
             }
             // One place: what needs you on top, and type to go anywhere.
-            Action::Jump | Action::Picker => self.open_goto(),
-            Action::Arrange => {
-                if let Some(tab) = self.hy.tabs.get_mut(self.hy.tab) {
-                    tab.arrange = tab.arrange.next();
-                    let label = tab.arrange.label();
-                    self.notify(format!("panes: {label}"), false);
-                }
-            }
+            Action::Jump => self.open_goto(),
             Action::PrevPrompt | Action::NextPrompt => {
                 if let Some(t) = self.focused() {
                     self.jump_prompt(t, *a == Action::PrevPrompt);
-                }
-            }
-            Action::OpenProject => self.hy_open_finder(),
-            Action::Talk | Action::Reply => {
-                let from_side = *a == Action::Talk && self.hy.cursor.is_some();
-                let term = if *a == Action::Talk { self.hy.cursor.or(focused) } else { focused };
-                match term {
-                    Some(term) => self.hy_talk(term, from_side),
-                    None => self.notify("nothing to message".into(), true),
                 }
             }
             // In a split: just this one, and back. On its own: hide the sidebar.
@@ -459,7 +433,6 @@ impl App {
                     self.cmd(Command::FocusPane { term: to });
                 }
             }
-            Action::GoTo => self.open_goto(),
             Action::SelectTab(n) => {
                 let seen = self.session_tabs();
                 if let Some(i) = n.checked_sub(1).and_then(|k| seen.get(k).copied())
@@ -513,12 +486,6 @@ impl App {
                 }
                 self.hy.save();
             }
-            Action::Ideas => self.open_ideas(),
-            Action::Inbox => self.open_tickets(),
-            Action::Queue => self.open_queue(),
-            Action::Checkpoints => self.open_checkpoints(),
-            Action::Chats => self.open_chats(),
-            Action::Race => self.open_race_new(),
             Action::Ship => {
                 let dir = self.hy_target_dir();
                 self.hy.cursor = None;
@@ -589,16 +556,12 @@ impl App {
                 }
                 _ => {}
             },
-            KeyCode::Char(' ') if plain => match (&proj, self.hy.cursor) {
-                (Some(key), _) => {
-                    if let Some(pi) = model.iter().position(|p| p.key == *key) {
-                        self.hy_side_leave();
-                        self.hy_new(pi, false);
-                    }
+            KeyCode::Char(' ') if plain => {
+                if let Some(pi) = proj.as_ref().and_then(|key| model.iter().position(|p| p.key == *key)) {
+                    self.hy_side_leave();
+                    self.hy_new(pi, false);
                 }
-                (None, Some(c)) => self.hy_talk(c, true),
-                _ => {}
-            },
+            }
             KeyCode::Enter => match (&proj, self.hy.cursor) {
                 (Some(key), _) => self.hy_fold(key, None),
                 (None, c) => {
@@ -935,89 +898,8 @@ impl App {
         }
     }
 
-    pub(in crate::client) fn on_memory_key(&mut self, sel: usize, k: &KeyEvent) {
-        let rows = memory_rows(self);
-        let n = rows.len();
-        match k.code {
-            KeyCode::Esc => self.mode = Mode::Normal,
-            KeyCode::Down => self.mode = Mode::Memory { sel: (sel + 1).min(n.saturating_sub(1)) },
-            KeyCode::Up => self.mode = Mode::Memory { sel: sel.saturating_sub(1) },
-            KeyCode::Enter => {
-                if let Some(r) = rows.get(sel) {
-                    self.mode = Mode::Normal;
-                    self.hy_focus(r.0);
-                }
-            }
-            KeyCode::Char('x') => {
-                if let Some(r) = rows.get(sel) {
-                    self.cmd(Command::ClosePane { term: r.0 });
-                    self.notify(format!("ended {} ({} freed)", r.1, mb(r.3)), false);
-                }
-                self.mode = Mode::Memory { sel: sel.min(n.saturating_sub(2)) };
-            }
-            _ => self.mode = Mode::Memory { sel },
-        }
-    }
 
-    /// Ctrl+Space . : your presets, numbered, for the agent you're on.
-    pub(in crate::client) fn hy_presets(&mut self) {
-        if self.cfg.presets.is_empty() {
-            self.notify("no presets yet: add [[presets]] to your config (see the example config)".into(), true);
-            return;
-        }
-        let on = self.hy.cursor.or(self.focused());
-        let items = self
-            .cfg
-            .presets
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                let how = match p.place.as_str() {
-                    "send" => "tell it",
-                    "worktree" => "new worktree",
-                    _ => "beside",
-                };
-                (format!("{}  {}{}  · {how}", i + 1, p.name, if p.asks() { "…" } else { "" }), crate::client::menu::Act::Preset(i, on))
-            })
-            .collect();
-        self.menu("Presets".into(), items, (self.hy.side_rect.right() + 4, 3));
-    }
 
-    /// Run preset `i` for the agent `on` (its folder, or the agent itself).
-    pub(in crate::client) fn hy_run_preset(&mut self, i: usize, on: Option<TermId>, task: Option<String>) {
-        let Some(p) = self.cfg.presets.get(i).cloned() else { return };
-        let model = self.hy_model();
-        let at = on.and_then(|t| self.snap.terms.get(&t)).map(|t| (t.top.clone().unwrap_or_else(|| t.cwd.clone()), t.root.clone()));
-        let pi = at
-            .as_ref()
-            .and_then(|(top, root)| model.iter().position(|m| path_key(&m.path) == path_key(root.as_ref().unwrap_or(top))))
-            .unwrap_or(0);
-        if p.asks() && task.is_none() {
-            // Ask for the task in + New, with the preset picked.
-            let mut np = NewPaneHy::new(pi, p.place == "beside");
-            np.a = np_agents(self).iter().position(|a| *a == format!("★ {}", p.name)).unwrap_or(0);
-            np.place = Some(if p.place == "worktree" { 0 } else { 2 });
-            self.mode = Mode::HyPane(np);
-            return;
-        }
-        let task = task.unwrap_or_default();
-        self.mode = Mode::Normal;
-        match (p.place.as_str(), on, at) {
-            ("send", Some(term), _) => self.send_message(term, &p.fill(&task)),
-            ("worktree", _, _) | (_, None, _) | (_, _, None) => {
-                let cmd = np_command(self, &format!("★ {}", p.name), 0, &task);
-                match model.get(pi) {
-                    Some(proj) if proj.git => self.hy_new_worktree(proj, cmd, false, None),
-                    Some(proj) => self.hy_new_session(proj.path.clone(), cmd, false),
-                    None => self.notify("start a session first (o opens a folder)".into(), true),
-                }
-            }
-            (_, Some(_), Some((top, _))) => {
-                let cmd = np_command(self, &format!("★ {}", p.name), 0, &task);
-                self.hy_new_session(top, cmd, true);
-            }
-        }
-    }
 
     /// + New for project `p`, with the task you didn't start last time.
     pub(in crate::client) fn hy_new(&mut self, p: usize, beside: bool) {
@@ -1144,7 +1026,6 @@ impl App {
                 self.hy_focus(t);
                 self.hy_side_set(SideItem::Sess(t));
             }
-            HyHit::Talk(t) => self.hy_talk(t, false),
             HyHit::Settings => self.hy_settings(),
             HyHit::Update => self.act(Action::Update),
             // The sidebar's "new": a shell where you are.
@@ -1280,88 +1161,6 @@ impl App {
                 self.splash = false;
                 self.hy_splash_action(c);
             }
-            HyHit::IdeaRow(i) => {
-                if let Mode::Ideas(v) = &mut self.mode {
-                    let again = v.sel == i && v.input.is_empty();
-                    v.sel = i;
-                    v.input.clear();
-                    if again || double {
-                        let v = (**v).clone();
-                        self.on_ideas_key(v, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-                    }
-                }
-            }
-            HyHit::TicketTab(i) => {
-                if let Mode::Tickets(v) = &self.mode {
-                    let mut v = (**v).clone();
-                    let n = v.tabs.len();
-                    v.tab = (i + n - 1) % n;
-                    self.on_tickets_key(v, &KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-                }
-            }
-            HyHit::TicketRow(i) => {
-                if let Mode::Tickets(v) = &mut self.mode {
-                    let again = v.sel == i;
-                    v.sel = i;
-                    if again || double {
-                        let v = (**v).clone();
-                        self.on_tickets_key(v, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-                    }
-                }
-            }
-            HyHit::HistoryRow(i) => {
-                let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-                match &mut self.mode {
-                    Mode::Checkpoints(v) => {
-                        let again = v.sel == i;
-                        v.sel = i;
-                        if again || double {
-                            let v = (**v).clone();
-                            self.on_checkpoints_key(v, &enter);
-                        }
-                    }
-                    Mode::Chats(v) => {
-                        let again = v.sel == i;
-                        v.sel = i;
-                        // The list is for what was searched: Enter picks, not searches again.
-                        v.query = v.searched.clone();
-                        if again || double {
-                            let v = (**v).clone();
-                            self.on_chats_key(v, &enter);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            HyHit::RaceAgent(i) => {
-                if let Mode::RaceNew(v) = &mut self.mode {
-                    v.row = 1;
-                    v.cur = i;
-                    if let Some(p) = v.picked.get_mut(i) {
-                        *p = !*p;
-                    }
-                }
-            }
-            HyHit::RaceGo => {
-                if let Mode::RaceNew(v) = &self.mode {
-                    let v = (**v).clone();
-                    self.on_race_new_key(v, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-                }
-            }
-            HyHit::RaceRow(i) => {
-                if let Mode::Race(v) = &mut self.mode {
-                    v.sel = i;
-                    v.confirm = false;
-                }
-            }
-            HyHit::RaceKey(c) => {
-                if let Mode::Race(v) = &self.mode {
-                    let v = (**v).clone();
-                    let code = if c == '\n' { KeyCode::Enter } else { KeyCode::Char(c) };
-                    self.on_race_key(v, &KeyEvent::new(code, KeyModifiers::NONE));
-                }
-            }
-            HyHit::RaceOpen(id) => self.open_race(id),
             HyHit::MenuPick(i) => self.menu_pick(i),
             HyHit::HistRow(i) => {
                 if let Mode::History { sel } = &mut self.mode {
@@ -1379,15 +1178,6 @@ impl App {
                     let q = query.clone();
                     if again || double {
                         self.on_goto_key(q, i, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-                    }
-                }
-            }
-            HyHit::MemRow(i) => {
-                if let Mode::Memory { sel } = &mut self.mode {
-                    let again = *sel == i;
-                    *sel = i;
-                    if again || double {
-                        self.on_memory_key(i, &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                     }
                 }
             }

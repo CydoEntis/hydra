@@ -83,11 +83,9 @@ src/
                  dialogs.rs, splash.rs, behaviour.rs (its keys and clicks), pr_map.rs
                  (pull request, ship views)
     render.rs, design.rs  drawing entry point and shared helpers
-    menu.rs, views.rs, files.rs, find.rs, branch.rs, work.rs, pr.rs, toolbox.rs, …
+    menu.rs, views.rs, files.rs, find.rs, branch.rs, recipes.rs, pr.rs, …
     tests.rs     rendering and behaviour tests
-  mcp.rs, ext.rs, project.rs, gitfs.rs, alert.rs, reveal.rs, update.rs, sync.rs,
-  tickets.rs (trackers: list yours, mark progress; used by the client and the queue),
-  checkpoint.rs (save and restore a checkout's state after agent turns)
+  mcp.rs, ext.rs, project.rs, gitfs.rs, alert.rs, reveal.rs, update.rs, sync.rs
 docs/            these docs, the roadmap, design briefs
 config.example.toml
 ```
@@ -159,7 +157,7 @@ Seshi is one binary that runs in two roles:
   `seshi doctor`, `seshi mcp`, `seshi proxy`, …) talk to the same daemon.
 
 External systems: the agent CLIs it runs (claude, codex, …) and their hook
-callbacks (`seshi hook`), `git` and `gh`, Linear and Plane APIs (tickets), `ssh`
+callbacks (`seshi hook`), `git` and `gh`, `ssh`
 for remote machines (`--remote host` runs `ssh host seshi proxy`), the OS
 clipboard and notifications, and an MCP server (`seshi mcp`) agents use to talk to
 each other.
@@ -184,16 +182,13 @@ Rules for the language live in `docs/stack/rust.md`.
 - **Infrastructure:** `ipc.rs` (sockets, SSH proxy), `daemon/term.rs` (PTY +
   emulator per pane), `daemon/scan.rs` (status detection), `daemon/git.rs`,
   `daemon/persist.rs`, `gitfs.rs`, `alert.rs`, `tmux_shim.rs` (a tmux for agent teams), `reveal.rs` (notification links,
-  bringing the window forward), `update.rs`, `sync.rs`, `ext.rs`, `mcp.rs`, `tickets.rs`
-  (GitHub, Linear, Plane), `daemon/usage.rs` (agents' usage, limits, continue after a
-  limit), `daemon/queue.rs` (queued work, started so many at a time), `checkpoint.rs`
-  (checkpoints as git commits under `refs/hydra/checkpoints/`), `client/history.rs`
-  (Checkpoints and Past chats views).
+  bringing the window forward), `update.rs`, `sync.rs`, `ext.rs`, `mcp.rs`,
+  `daemon/usage.rs` (agents' usage, limits, continue after a limit).
 - **Application:** `daemon/mod.rs` (the server loop: commands in, state and
   output out) and `client/mod.rs` (the client loop: events in, commands out).
 - **Presentation:** `client/hydra/` (the layout and its popups),
   `client/design.rs` (shared drawing helpers), `client/render.rs`, and the
-  feature views in `client/` (files, changes, branches, inbox, PRs, toolbox, …).
+  feature views in `client/` (files, changes, branches, PRs, …).
 
 The client never touches a PTY; the daemon never draws. They meet only through
 `protocol.rs` messages.
@@ -214,7 +209,7 @@ src/
                  (status), git.rs, persist.rs
   client/        the UI: mod.rs (loop, input), hydra.rs (layout), design.rs
                  (drawing helpers), render.rs, menu.rs, views.rs, and one file
-                 per feature (files, find, branch, work, inbox, pr, toolbox, …)
+                 per feature (files, find, branch, recipes, pr, …)
   mcp.rs, ext.rs, project.rs, gitfs.rs, alert.rs, reveal.rs, update.rs, sync.rs
 docs/            these docs, the roadmap, design briefs
 config.example.toml

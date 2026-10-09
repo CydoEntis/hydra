@@ -18,8 +18,6 @@ pub struct Config {
     pub prefix: String,
     /// Teach Claude (when seshi starts it) to move itself into a worktree when asked.
     pub teach_agents: bool,
-    /// Where tickets come from (Ctrl+Space i).
-    pub tickets: Tickets,
     /// What agents may do through `seshi mcp`.
     pub mcp: Mcp,
     /// Named setups for + New: e.g. a worktree with claude, a dev server and lazygit.
@@ -52,10 +50,6 @@ pub struct Config {
     pub auto_workspace: bool,
     /// An agent stopped by a plan limit is told "continue" once the limit resets.
     pub auto_continue: bool,
-    /// How many queued tasks run at once.
-    pub queue_at_once: u8,
-    /// Save a checkpoint of an agent's folder after each of its turns (to roll back to).
-    pub checkpoints: bool,
     pub worktree: Worktree,
     pub quick: Quick,
     pub icons: Icons,
@@ -134,36 +128,7 @@ pub struct Worktree {
     pub prewarm: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Tickets {
-    /// Tabs, in order: "github", "linear", "plane".
-    pub sources: Vec<String>,
-    /// Keys: better in config.local.toml (never synced) or the LINEAR_API_KEY /
-    /// PLANE_API_KEY environment variables.
-    pub linear_key: String,
-    pub plane_key: String,
-    /// Plane's API and web addresses (change both for self-hosted) and your workspace slug.
-    pub plane_url: String,
-    pub plane_app_url: String,
-    pub plane_workspace: String,
-    /// Which source a project opens on, by project (repo folder) name: shop-api = "linear".
-    pub projects: std::collections::BTreeMap<String, String>,
-}
 
-impl Default for Tickets {
-    fn default() -> Self {
-        Tickets {
-            sources: vec!["github".into(), "linear".into(), "plane".into()],
-            linear_key: String::new(),
-            plane_key: String::new(),
-            plane_url: "https://api.plane.so".into(),
-            plane_app_url: "https://app.plane.so".into(),
-            plane_workspace: String::new(),
-            projects: Default::default(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -260,11 +225,8 @@ impl Default for Recipe {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Quick {
-    /// Agents the quick prompt can launch; Tab cycles through them.
+    /// The agents seshi can start (the new-agent dialog lists them).
     pub agents: Vec<QuickAgent>,
-    /// Where a new agent goes: "right", "down", "tab", "worktree" or "here" (send to the
-    /// focused pane's agent).
-    pub place: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -441,7 +403,6 @@ impl Default for Config {
             prefix: "ctrl+space".into(),
             editor: String::new(),
             sleep_after: "never".into(),
-            tickets: Tickets::default(),
             teach_agents: true,
             mcp: Mcp::default(),
             recipes: Vec::new(),
@@ -458,8 +419,6 @@ impl Default for Config {
             restore: Restore::default(),
             auto_workspace: false,
             auto_continue: true,
-            queue_at_once: 3,
-            checkpoints: true,
             worktree: Worktree::default(),
             quick: Quick::default(),
             icons: Icons::default(),
@@ -508,7 +467,6 @@ impl Default for Quick {
         };
         Quick {
             agents: vec![a("claude", "claude {prompt}", &["opus", "sonnet", "haiku"], "--model"), a("codex", "codex {prompt}", &[], "-m")],
-            place: "worktree".into(),
         }
     }
 }

@@ -201,7 +201,6 @@ mod hydra_tests {
             (Mode::HyPane(hydra::NewPaneHy::new(0, false)), "claude gets its own new worktree in shop-api"),
             (Mode::HyPane(hydra::NewPaneHy { place: Some(1), ..hydra::NewPaneHy::new(0, false) }), "Switches shop-api to a new branch"),
             (Mode::KeyMap(Box::new(hydra::KeyMap { query: String::new(), searching: false, step: None, sel: 0 })), "inbox ● 1"),
-            (Mode::Talk { term: 1, input: String::new() }, "Write to claude…"),
         ] {
             app.mode = mode;
             let o = draw(&mut app, 160, 45);
@@ -296,7 +295,7 @@ mod hydra_tests {
         assert!(o.contains("Go to") && !o.contains("NEEDS YOU"), "searching: just what matches");
         // g opens the same place.
         app.mode = Mode::Normal;
-        app.act(Action::GoTo);
+        app.act(Action::Jump);
         assert!(matches!(&app.mode, Mode::GoTo { query, .. } if query.is_empty()));
     }
 
@@ -326,55 +325,6 @@ mod hydra_tests {
         assert!(o.contains("nothing new to commit") && o.contains("update pull request #412"));
     }
 
-    #[test]
-    fn ideas_tickets_and_races() {
-        let (_, mut app) = super::design_tests::render_with(160, 45);
-        let root = app.hy_model()[0].path.clone();
-        let ideas = vec![
-            work::Idea { text: "dark mode for the dashboard".into(), project: Some(root.clone()), at: 0 },
-            work::Idea { text: "a CLI for exports".into(), project: None, at: 0 },
-        ];
-        app.mode = Mode::Ideas(Box::new(work::IdeasView { ideas, input: String::new(), sel: 0, tag: 0 }));
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains("Ideas") && o.contains("for ▌shop-api") && o.contains("SHOP-API") && o.contains("✦ dark mode for the dashboard"));
-        assert!(o.contains("ANY PROJECT") && o.contains("start claude on it"));
-
-        let t = work::Ticket { key: "ENG-123".into(), id: "x".into(), title: "Checkout fails on Safari".into(), url: "u".into(), state: "Todo".into(), meta: "High · ENG".into(), body: "Steps to reproduce".into() };
-        app.mode = Mode::Tickets(Box::new(work::TicketsView {
-            dir: root.clone(),
-            tabs: vec![("github".into(), "GitHub issues".into()), ("linear".into(), "Linear".into()), ("plane".into(), "Plane".into())],
-            tab: 1,
-            lists: vec![None, Some(Ok(vec![t])), Some(Err("Set PLANE_API_KEY".into()))],
-            query: String::new(),
-            sel: 0,
-        }));
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains(" GitHub issues ") && o.contains(" Linear ") && o.contains(" Plane"));
-        assert!(o.contains("ENG-123") && o.contains("Checkout fails on Safari") && o.contains("Todo · High · ENG") && o.contains("claude on it now") && o.contains("queue it"));
-
-        app.mode = Mode::RaceNew(Box::new(work::RaceNew { text: "add rate limiting".into(), picked: vec![true, true, false], row: 0, cur: 0 }));
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains("Race agents") && o.contains("✓ claude") && o.contains("✓ codex") && o.contains("2 agents, each in its own worktree of shop-api"));
-
-        app.hy.saved.races.push(work::Race {
-            id: 7,
-            project: root.clone(),
-            prompt: "add rate limiting".into(),
-            base: "main".into(),
-            entries: vec![("claude".into(), "race-add-rate-limiting-claude".into()), ("codex".into(), "rate-limit".into())],
-        });
-        app.mode = Mode::Normal;
-        let o = draw(&mut app, 160, 45);
-        assert!(o.contains("⚑ race add rate limiting") && o.contains("⚑ rate"), "race line and race worktree in the sidebar");
-        app.mode = Mode::Race(Box::new(work::RaceView { id: 7, sel: 1, stats: vec![None, Some("+42 −7 · 3 files".into())], confirm: true }));
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains("Race · add rate limiting") && o.contains("+42 −7 · 3 files") && o.contains("not running"));
-        assert!(o.contains("Keep codex's rate-limit and delete the other 1?"));
-    }
 
     #[test]
     fn splash_menus_and_resizing() {
@@ -397,11 +347,11 @@ mod hydra_tests {
         app.menu_for_session(1, (10, 10));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("Message claude…") && o.contains("Rename") && o.contains("Close"));
+        assert!(o.contains("Rename") && o.contains("Close"));
         let Mode::HyMenu(m) = &app.mode else { panic!("a menu") };
-        let talk = m.items.iter().position(|(l, _)| l.starts_with("Message")).unwrap();
-        app.menu_pick(talk);
-        assert!(matches!(app.mode, Mode::Talk { term: 1, .. }), "picking an item does it");
+        let rename = m.items.iter().position(|(l, _)| l == "Rename").unwrap();
+        app.menu_pick(rename);
+        assert!(matches!(app.mode, Mode::Prompt { kind: PromptKind::RenamePane(1), .. }), "picking an item does it");
         app.mode = Mode::Normal;
         app.menu_for_project(0, (5, 5));
         let o = draw(&mut app, 160, 45);
@@ -606,31 +556,6 @@ mod hydra_tests {
         assert!(matches!(&app.mode, Mode::HyPane(np) if np.task == "add tests"), "Esc keeps the task as a draft");
     }
 
-    #[test]
-    fn presets_run_in_one_key_or_ask() {
-        let (_, mut app) = super::design_tests::render_with(160, 45);
-        let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
-        let p = |name: &str, prompt: &str, place: &str| crate::config::Preset {
-            name: name.into(),
-            agent: "claude".into(),
-            model: "sonnet".into(),
-            prompt: prompt.into(),
-            place: place.into(),
-        };
-        app.cfg.presets = vec![p("commit and push", "Commit everything and push.", "send"), p("review", "Review {task} for bugs.", "worktree")];
-        assert_eq!(app.cfg.presets[1].fill("the auth module"), "Review the auth module for bugs.");
-        let cmd = super::hydra::np_command(&app, "★ review", 0, "auth").unwrap();
-        assert!(cmd.starts_with("claude --model sonnet ") && cmd.contains("Review auth for bugs."), "{cmd}");
-        draw(&mut app, 160, 45);
-        app.act(Action::Presets);
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains("1  commit and push  · tell it") && o.contains("2  review…  · new worktree"));
-        app.on_key(key(KeyCode::Char('2')));
-        assert!(matches!(&app.mode, Mode::HyPane(np) if np.place == Some(0)), "a preset with {{task}} asks for it in + New");
-        let o = draw(&mut app, 160, 45);
-        assert!(o.contains("★ review") && o.contains("sonnet (from the preset)"));
-    }
 
     #[test]
     fn agent_rows_show_name_model_and_latest_prompt() {
@@ -649,21 +574,6 @@ mod hydra_tests {
         assert!(!o.contains("› now add a test for it"), "one line under a row, no more");
     }
 
-    #[test]
-    fn memory_view_lists_sessions_biggest_first() {
-        let (_, mut app) = super::design_tests::render_with(160, 45);
-        let ids: Vec<TermId> = app.snap.terms.keys().copied().collect();
-        for (n, id) in ids.iter().enumerate() {
-            app.snap.terms.get_mut(id).unwrap().mem = ((n as u64 + 1) * 300) << 20;
-        }
-        app.hy_fresh();
-        app.act(Action::Memory);
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        let rows = super::hydra::memory_rows(&app);
-        assert!(rows.windows(2).all(|w| w[0].3 >= w[1].3), "biggest first");
-        assert!(o.contains("Memory ·") && o.contains("in all") && o.contains("MB"));
-    }
 
     #[test]
     fn history_keeps_who_finished_asked_and_rang() {
@@ -708,14 +618,6 @@ mod hydra_tests {
         assert_eq!(app.hy.leaf_rects.len(), 3);
         let widths: Vec<u16> = app.hy.leaf_rects.iter().map(|(_, r)| r.width).collect();
         assert!(widths.iter().max().unwrap() - widths.iter().min().unwrap() <= 2, "three tile evenly: {widths:?}");
-        // Ctrl+Space =: main and stack, the first one big.
-        app.act(Action::Arrange);
-        app.act(Action::Arrange);
-        assert_eq!(app.hy.tabs[0].arrange, hydra::Arrange::Main);
-        draw(&mut app, 200, 50);
-        let first = app.hy.leaf_rects[0].1.width;
-        assert!(app.hy.leaf_rects.iter().skip(1).all(|(_, r)| r.width < first), "main is widest: {:?}", app.hy.leaf_rects);
-        app.hy.tabs[0].arrange = hydra::Arrange::Split;
         // Close one: two left, with a line between them you can drag.
         assert!(app.hy_unshow(c));
         assert_eq!(app.hy.tabs[0].layout.leaves().len(), 2);
@@ -1089,7 +991,7 @@ mod hydra_tests {
         for g in ["AGENTS", "PANES", "TABS", "PROJECT", "SESHI"] {
             assert!(o.contains(g), "the key map has {g}");
         }
-        assert!(o.contains("inbox ● 1") && o.contains("worktrees  ›") && o.contains("1 2 3"), "counts on their keys, steps marked");
+        assert!(o.contains("inbox ● 1") && o.contains("worktrees  ›"), "counts on their keys, steps marked");
         // Tab, then words: a search over every leader key.
         key(&mut app, KeyCode::Tab);
         for c in "zoom".chars() {
@@ -1364,82 +1266,7 @@ mod hydra_tests {
         assert!(o.contains("resumes in 10m") || o.contains("resumes in 9m"), "waiting on a limit, on its row");
     }
 
-    #[test]
-    fn tickets_can_be_queued_and_the_queue_shows() {
-        use crate::protocol::{ClientMsg, Command, QueueItem, QueueState};
-        let (_, mut app) = super::design_tests::render_with(160, 45);
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        app.out = tx;
-        let t = work::Ticket { key: "ENG-7".into(), id: "abc".into(), title: "Checkout fails".into(), url: "u".into(), state: String::new(), meta: String::new(), body: String::new() };
-        app.mode = Mode::Tickets(Box::new(work::TicketsView {
-            dir: std::path::PathBuf::from("/code/shop-api"),
-            tabs: vec![("linear".into(), "Linear".into()), (work::QUEUE_TAB.into(), "Queue".into())],
-            tab: 0,
-            lists: vec![Some(Ok(vec![t])), Some(Ok(Vec::new()))],
-            query: String::new(),
-            sel: 0,
-        }));
-        app.on_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL));
-        let sent = std::iter::from_fn(|| rx.try_recv().ok()).find_map(|m| match m {
-            ClientMsg::Command(Command::Enqueue { item }) => Some(item),
-            _ => None,
-        });
-        let item = sent.expect("Ctrl+Q queues the ticket");
-        assert_eq!((item.branch.as_str(), item.ticket.as_ref().map(|t| (t.source.as_str(), t.id.as_str()))), ("eng-7-checkout-fails", Some(("linear", "abc"))));
-        assert!(item.cmd.contains("ENG-7"), "the agent is told about the ticket: {}", item.cmd);
-        // The server's queue, on the Queue tab and in the footer.
-        let q = |id: u64, title: &str, state: QueueState| QueueItem { id, state, title: title.into(), ..item.clone() };
-        app.snap.queue = vec![q(1, "ENG-7 Checkout fails", QueueState::Review(1)), q(2, "ENG-8 Search is slow", QueueState::Running(2)), q(3, "tidy the readme", QueueState::Waiting)];
-        app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains("review") && o.contains("ENG-7 Checkout fails") && o.contains("waiting"), "the Queue tab lists it");
-        // A task typed there joins the queue.
-        for c in "tidy up".chars() {
-            app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
-        }
-        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let typed = std::iter::from_fn(|| rx.try_recv().ok()).find_map(|m| match m {
-            ClientMsg::Command(Command::Enqueue { item }) => Some(item),
-            _ => None,
-        });
-        assert_eq!(typed.map(|i| (i.title, i.ticket.is_none())), Some(("tidy up".to_string(), true)));
-    }
 
-    #[test]
-    fn checkpoints_and_past_chats_show() {
-        let (_, mut app) = super::design_tests::render_with(160, 45);
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-        let cp = |what: &str, ago: u64, change: &str| crate::checkpoint::Checkpoint { commit: format!("{what:0>40}"), at: now - ago, what: what.into(), change: change.into() };
-        app.mode = Mode::Checkpoints(Box::new(history::CheckpointsView {
-            top: std::path::PathBuf::from("/code/shop-api"),
-            list: Some(Ok(vec![cp("claude: add rate limiting", 120, "3 files, +40 −12"), cp("claude: fix login", 3600, "1 file, +2")])),
-            sel: 1,
-        }));
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains("Checkpoints") && o.contains("2m ago") && o.contains("claude: add rate limiting") && o.contains("3 files, +40 −12"));
-        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert!(matches!(&app.mode, Mode::Confirm(c) if c.what == "claude: fix login" && c.danger), "going back asks first");
-        app.mode = Mode::Chats(Box::new(history::ChatsView {
-            query: "webhook".into(),
-            searched: "webhook".into(),
-            list: Some(Ok(vec![history::ChatHit {
-                agent: "claude".into(),
-                id: "abc".into(),
-                cwd: std::path::PathBuf::from("/code/shop-api"),
-                title: "Fix the flaky checkout test".into(),
-                snippet: "The race is in the payment webhook handler.".into(),
-                at: now - 7200,
-            }])),
-            sel: 0,
-        }));
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains("Past chats") && o.contains("shop-api") && o.contains("Fix the flaky checkout test") && o.contains("payment webhook handler"));
-        assert!(o.contains("pick it up again"), "Enter resumes it once the list is for what's typed");
-        assert!(app.palette_commands().contains(&Action::Checkpoints) && app.palette_commands().contains(&Action::Chats));
-    }
 
     #[test]
     fn a_newer_hydra_has_an_update_button_that_asks_first() {
@@ -1664,7 +1491,7 @@ mod hydra_tests {
     fn go_to_a_project_or_session() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
-        app.act(Action::GoTo);
+        app.act(Action::Jump);
         let o = draw(&mut app, 160, 45);
         show(&o);
         // claude needs you in the fixture: the Inbox, then every session by project.
@@ -1688,7 +1515,7 @@ mod hydra_tests {
         app.act(Action::Palette);
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("Command palette") && o.contains("Go to a project or session") && !o.contains("workspace ·"), "commands only, in a panel");
+        assert!(o.contains("Command palette") && o.contains("Inbox: what needs you") && !o.contains("workspace ·"), "commands only, in a panel");
         for c in "split".chars() {
             app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
         }
@@ -1699,8 +1526,8 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         let a = o.lines().find(|l| l.contains("inbox ● 1")).unwrap();
-        let b = o.lines().find(|l| l.contains("talk to an agent")).unwrap();
-        assert_eq!(a.find("inbox ● 1"), b.find("talk to an agent"), "labels line up");
+        let b = o.lines().find(|l| l.contains("new shell here")).unwrap();
+        assert_eq!(a.find("inbox ● 1"), b.find("new shell here"), "labels line up");
     }
 
     #[test]
@@ -1710,7 +1537,7 @@ mod hydra_tests {
         app.mode = Mode::HySettings(Box::new(design::SettingsView { cat, sel: 0, editing: None, capturing: false, scroll: 0 }));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("GET AROUND") && o.contains("Go to a project or session") && o.contains("Command palette"));
+        assert!(o.contains("GET AROUND") && o.contains("Inbox: what needs you") && o.contains("Command palette"));
     }
 
     #[test]
@@ -1832,7 +1659,7 @@ mod hydra_tests {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         app.cfg.ui.which_key = false;
         let lead = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL);
-        for (c, what) in [('g', "go to"), ('o', "open project"), ('?', "keys"), (',', "settings")] {
+        for (c, what) in [('j', "inbox"), ('w', "worktrees"), ('?', "keys"), (',', "settings")] {
             app.mode = Mode::Normal;
             app.on_key(lead);
             assert!(matches!(app.mode, Mode::Prefix { .. }), "leader waits");
@@ -1847,26 +1674,17 @@ mod hydra_tests {
     fn every_popup_fits_a_tiny_window() {
         use crate::layout::Dir;
         let actions = [
-            Action::GoTo,
             Action::Palette,
             Action::Help,
             Action::Settings,
             Action::NewPane,
             Action::Jump,
-            Action::OpenProject,
-            Action::Talk,
             Action::Files,
             Action::Find(0),
             Action::Find(1),
             Action::Changes,
             Action::Branches,
-            Action::Inbox,
-            Action::Ideas,
-            Action::Race,
-            Action::Toolbox,
-            Action::Memory,
             Action::History,
-            Action::Presets,
             Action::RenameWorkspace,
             Action::BrowseTree,
             Action::SplitRight,
@@ -1889,7 +1707,7 @@ mod hydra_tests {
 
     #[test]
     fn borrowed_screens_look_like_hydra() {
-        for (a, title) in [(Action::Toolbox, "Agent tools"), (Action::RenameWorkspace, "Rename"), (Action::NewWorktree(None), "Worktrees")] {
+        for (a, title) in [(Action::RenameWorkspace, "Rename"), (Action::NewWorktree(None), "Worktrees")] {
             let (_, mut app) = super::design_tests::render_with(120, 34);
             app.act(a);
             let o = draw(&mut app, 120, 34);
@@ -1898,31 +1716,6 @@ mod hydra_tests {
         }
     }
 
-    #[test]
-    fn quick_follow_up_from_the_sidebar() {
-        let (_, mut app) = super::design_tests::render_with(160, 45);
-        let key = |c: KeyCode| KeyEvent::new(c, KeyModifiers::NONE);
-        draw(&mut app, 160, 45);
-        app.act(Action::SideMove(0));
-        assert!(matches!(app.mode, Mode::Side));
-        let row = app.hy.row_y[&app.hy.cursor.unwrap()];
-        app.on_key(key(KeyCode::Char(' ')));
-        assert!(matches!(app.mode, Mode::Talk { .. }), "Space opens the box");
-        for c in "run the tests".chars() {
-            app.on_key(key(KeyCode::Char(c)));
-        }
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        let _ = row;
-        assert!(o.contains("╭─ claude") && o.contains("› run the tests█"), "claude's card, with what you typed in a pill");
-        assert!(o.contains("Run npm test -- checkout?"), "with the agent's question for context");
-        app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT));
-        app.on_key(key(KeyCode::Char('x')));
-        assert!(matches!(&app.mode, Mode::Talk { input, .. } if input == "run the tests\nx"), "Shift+Enter: a new line");
-        app.on_key(key(KeyCode::Enter));
-        assert!(matches!(app.mode, Mode::Side), "sent, and back on the list for the next one");
-        assert!(app.notice.as_ref().is_some_and(|(m, ..)| m.starts_with("sent to")));
-    }
 
     #[test]
     fn options_come_from_the_screen() {

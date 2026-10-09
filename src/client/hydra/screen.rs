@@ -167,8 +167,6 @@ pub(in crate::client) enum Line {
     /// A dim line under an agent: what it's on, its question, a subagent. Shares the
     /// agent's highlight.
     Note(String, Color, TermId),
-    /// A race in this project (race id).
-    Race(u64),
     /// Nothing running in a folder project.
     Empty(usize),
     Gap,
@@ -206,9 +204,6 @@ pub(in crate::client) fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec
         if app.hy.saved.closed.contains(&format!("p:{}", p.key)) {
             out.push(Line::Gap);
             continue;
-        }
-        for r in app.hy.saved.races.iter().filter(|r| path_key(&r.project) == p.key) {
-            out.push(Line::Race(r.id));
         }
         // Just the sessions, most urgent first: needs you, done, working, idle (the repo
         // folder's before the worktrees' when equal).
@@ -294,7 +289,6 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
         .collect();
     app.hy.row_y.clear();
     app.hy.proj_keys = model.iter().map(|p| p.key.clone()).collect();
-    let tk = k(app, &Action::Talk);
 
     // One row lit at a time: the one under the mouse; with the mouse elsewhere, the keyboard's
     // row or the session you're in (its bold name still says which while you point around).
@@ -378,7 +372,6 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                     gs = gs.add_modifier(Modifier::BOLD);
                 }
                 let wt = &model[*pi].wts[*wi];
-                let racing = !wt.main && app.hy.saved.races.iter().any(|r| r.entries.iter().any(|(_, b)| *b == wt.branch));
                 let open_row = Some(s.term) == focus;
                 // Finished and not looked at yet: green, like its dot.
                 let unseen = s.is_agent && s.status == Status::Done && !s.asleep;
@@ -387,9 +380,6 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                     ns = ns.add_modifier(Modifier::BOLD);
                 }
                 let mut left = vec![];
-                if racing {
-                    left.push(seg("⚑ ", st.fg(t.accent)));
-                }
                 if s.is_agent && s.status == Status::Working && !s.asleep {
                     left.extend(shimmer(&s.name, app.spinner_frame(), t.text, t.strong, ns));
                 } else {
@@ -404,8 +394,6 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 let pr = (*si == 0).then(|| model[*pi].prs.iter().find(|p| p.branch == wt.branch)).flatten();
                 let tail: Vec<Seg> = if small {
                     vec![]
-                } else if sel {
-                    vec![seg(format!(" {tk} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD))]
                 } else if let Some(p) = pr {
                     let k2 = app.hy.pr_keys.len();
                     app.hy.pr_keys.push((wt.path.clone(), p.number.to_string()));
@@ -446,9 +434,6 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 if menu {
                     row_menu_button(app, buf, Rect { x: right.saturating_sub(1), y, width: 1, height: 1 }, bg, t, HyHit::RowMenuSess(s.term));
                 }
-                if sel {
-                    hit(app, Rect { x: right.saturating_sub(tw), y, width: tw, height: 1 }, HyHit::Talk(s.term));
-                }
             }
             Line::Note(text, c, term) => {
                 if small {
@@ -456,26 +441,6 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 }
                 put(buf, x0 + 7, y, &[seg(truncate(text, w.saturating_sub(11) as usize), Style::default().bg(pb).fg(*c).add_modifier(Modifier::ITALIC))], right);
                 hit(app, row, HyHit::Session(*term));
-            }
-            Line::Race(id) => {
-                let Some(race) = app.hy.saved.races.iter().find(|r| r.id == *id).cloned() else { continue };
-                let bg = if hovered(app, row) { t.hov } else { pb };
-                if bg != pb {
-                    row_pill(look, buf, row.x, y, row.width, bg, pb);
-                }
-                let s = Style::default().bg(bg);
-                put(
-                    buf,
-                    x0 + 3,
-                    y,
-                    &[
-                        seg("⚑ race ", s.fg(t.accent).add_modifier(Modifier::BOLD)),
-                        seg(truncate(&race.prompt, w.saturating_sub(16) as usize), s.fg(t.text)),
-                        seg(format!("  {}", race.entries.len()), s.fg(t.muted)),
-                    ],
-                    right,
-                );
-                hit(app, row, HyHit::RaceOpen(*id));
             }
             // Nothing running: one click starts a shell there.
             Line::Empty(pi) => {
@@ -629,10 +594,9 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         return;
     };
     let leaves = layout.leaves();
-    let arrange = app.hy.tabs.get(app.hy.tab).map(|tab| tab.arrange).unwrap_or_default();
-    // Split with two: where you drag the gap (below). Anything else: by the arrangement.
-    if leaves.len() >= 3 || arrange != Arrange::Split {
-        let rects = arranged(arrange, &leaves, focus, area);
+    // Two: where you drag the gap (below). More: tiled.
+    if leaves.len() >= 3 {
+        let rects = arranged(&leaves, area);
         app.hy.leaf_rects = rects.clone();
         for (id, r) in rects {
             draw_session(app, f, inset(r), id, id == focus, model, t);

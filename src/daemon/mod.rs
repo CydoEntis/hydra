@@ -11,7 +11,6 @@ mod term;
 mod commands;
 mod contain;
 mod restore;
-mod queue;
 mod status;
 mod usage;
 mod worktrees;
@@ -69,12 +68,6 @@ pub enum Ev {
         result: Result<(PathBuf, String), String>,
     },
     WorktreeRemoved { client: ClientId, path: PathBuf, result: Result<(), String> },
-    /// A checkpoint of this checkout was saved (or failed; it's logged).
-    CheckpointTaken(PathBuf),
-    /// A queued task's worktree was made (or not).
-    QueueWorktree { id: u64, result: Result<(PathBuf, String), String> },
-    /// Telling a ticket's tracker how it's going finished.
-    TicketMarked(Result<String, String>),
     /// Numbers read from Codex's session files (`usage::poll_codex`).
     CodexUsage { usage: Vec<(TermId, Usage)>, limits: Option<Vec<Limit>> },
     /// A worktree made for an agent started from a shell (`Command::AgentWorktree`).
@@ -160,11 +153,6 @@ struct Daemon {
     spent: Vec<(u64, f64)>,
     codex_busy: bool,
     last_codex: Instant,
-    /// Seshi's queue of work.
-    queue: Vec<QueueItem>,
-    /// Checkouts a checkpoint is being saved for (one at a time each).
-    checkpointing: std::collections::HashSet<PathBuf>,
-    next_queue_id: u64,
     /// Extensions (their hooks run here).
     exts: Vec<crate::ext::Ext>,
     /// Extra environment for the next pane spawned (a dev server's PORT).
@@ -344,9 +332,7 @@ impl Daemon {
             | Command::Split { .. }
             | Command::NewWorktree { .. }
             | Command::Dev { .. }
-            | Command::Popup { .. }
-            | Command::Enqueue { .. }
-            | Command::Dequeue { .. } => {
+            | Command::Popup { .. } => {
                 self.may(client, Grant::Start, None)
             }
             Command::ClosePane { term } => self.may(client, Grant::Admin, Some(*term)).or_else(|e| {
@@ -419,9 +405,6 @@ impl Daemon {
             limits: BTreeMap::new(),
             spent: Vec::new(),
             codex_busy: false,
-            queue: Vec::new(),
-            next_queue_id: 1,
-            checkpointing: Default::default(),
             last_codex: Instant::now() - Duration::from_secs(3600),
             next_env: Vec::new(),
             next_once: false,
@@ -451,7 +434,6 @@ impl Daemon {
                 _ = tick.tick() => {
                     self.update_statuses();
                     self.auto_continue();
-                    self.run_queue();
                     self.poll_codex();
                     if self.last_sleep_check.elapsed() >= SLEEP_CHECK_EVERY {
                         self.last_sleep_check = Instant::now();
@@ -841,17 +823,6 @@ impl Daemon {
                 self.dirty = true;
             }
             Ev::CodexUsage { usage, limits } => self.codex_usage(usage, limits),
-            Ev::QueueWorktree { id, result } => self.queue_worktree(id, result),
-            Ev::CheckpointTaken(top) => {
-                self.checkpointing.remove(&top);
-            }
-            Ev::TicketMarked(result) => {
-                let msg = match result {
-                    Ok(m) => m,
-                    Err(e) => format!("couldn't update the ticket: {e}"),
-                };
-                self.broadcast(|c| c.attach, ServerMsg::Notice(msg));
-            }
             Ev::WorktreeRemoved { client, path, result } => {
                 self.pending_ops -= 1;
                 match result {
@@ -1035,7 +1006,6 @@ impl Daemon {
             questions: self.questions.iter().map(|(q, ..)| q.clone()).collect(),
             limits: self.limits.iter().map(|(a, l)| (a.clone(), l.clone())).collect(),
             spent_today: self.spent_today(),
-            queue: self.queue.clone(),
         }
     }
 

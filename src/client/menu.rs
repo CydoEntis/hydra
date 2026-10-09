@@ -19,12 +19,9 @@ pub enum Act {
     Beside(TermId),
     /// The program in this pane is an agent: seshi learns it.
     TeachAgent(TermId),
-    Talk(TermId),
     /// End these (stops what runs in them).
     End(Vec<TermId>),
     Changes(PathBuf),
-    /// Preset i, for this agent.
-    Preset(usize, Option<TermId>),
     RenamePane(TermId),
     Split(TermId, crate::layout::Dir),
     Zoom(TermId),
@@ -37,8 +34,6 @@ pub enum Act {
     GitInit(PathBuf),
     OpenWorktree(usize),
     Dev(PathBuf, crate::protocol::DevAction),
-    /// Roll a checkout back to a checkpoint (its folder, the commit).
-    Checkpoint(PathBuf, String),
     /// Download the newest seshi and restart into it.
     Update,
 }
@@ -181,11 +176,8 @@ impl App {
             return Some(("dev server".into(), items));
         }
         let info = self.snap.terms.get(&term);
-        // An agent can be messaged; a program seshi doesn't know can be taught.
+        // A program seshi doesn't know can be taught.
         let mut items = Vec::new();
-        if s.is_agent {
-            items.push((format!("Message {agent}…"), Act::Talk(term)));
-        }
         if let Some(t) = info.filter(|t| t.agent.is_none() && !t.is_shell() && !t.process.is_empty() && t.remote.is_none()) {
             items.push((format!("{} is an agent…", t.process), Act::TeachAgent(term)));
         }
@@ -388,7 +380,6 @@ impl App {
                 self.hy.pending_split = Some((t, std::time::Instant::now()));
                 self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd: None });
             }
-            Act::Checkpoint(top, commit) => self.restore_checkpoint(top, commit),
             Act::Update => self.start_update(),
             Act::GitInit(dir) => {
                 self.notify("making it a git repo…".into(), false);
@@ -448,8 +439,6 @@ impl App {
                     self.cmd(Command::FocusPane { term: t });
                 }
             }
-            Act::Talk(t) => self.hy_talk(t, false),
-            Act::Preset(i, on) => self.hy_run_preset(i, on, None),
             Act::Dev(dir, action) => self.cmd(Command::Dev { dir, action }),
             Act::End(ts) => {
                 for t in ts {

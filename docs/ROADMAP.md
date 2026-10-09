@@ -77,18 +77,15 @@ Everything below is shipped on `dev` unless marked.
 - Status detection: working / needs you / done (until seen) / idle, from screen patterns, OSC progress and agent hooks — shipped — `src/daemon/scan.rs`, `seshi hook` in `src/cli.rs`
 - Trusted status reports (process tree or `SESHI_PANE_TOKEN`) — shipped — `src/daemon/term.rs`, `src/cli.rs`
 - Agent kinds: Claude, Codex, Gemini, OpenCode, Cursor, Copilot, Amp, Qwen, Aider, Goose, Crush, Droid, Pi, Kiro, Grok, custom `[[agents]]` — shipped — `src/config.rs`
-- New agent task box (project, worktree, agent, model, effort), presets, prewarm — shipped — `src/client/work.rs`
-- Message / reply / quick follow-up, answer prompts — shipped — `src/client/hydra.rs`
-- Race agents on one task — shipped — `Action::Race`
+- New agent task box (project, worktree, agent, model, effort), presets and recipes as its choices, prewarm — shipped — `src/client/hydra/dialogs.rs`, `src/client/recipes.rs`
 - Agents talk to agents (MCP server `seshi mcp`) — shipped — `src/mcp.rs`
 - `seshi send --wait`, `seshi wait`, `seshi read` — shipped — `src/cli.rs`
-- Memory per session — shipped — `Mode::Memory`
 
 **The UI (one layout, ADR-0004)**
 - Floating look: rounded cards with gaps, title and state in the border, unfocused cards faded, pill tabs, no app footer; floating or tiled, corners, gap, dim, focus border, pill ends in Settings — done, unreleased — `src/client/hydra/card.rs`, `screen.rs`, ADR-0007
 - Sidebar card: projects → sessions, state glyph + name, branch · age, question under it, attention sort, keyboard and mouse, row letter keys, `a actions` / `, settings` foot — shipped — `src/client/hydra/screen.rs` `draw_side`
 - Panes: tabs as pills (named in their pill), any number of splits (grid for 3+), zoom, drag the gap between them, ✕ in the border — shipped — `src/client/hydra/screen.rs` `draw_session`
-- Go to switcher, command palette (plain-word commands), Jump to what needs you, key map (searchable, second steps), actions list — shipped — `draw_goto`, `draw_palette`, `src/client/hydra/leader.rs`
+- Inbox (what needs you first, type to go anywhere), command palette (plain-word commands), key map (searchable, second steps), actions list — shipped — `draw_goto`, `draw_palette`, `src/client/hydra/leader.rs`
 - Right-click menus, confirm before closing, toasts — shipped — `src/client/menu.rs`
 - Splash: Resume / New / Open a folder — shipped — `draw_splash`
 - Settings popup grouped by section, key rebinding, themes with contrast audit — shipped — `draw_settings`, `src/theme.rs`
@@ -99,14 +96,11 @@ Everything below is shipped on `dev` unless marked.
 - Worktrees per agent, create / move / remove with hooks — shipped — `src/daemon/git.rs`, `src/project.rs`
 - Files (tree, preview, in-place edit, external editor), find file, search code — shipped — `src/client/files.rs`, `src/client/find.rs`, `src/client/views.rs`
 - Changes (diff, review marks, commit, git init offer), branch switcher, pull requests, Ship — shipped — `src/client/branch.rs`, `src/client/pr.rs`
-- Tickets: GitHub issues/PRs, Linear, Plane — shipped — `src/client/inbox.rs`
 - Dev server per worktree (`.seshi.toml`) — shipped — `src/project.rs`
-- Ideas, map of the project, tasks — shipped — `Action::Ideas`, `Action::Map`, `src/client/tasks.rs`
-- Agent tools view (MCP, skills, plugins; per project / global) — shipped — `src/client/toolbox.rs`
+- Tasks (a worktree's review: commit, merge, PR, throw away) — shipped — `src/client/tasks.rs`
 - Own worktree for `claude`/`codex` typed into a shell in a repo's main folder — shipped 0.9.12 — `seshi agent-dir`, `daemon/term.rs` `agent_functions`
 - Usage and limits meter, context per agent, continue after a limit — shipped 0.10.0 — `seshi statusline`, `src/daemon/usage.rs`
-- Queue (tickets and typed tasks, N at once, tracker follows); merge that cleans up — shipped 0.11.0 — `src/daemon/queue.rs`, `src/tickets.rs`
-- Checkpoints after agent turns, Past chats (search, resume) — shipped 0.12.0 — `src/checkpoint.rs`, `src/client/history.rs`
+- Merge that cleans up (the worktree and its branch go) — shipped 0.11.0 — `src/client/view_keys.rs`
 
 **Identity**
 - Renamed hydra → Seshi: command, folders, `SESHI_*`, `.seshi.toml`, MCP, releases; one-time move of an old install — done, unreleased — `config::migrate_old_names`, ADR-0008
@@ -124,6 +118,7 @@ Everything below is shipped on `dev` unless marked.
 
 ## Out
 
+- Features cut 2026-10-09 (the user's call: they repeated something else or weren't used): talk / reply / answer, open project, go to, next agent that needs you, arrange panes, undo automatic workspace, quick prompt, the map, ideas, races, the queue, run a preset (presets stay in the new-agent dialog), memory per session, checkpoints, past chats, agent tools, tickets (GitHub, Linear, Plane). Bringing one back needs a new decision.
 - Other UI layouts (workspaces, tree, dock, sidebar) — declined 2026-10-03: one layout to build and test (ADR-0004, now ADR-0007: floating and tiled are styles of it). Bringing them back needs a new decision.
 
 ## Later

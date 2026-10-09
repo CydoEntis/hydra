@@ -64,8 +64,10 @@ impl App {
                     .map(|t| t.id)
                     .next();
                 match term {
+                    // Typed into its prompt, not sent: you read it, change it, press Enter.
                     Some(term) => {
-                        self.mode = Mode::Talk { term, input: info.fix_prompt() };
+                        self.cmd(Command::FocusPane { term });
+                        self.send(ClientMsg::Input { term, data: info.fix_prompt().into_bytes() });
                         return false;
                     }
                     None => self.notify("no agent is working in this branch; start one with + New".into(), true),
@@ -174,7 +176,7 @@ impl App {
             KeyCode::Char('r') => {
                 if let Some(term) = v.term {
                     self.cmd(Command::FocusPane { term });
-                    self.mode = Mode::Quick(modal::Quick { text: String::new(), agent: 0, place: modal::Place::Here });
+                    self.mode = Mode::Normal;
                     return false;
                 }
                 self.notify("no agent runs in this worktree".into(), true);
@@ -388,53 +390,7 @@ impl App {
         true
     }
 
-    /// Type a message into an agent and press Enter. Several lines go as one paste, so they
-    /// arrive as one message.
-    pub(super) fn send_message(&mut self, term: TermId, text: &str) {
-        let bracketed = self.parsers.get(&term).is_some_and(|p| p.screen().bracketed_paste());
-        let data = if text.contains('\n') && bracketed { format!("\x1b[200~{text}\x1b[201~") } else { text.replace('\n', " ") };
-        self.send(ClientMsg::Input { term, data: data.into_bytes() });
-        // Enter a moment later, so the program has taken the text first.
-        let out = self.out.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(60));
-            let _ = out.send(ClientMsg::Input { term, data: b"\r".to_vec() });
-        });
-        let who = self.snap.terms.get(&term).map(|t| t.display_name()).unwrap_or_default();
-        self.notify(format!("sent to {who}"), false);
-    }
 
-    pub(super) fn on_talk_key(&mut self, term: TermId, mut input: String, k: &KeyEvent) {
-        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-        // From the sidebar, done means back to the sidebar cursor (next agent: ↓ Space).
-        let back = if self.hy.talk_back && self.hy.cursor.is_some() { Mode::Side } else { Mode::Normal };
-        match k.code {
-            KeyCode::Esc => {
-                self.mode = back;
-                return;
-            }
-            KeyCode::Enter if k.modifiers.intersects(KeyModifiers::SHIFT | KeyModifiers::ALT) => input.push('\n'),
-            KeyCode::Char('o') if ctrl || input.is_empty() => {
-                self.cmd(Command::FocusPane { term });
-                self.mode = Mode::Normal;
-                return;
-            }
-            KeyCode::Enter => {
-                if !input.trim().is_empty() {
-                    let text = std::mem::take(&mut input);
-                    self.send_message(term, &text);
-                }
-                self.mode = back;
-                return;
-            }
-            KeyCode::Backspace => {
-                input.pop();
-            }
-            KeyCode::Char(c) if !ctrl => input.push(c),
-            _ => {}
-        }
-        self.mode = Mode::Talk { term, input };
-    }
 
     /// Keys in the settings view. Returns false when it closes.
     pub(super) fn on_settings_view_key(&mut self, v: &mut design::SettingsView, k: &KeyEvent) -> bool {
@@ -572,120 +528,8 @@ impl App {
         true
     }
 
-    pub(super) fn on_toolbox_key(&mut self, mut v: toolbox::ToolboxView, k: &KeyEvent) {
-        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-        match k.code {
-            // This project, or everywhere.
-            KeyCode::Tab | KeyCode::BackTab => {
-                v.everywhere = !v.everywhere;
-                v.sel = 0;
-            }
-            KeyCode::Esc => {
-                self.mode = Mode::Normal;
-                return;
-            }
-            KeyCode::Enter => {
-                if let Some(item) = v.selected() {
-                    match files::open_default(&item.source) {
-                        Ok(()) => self.notify(format!("opened {}", item.source.display()), false),
-                        Err(e) => self.notify(format!("couldn't open: {e}"), true),
-                    }
-                }
-            }
-            KeyCode::Char('r') if ctrl => {
-                v.sections = None;
-                let d = v.project.clone();
-                self.spawn_bg(move || Bg::Toolbox(d.clone(), toolbox::scan(&d)));
-            }
-            KeyCode::Backspace => {
-                v.query.pop();
-                v.sel = 0;
-            }
-            KeyCode::Char(c) if !ctrl => {
-                v.query.push(c);
-                v.sel = 0;
-            }
-            _ => {
-                let n = v.item_count();
-                if Self::list_move(&mut v.sel, n, k) {
-                    v.scroll = 0;
-                }
-            }
-        }
-        self.mode = Mode::Toolbox(Box::new(v));
-    }
 
-    pub(super) fn on_quick_key(&mut self, mut q: modal::Quick, k: &KeyEvent) {
-        let agents = self.cfg.quick.agents.len().max(1);
-        let newline = k.modifiers.intersects(KeyModifiers::ALT | KeyModifiers::SHIFT);
-        match k.code {
-            KeyCode::Esc => {
-                self.mode = Mode::Normal;
-                return;
-            }
-            KeyCode::Enter if newline => q.text.push('\n'),
-            KeyCode::Enter => {
-                self.mode = Mode::Normal;
-                self.submit_quick(q);
-                return;
-            }
-            KeyCode::Tab => q.agent = (q.agent + 1) % agents,
-            KeyCode::BackTab => q.place = q.place.next(),
-            KeyCode::Backspace => {
-                q.text.pop();
-            }
-            KeyCode::Char('u') if k.modifiers.contains(KeyModifiers::CONTROL) => q.text.clear(),
-            KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) => q.text.push(c),
-            _ => {}
-        }
-        self.mode = Mode::Quick(q);
-    }
 
-    pub(super) fn submit_quick(&mut self, q: modal::Quick) {
-        let task = q.text.trim().to_string();
-        if q.place == modal::Place::Here {
-            let Some(term) = self.focused() else { return };
-            if task.is_empty() {
-                return;
-            }
-            let body = task.replace('\n', "\r");
-            let data = if task.contains('\n') { format!("\x1b[200~{body}\x1b[201~") } else { body };
-            self.send(ClientMsg::Input { term, data: data.into_bytes() });
-            // Enter as a separate write, a beat later, so the agent reads the text first.
-            let out = self.out.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(60)).await;
-                let _ = out.send(ClientMsg::Input { term, data: b"\r".to_vec() });
-            });
-            return;
-        }
-        let Some(agent) = self.cfg.quick.agents.get(q.agent).cloned() else {
-            self.notify("no agents configured under [quick]".into(), true);
-            return;
-        };
-        let prompt = if task.is_empty() { String::new() } else { self.cfg.quote_for_shell(&task) };
-        let cmd = agent.command.replace("{prompt}", &prompt).trim().to_string();
-        let Some(ws) = self.active_ws().map(|w| w.id) else { return };
-        match q.place {
-            modal::Place::Right | modal::Place::Down => {
-                let dir = if q.place == modal::Place::Right { Dir::Right } else { Dir::Down };
-                self.split(dir, Some(cmd));
-            }
-            modal::Place::Tab => self.cmd(Command::NewTab { ws, name: None, cmd: Some(cmd) }),
-            modal::Place::Worktree => {
-                if crate::gitfs::head(&self.here_dir()).is_none() {
-                    // Not in a repo: no worktree to make; open beside instead.
-                    self.split(Dir::Right, Some(cmd));
-                    return;
-                }
-                let branch = modal::branch_for(&task);
-                self.notify(format!("creating worktree {branch}…"), false);
-                let (split, from) = (self.focused(), Some(self.here_dir()));
-                self.cmd(Command::NewWorktree { ws, branch, base: None, cmd: Some(cmd), split, from });
-            }
-            modal::Place::Here => {}
-        }
-    }
 
     pub(super) fn submit_prompt(&mut self, kind: PromptKind, input: String) {
         let input = input.trim().to_string();

@@ -607,7 +607,6 @@ pub(super) fn key_rows() -> Vec<(&'static str, Vec<(&'static str, Vec<crate::key
         (
             "GET AROUND",
             vec![
-                ("Go to a project or session", vec![A::GoTo]),
                 ("Command palette", vec![A::Palette]),
                 ("Focus the sidebar", vec![A::BrowseTree]),
                 ("Focus the pane left", vec![A::Focus(Left)]),
@@ -642,13 +641,10 @@ pub(super) fn key_rows() -> Vec<(&'static str, Vec<(&'static str, Vec<crate::key
             ],
         ),
         (
-            "START & TALK",
+            "START",
             vec![
                 ("New session (a shell here)", vec![A::ShellHere]),
-                ("Message an agent", vec![A::Talk]),
-                ("Reply to the focused agent", vec![A::Reply]),
                 ("Rename session", vec![A::RenameWorkspace]),
-                ("Run a preset", vec![A::Presets]),
             ],
         ),
         (
@@ -661,9 +657,6 @@ pub(super) fn key_rows() -> Vec<(&'static str, Vec<(&'static str, Vec<crate::key
                 ("Switch branch", vec![A::Branches]),
                 ("Pull request", vec![A::PullRequest]),
                 ("Ship", vec![A::Ship]),
-                ("Tickets", vec![A::Inbox]),
-                ("Ideas", vec![A::Ideas]),
-                ("Agent tools", vec![A::Toolbox]),
             ],
         ),
         (
@@ -672,7 +665,6 @@ pub(super) fn key_rows() -> Vec<(&'static str, Vec<(&'static str, Vec<crate::key
                 ("Settings", vec![A::Settings]),
                 ("All keys", vec![A::Help]),
                 ("History", vec![A::History]),
-                ("Memory", vec![A::Memory]),
                 ("Detach", vec![A::Detach]),
                 ("Reload config", vec![A::ReloadConfig]),
             ],
@@ -707,7 +699,6 @@ pub(super) fn settings_group(row: &SRow) -> &'static str {
             "worktree.delete_with_last" | "worktree.per_agent" | "worktree.command" => "WORKTREES",
             p if p.starts_with("restore.") || p == "sleep_after" => "RESTARTS",
             "scrollback" => "HISTORY",
-            "quick.place" => "QUICK PROMPT",
             p if p.starts_with("mcp.") => "AGENTS TALKING TO AGENTS",
             p if p.starts_with("detection.") => "STATUS DETECTION",
             _ => "OTHER",

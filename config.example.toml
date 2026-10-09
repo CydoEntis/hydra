@@ -89,10 +89,10 @@ pattern_rows = 12
 #   focus-{left,right,up,down} focus-next focus-prev resize-{left,right,up,down}
 #   new-tab next-tab prev-tab close-tab rename-tab select-tab-N
 #   new-workspace next-workspace prev-workspace close-workspace rename-workspace select-workspace-N
-#   toggle-sidebar picker next-attention scroll-up scroll-down copy-mode search
+#   toggle-sidebar scroll-up scroll-down copy-mode search
 #   new-worktree new-worktree:<cmd> remove-worktree cycle-workspace-color
-#   palette quick-prompt menu settings
-#   jump open-project new-session new-pane close-split side-up side-down talk reply answer:N
+#   palette menu settings
+#   jump new-session new-pane close-split side-up side-down
 #   detach help reload-config send-prefix kill-server
 #   spawn-right:<cmd> spawn-down:<cmd> spawn-left:<cmd> spawn-up:<cmd> spawn-tab:<cmd>
 [keys.prefix]
@@ -107,7 +107,6 @@ A = "new-worktree:claude"   # worktree picker; whatever you open or create start
 "alt+j" = "focus-down"
 "alt+k" = "focus-up"
 "alt+l" = "focus-right"
-"alt+a" = "next-attention"
 
 # Agents are detected from the pane's process tree. Entries here merge over the
 # built-ins (claude, codex, gemini, opencode, cursor, copilot, amp, qwen, aider,
@@ -128,11 +127,6 @@ A = "new-worktree:claude"   # worktree picker; whatever you open or create start
 # enabled = false
 
 
-[tickets]
-sources = ["github", "linear", "plane"]
-# plane_workspace = "my-team"
-# Keys: LINEAR_API_KEY / PLANE_API_KEY, or linear_key / plane_key in config.local.toml.
-
 # [[recipes]]
 # name = "feature"
 # worktree = true
@@ -147,9 +141,9 @@ sources = ["github", "linear", "plane"]
 #   on_create = "npm install"        # runs in each new worktree ($HYDRA_BRANCH, $PORT, ...)
 #   on_remove = ""                   # runs before a worktree is removed
 
-# Presets: saved launches, run with Ctrl+Space . then their number. `{task}` is what you
-# type; with no `{task}` a preset runs in one key. where = send (tell the agent you're on)
-# | beside (a new one in its folder) | worktree (a new one in a new worktree).
+# Presets: saved launches, offered as ★ choices in the new-agent dialog. `{task}` is what
+# you type. where = send (tell the agent you're on) | beside (a new one in its folder) |
+# worktree (a new one in a new worktree).
 # [[presets]]
 # name = "commit and push"
 # agent = "claude"

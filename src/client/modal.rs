@@ -1,81 +1,8 @@
-//! State for the quick prompt, pane menu and settings screen. Drawing lives in render.rs;
+//! State for the pane menu and settings screen. Drawing lives in render.rs;
 //! the key handling that needs the whole app lives in mod.rs.
 
 use crate::config::Config;
 use anyhow::{Context, Result};
-
-/// Where the quick prompt sends its task.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Place {
-    Right,
-    Down,
-    Tab,
-    Worktree,
-    /// Type it into the focused pane's agent.
-    Here,
-}
-
-impl Place {
-    pub const ALL: [Place; 5] = [Place::Right, Place::Down, Place::Tab, Place::Worktree, Place::Here];
-
-    pub fn parse(s: &str) -> Place {
-        match s {
-            "down" => Place::Down,
-            "tab" => Place::Tab,
-            "worktree" => Place::Worktree,
-            "here" => Place::Here,
-            _ => Place::Right,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Place::Right => "split right",
-            Place::Down => "split down",
-            Place::Tab => "new tab",
-            Place::Worktree => "new worktree",
-            Place::Here => "this pane's agent",
-        }
-    }
-
-    pub fn next(self) -> Place {
-        let i = Place::ALL.iter().position(|p| *p == self).unwrap_or(0);
-        Place::ALL[(i + 1) % Place::ALL.len()]
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Quick {
-    pub text: String,
-    pub agent: usize,
-    pub place: Place,
-}
-
-/// A branch name made from a task: "fix the login bug" -> "q/fix-the-login-bug-3f2a".
-pub fn branch_for(task: &str) -> String {
-    let mut slug = String::new();
-    for word in task.split_whitespace().take(6) {
-        let w: String = word.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_lowercase();
-        if w.is_empty() {
-            continue;
-        }
-        if !slug.is_empty() {
-            slug.push('-');
-        }
-        slug.push_str(&w);
-        if slug.len() > 32 {
-            break;
-        }
-    }
-    if slug.is_empty() {
-        slug.push_str("task");
-    }
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos() as u16 ^ d.as_secs() as u16)
-        .unwrap_or(0);
-    format!("q/{slug}-{nonce:04x}")
-}
 
 // ---- settings --------------------------------------------------------------------------
 
@@ -167,9 +94,6 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "editor", label: "Editor", kind: Kind::Program(EDITORS), cat: Cat::General, help: "For open in editor (e). Empty: $VISUAL, $EDITOR, then code. nvim, hx, … open inside seshi." },
     Setting { path: "shell", label: "Shell", kind: Kind::Program(SHELLS), cat: Cat::General, help: "The shell new sessions run. Empty: pwsh / powershell on Windows, $SHELL elsewhere." },
     Setting { path: "shell_integration", label: "PowerShell folder tracking", kind: Kind::Bool, cat: Cat::General, help: "Lets seshi see where PowerShell sessions cd to." },
-    // Sessions
-    Setting { path: "checkpoints", label: "Checkpoints", kind: Kind::Bool, cat: Cat::Sessions, help: "After each agent turn, save its folder's state (outside your branch) so you can roll back to it." },
-    Setting { path: "queue_at_once", label: "Queued tasks at once", kind: Kind::Int { step: 1, min: 1, max: 12 }, cat: Cat::Sessions, help: "How many agents the queue runs at the same time; the next starts when one finishes." },
     Setting { path: "auto_continue", label: "Continue after a limit", kind: Kind::Bool, cat: Cat::Sessions, help: "An agent stopped by its plan limit is told \"continue\" once the limit resets." },
     Setting { path: "ui.attention_sort", label: "Sort sidebar by attention", kind: Kind::Bool, cat: Cat::Sessions, help: "Sessions that need you float to the top, then done, then working, then idle." },
     Setting { path: "notify.desktop", label: "Desktop notifications", kind: Kind::Bool, cat: Cat::Sessions, help: "A notification when an agent you're not looking at needs you or finishes, even with seshi closed." },
@@ -192,7 +116,6 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "theme", label: "Theme", kind: Kind::Choice(crate::theme::BUILTIN), cat: Cat::Appearance, help: "Changes the whole app live. Agent output keeps its own colours; only the ANSI palette is themed." },
     // Agents
     Setting { path: "worktree.per_agent", label: "Own worktree per agent", kind: Kind::Bool, cat: Cat::Agents, help: "Agents started in a repo's main folder (+ New, the quick prompt, or claude/codex typed in a shell) get their own branch and folder." },
-    Setting { path: "quick.place", label: "Quick prompt opens in", kind: Kind::Choice(&["worktree", "right", "down", "tab", "here"]), cat: Cat::Agents, help: "Where an agent starts when you give it a task with the quick prompt." },
     Setting { path: "worktree.command", label: "Start in new worktrees", kind: Kind::Text, cat: Cat::Agents, help: "A command to run in every new worktree (e.g. claude). Empty: a shell." },
     Setting { path: "mcp.approve", label: "Agents may approve prompts", kind: Kind::Choice(&["never", "safe", "always"]), cat: Cat::Agents, help: "Through seshi mcp. safe: only prompts for commands on [mcp] safe (tests, lint, git status…). Saying no is always allowed." },
     Setting { path: "mcp.scope", label: "Agents can reach", kind: Kind::Choice(&["project", "all"]), cat: Cat::Agents, help: "project: only sessions in the calling agent's own repo. Set up with: seshi integrate mcp" },
@@ -288,12 +211,6 @@ pub fn write_at(parts: &[&str], value: toml_edit::Value) -> Result<()> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn branch_names_are_safe() {
-        let b = branch_for("Fix the login bug, please!");
-        assert!(b.starts_with("q/fix-the-login-bug-please-"), "{b}");
-        assert!(branch_for("   ").starts_with("q/task-"));
-    }
 
     #[test]
     fn settings_step_and_display() {

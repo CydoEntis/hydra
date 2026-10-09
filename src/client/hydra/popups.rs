@@ -572,23 +572,6 @@ pub(in crate::client) fn draw_goto(app: &mut App, f: &mut Frame, area: Rect, t: 
     put(buf, r.x + 3, r.bottom() - 2, &hints(t, &keys), r.right());
 }
 
-/// Every session with what it uses, biggest first: (term, label, where, bytes, asleep).
-pub(in crate::client) fn memory_rows(app: &App) -> Vec<(TermId, String, String, u64, bool)> {
-    let model = app.hy_model();
-    let mut v: Vec<(TermId, String, String, u64, bool)> = model
-        .iter()
-        .flat_map(|p| p.wts.iter().map(move |w| (p, w)))
-        .flat_map(|(p, w)| w.sessions.iter().map(move |s| (p, w, s)))
-        .map(|(p, w, s)| {
-            let mem = app.snap.terms.get(&s.term).map(|t| t.mem).unwrap_or(0);
-            let label = if s.dev.is_some() { "▶ dev".to_string() } else { s.agent.clone() };
-            let place = if w.main { p.name.clone() } else { format!("{} / {}", p.name, w.name) };
-            (s.term, label, place, mem, s.asleep)
-        })
-        .collect();
-    v.sort_by_key(|r| std::cmp::Reverse(r.3));
-    v
-}
 
 pub(in crate::client) fn draw_history(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, sel: usize) {
     let items: Vec<(u64, Option<TermId>, char, String)> = app.history.iter().rev().cloned().collect();
@@ -636,46 +619,4 @@ pub(in crate::client) fn draw_history(app: &mut App, f: &mut Frame, area: Rect, 
     put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("Enter", "go to it"), ("c", "clear"), ("Esc", "close")]), r.right() - 1);
 }
 
-pub(in crate::client) fn mb(bytes: u64) -> String {
-    let m = bytes as f64 / (1u64 << 20) as f64;
-    if m >= 1024.0 { format!("{:.1} GB", m / 1024.0) } else { format!("{m:.0} MB") }
-}
 
-pub(in crate::client) fn draw_memory(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, sel: usize) {
-    let rows = memory_rows(app);
-    let total: u64 = rows.iter().map(|r| r.3).sum();
-    let buf = f.buffer_mut();
-    dim_all(buf, area, t);
-    let h = (rows.len() as u16 + 8).max(10).min(area.height.saturating_sub(4));
-    let r = panel(app, buf, area, 92, h, &format!("Memory · {} in all", mb(total)), &[], t);
-    let c = Style::default().bg(t.card);
-    let top = rows.first().map(|r| r.3).unwrap_or(1).max(1);
-    let list = Rect { x: r.x + 1, y: r.y + 2, width: r.width - 2, height: r.height.saturating_sub(5) };
-    if rows.is_empty() {
-        put(buf, list.x + 2, list.y, &[seg("nothing running", c.fg(t.muted))], list.right());
-    }
-    let start = sel.saturating_sub(list.height.saturating_sub(1) as usize);
-    for (i, (term, label, place, mem, asleep)) in rows.iter().enumerate().skip(start).take(list.height as usize) {
-        let y = list.y + (i - start) as u16;
-        let row = Rect { y, height: 1, ..list };
-        let on = i == sel;
-        let bg = if on || hovered(app, row) { t.hov } else { t.card };
-        fill(buf, row, bg);
-        let st = Style::default().bg(bg);
-        if on {
-            put(buf, row.x, y, &[seg(">", st.fg(t.accent).add_modifier(Modifier::BOLD))], row.right());
-        }
-        put(buf, row.x + 2, y, &[seg(truncate(label, 12), st.fg(t.strong).add_modifier(Modifier::BOLD)), seg(format!("  {}", truncate(place, 30)), st.fg(t.muted))], row.x + 48);
-        // A bar against the biggest.
-        let bw = 26u16;
-        let filled = ((*mem as f64 / top as f64) * bw as f64).round() as u16;
-        let bar: String = "█".repeat(filled as usize) + &"░".repeat((bw - filled.min(bw)) as usize);
-        let col = if *mem > 2 << 30 { t.err } else if *mem > 1 << 30 { t.blocked } else { t.accent };
-        put(buf, row.x + 50, y, &[seg(bar, st.fg(col))], row.right());
-        let txt = if *asleep { "asleep".to_string() } else { mb(*mem) };
-        put(buf, row.right().saturating_sub(10), y, &[seg(format!("{txt:>9}"), st.fg(t.text))], row.right());
-        hit(app, row, HyHit::MemRow(i));
-        let _ = term;
-    }
-    put(buf, r.x + 3, r.bottom() - 2, &hints(t, &[("Enter", "open"), ("x", "end it"), ("Esc", "close")]), r.right() - 1);
-}

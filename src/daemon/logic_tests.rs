@@ -187,7 +187,6 @@ fn restore_gives_panes_new_ids_and_keeps_their_layout() {
         }],
         active: 0,
         made_worktrees: Vec::new(),
-        queue: Vec::new(),
     };
     d.restore(saved);
     assert_eq!(d.workspaces.len(), 1);
@@ -308,96 +307,7 @@ fn claude_reports_what_its_session_used() {
     close(&mut d, &[t]);
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn the_queue_runs_so_many_at_once_and_moves_on() {
-    let tmp = std::env::temp_dir().join(format!("seshi-queue-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&tmp);
-    let repo = tmp.join("shop");
-    std::fs::create_dir_all(&repo).unwrap();
-    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success(), "git {args:?}");
-    git(&["init", "-q"]);
-    git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first"]);
-    // A folder left from before where the first one's worktree would go.
-    std::fs::create_dir_all(tmp.join("shop-worktrees").join("fix-login")).unwrap();
-    let (mut d, mut rx) = daemon();
-    d.cfg.queue_at_once = 1;
-    let item = |title: &str| QueueItem {
-        id: 0,
-        project: repo.clone(),
-        agent: "claude".into(),
-        cmd: String::new(),
-        title: title.into(),
-        branch: crate::tickets::slug(title, 3),
-        ticket: None,
-        state: QueueState::Failed("set by the server".into()),
-        worked: true,
-    };
-    d.enqueue(item("fix login"));
-    d.enqueue(item("fix login"));
-    assert!(d.queue.iter().all(|q| q.state == QueueState::Waiting && !q.worked), "it starts out waiting");
-    d.run_queue();
-    assert_eq!(d.queue.iter().map(|q| q.state.clone()).collect::<Vec<_>>(), [QueueState::Starting, QueueState::Waiting], "one at a time");
-    let next_made = |rx: &mut mpsc::Receiver<Ev>| loop {
-        match rx.blocking_recv() {
-            Some(Ev::QueueWorktree { id, result }) => break (id, result),
-            Some(_) => continue,
-            None => panic!("no worktree came"),
-        }
-    };
-    let (id, result) = tokio::task::block_in_place(|| next_made(&mut rx));
-    d.queue_worktree(id, result);
-    let QueueState::Running(first) = d.queue[0].state else { panic!("running: {:?}", d.queue[0].state) };
-    assert!(d.terms[&first].cwd.to_string_lossy().contains("fix-login-2"), "in its own worktree, past the folder in the way: {}", d.terms[&first].cwd.display());
-    // It works, then finishes: yours to review, and the next one starts.
-    d.terms.get_mut(&first).unwrap().status = Status::Working;
-    d.run_queue();
-    assert_eq!(d.queue[1].state, QueueState::Waiting, "still one at a time");
-    d.terms.get_mut(&first).unwrap().status = Status::Done;
-    d.run_queue();
-    assert_eq!(d.queue[0].state, QueueState::Review(first));
-    assert_eq!(d.queue[1].state, QueueState::Starting);
-    assert_eq!(d.queue[1].branch, "fix-login", "its own branch, even with the same task (the name free in git)");
-    let (id, result) = tokio::task::block_in_place(|| next_made(&mut rx));
-    d.queue_worktree(id, result);
-    // Closing what you reviewed takes it off the list.
-    let second = match d.queue[1].state { QueueState::Running(t) => t, ref s => panic!("{s:?}") };
-    close(&mut d, &[first]);
-    d.run_queue();
-    assert_eq!(d.queue.len(), 1);
-    close(&mut d, &[second]);
-    let _ = std::fs::remove_dir_all(&tmp);
-}
 
-#[tokio::test(flavor = "multi_thread")]
-async fn an_agents_turn_ending_saves_a_checkpoint() {
-    let repo = std::env::temp_dir().join(format!("seshi-turn-cp-{}", std::process::id()));
-    std::fs::create_dir_all(&repo).unwrap();
-    let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success(), "git {args:?}");
-    git(&["init", "-q"]);
-    git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "first"]);
-    let (mut d, mut rx) = daemon();
-    let t = d.spawn(None, &repo, 80, 24).unwrap();
-    {
-        let p = d.terms.get_mut(&t).unwrap();
-        (p.agent, p.status, p.summary) = (Some("claude".into()), Status::Working, "add a readme".into());
-        p.head = crate::gitfs::head(&repo);
-    }
-    std::fs::write(repo.join("README.md"), "hi\n").unwrap();
-    d.set_status(t, Status::Done);
-    let top = tokio::task::block_in_place(|| loop {
-        match rx.blocking_recv() {
-            Some(Ev::CheckpointTaken(top)) => break top,
-            Some(_) => continue,
-            None => panic!("no checkpoint"),
-        }
-    });
-    d.handle(Ev::CheckpointTaken(top.clone()));
-    let cps = crate::checkpoint::list(&top).unwrap();
-    assert_eq!(cps.len(), 1);
-    assert_eq!(cps[0].what, "claude: add a readme");
-    close(&mut d, &[t]);
-    let _ = std::fs::remove_dir_all(&repo);
-}
 
 #[test]
 fn a_panes_history_survives_the_server_restarting() {

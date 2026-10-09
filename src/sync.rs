@@ -1,5 +1,5 @@
 //! Keep your seshi setup the same on every machine through a private GitHub repo. The
-//! config folder itself is the git repo; only config.toml and ideas.json are shared.
+//! config folder itself is the git repo; only config.toml is shared.
 //! Anything machine-specific goes in config.local.toml, which is never synced and wins
 //! over config.toml.
 
@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-const IGNORE: &str = "# seshi sync: only these are shared between machines\n*\n!.gitignore\n!config.toml\n!ideas.json\n";
+const IGNORE: &str = "# seshi sync: only these are shared between machines\n*\n!.gitignore\n!config.toml\n";
 
 pub fn dir() -> PathBuf {
     crate::config::config_path().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
@@ -120,7 +120,7 @@ pub fn command(action: Option<&str>, name: Option<&str>) -> Result<()> {
         Some(other) => bail!("unknown `{other}`: use `seshi sync`, `seshi sync setup [repo]` or `seshi sync off`"),
         None => {
             if !enabled() {
-                println!("sync is off. `seshi sync setup` shares your config and ideas through a private GitHub repo.");
+                println!("sync is off. `seshi sync setup` shares your config through a private GitHub repo.");
                 return Ok(());
             }
             let changed = pull().map_err(anyhow::Error::msg)?;

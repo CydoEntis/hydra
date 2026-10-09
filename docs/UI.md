@@ -105,8 +105,8 @@ config (`[icons]`), with Nerd Font glyphs where present.
 One layout: a sidebar of projects and their sessions (left or right), panes on
 the rest (tabs and splits), and a one-line bottom bar. Everything after the leader
 key (`Ctrl+Space` by default; keys follow herdr's where they overlap). Popups:
-Go to (`g`), command palette (`p`), keys (`?`), settings (`,`), files, changes,
-branches, tickets, PRs, toolbox, new agent. Minimum supported size is about
+inbox (`j`), command palette (`Space`), keys (`?`), settings (`,`), files, changes,
+branches, PRs, new agent. Minimum supported size is about
 80×24; popups clamp to the screen. Mouse: click, right-click menus, drag
 dividers, scroll; Ctrl+click opens paths.
 
