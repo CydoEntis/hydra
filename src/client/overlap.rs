@@ -35,6 +35,31 @@ pub fn changed_files(dir: &Path, base: Option<&str>) -> Vec<String> {
     files
 }
 
+/// "+42 −7 · 3 files": what a checkout changed since it left `base` (committed or not); the
+/// main checkout (`base` None) what isn't committed yet.
+pub fn change_size(dir: &Path, base: Option<&str>) -> String {
+    let since = match base {
+        Some(b) => match crate::proc::git(dir, &["merge-base", "HEAD", b]) {
+            Ok(mb) => mb.trim().to_string(),
+            Err(_) => return String::new(),
+        },
+        None => "HEAD".to_string(),
+    };
+    let stat = crate::proc::git(dir, &["diff", "--shortstat", since.as_str()]).unwrap_or_default();
+    let new = crate::proc::git(dir, &["ls-files", "--others", "--exclude-standard"]).map(|o| o.lines().filter(|l| !l.trim().is_empty()).count()).unwrap_or(0);
+    say_size(&stat, new)
+}
+
+/// git's `--shortstat` line (and how many new files it doesn't count) as "+42 −7 · 3 files".
+pub fn say_size(shortstat: &str, new_files: usize) -> String {
+    let num = |word: &str| shortstat.split(',').find(|p| p.contains(word)).and_then(|p| p.split_whitespace().next()?.parse::<usize>().ok()).unwrap_or(0);
+    let files = num("file") + new_files;
+    if files == 0 {
+        return "no changes".into();
+    }
+    format!("+{} −{} · {files} file{}", num("insertion"), num("deletion"), if files == 1 { "" } else { "s" })
+}
+
 /// The files more than one checkout changed, from each checkout's (name, changed files).
 pub fn find(changes: &[(String, Vec<String>)]) -> Vec<Overlap> {
     let mut by_file: BTreeMap<&str, Vec<String>> = BTreeMap::new();
@@ -84,6 +109,13 @@ mod tests {
         let o = find(&[c("orders", &["src/checkout.ts", "README.md"]), c("rate-limit", &["src/checkout.ts", "src/limit.ts"]), c("main folder", &[])]);
         assert_eq!(o, vec![Overlap { file: "src/checkout.ts".into(), checkouts: vec!["orders".into(), "rate-limit".into()] }]);
         assert_eq!(say(&o).as_deref(), Some("orders and rate-limit both changed checkout.ts"));
+    }
+
+    #[test]
+    fn a_change_size_reads_like_the_design() {
+        assert_eq!(say_size(" 3 files changed, 42 insertions(+), 7 deletions(-)", 0), "+42 −7 · 3 files");
+        assert_eq!(say_size(" 1 file changed, 2 insertions(+)", 1), "+2 −0 · 2 files", "new files count too");
+        assert_eq!(say_size("", 0), "no changes");
     }
 
     #[test]

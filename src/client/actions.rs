@@ -227,14 +227,29 @@ impl App {
             }));
             return;
         }
-        let top = head.as_ref().map(|h| h.top.clone()).unwrap_or_else(|| dir.clone());
-        let linked = head.as_ref().is_some_and(|h| h.linked);
-        let branch = head.as_ref().map(|h| h.branch.clone()).unwrap_or_default();
-        let base = match &head {
-            Some(h) if h.linked => crate::gitfs::main_branch(&h.main_root).unwrap_or_else(|| "main".into()),
-            _ => branch.clone(),
-        };
-        // The pane working in this checkout, preferring one with an agent.
+        let Some((task, info, linked)) = self.task_for(&dir) else { return };
+        let (top, term, ws) = (task.dir.clone(), task.agent, Some(task.ws).filter(|w| *w != 0));
+        self.view = Some(View::Changes(Box::new(views::ChangesView {
+            dir: top.clone(),
+            review: None,
+            error: None,
+            agent: info.as_ref().and_then(|i| i.agent.clone()).unwrap_or_default(),
+            said: info.as_ref().map(|i| i.said.clone()).unwrap_or_default(),
+            term,
+            ws,
+            reviewed: Default::default(),
+            linked,
+            confirm: None,
+        })));
+        self.spawn_bg(move || Bg::Changes(top, tasks::load_review(task).map(Box::new)));
+    }
+
+    /// The checkout `dir` is in, as a task (what Changes, merge and throw-away work on), the
+    /// pane working there (an agent first), and whether it's a linked worktree. None outside git.
+    pub(super) fn task_for(&self, dir: &std::path::Path) -> Option<(tasks::TaskRow, Option<TermInfo>, bool)> {
+        let head = crate::gitfs::head(dir)?;
+        let top = head.top.clone();
+        let base = if head.linked { crate::gitfs::main_branch(&head.main_root).unwrap_or_else(|| "main".into()) } else { head.branch.clone() };
         let mut here: Vec<&TermInfo> = self
             .snap
             .terms
@@ -247,33 +262,29 @@ impl App {
         let ws = term.and_then(|t| self.snap.locate(t).map(|(w, _)| w.id)).or(self.snap.active_ws);
         let task = tasks::TaskRow {
             ws: ws.unwrap_or(0),
-            name: branch.clone(),
-            branch: branch.clone(),
+            name: head.branch.clone(),
+            branch: head.branch.clone(),
             base,
             stage: tasks::Stage::Ready,
             summary: info.as_ref().map(|i| i.summary.clone()).unwrap_or_default(),
             dirty: 0,
             ahead: 0,
             agent: term,
-            dir: top.clone(),
-            root: head.as_ref().map(|h| h.main_root.clone()).unwrap_or_else(|| top.clone()),
+            dir: top,
+            root: head.main_root.clone(),
         };
-        self.view = Some(View::Changes(Box::new(views::ChangesView {
-            dir: top.clone(),
-            review: None,
-            error: if head.is_none() { Some(format!("{} isn't in a git repository.", design::tilde(&dir))) } else { None },
-            agent: info.as_ref().and_then(|i| i.agent.clone()).unwrap_or_default(),
-            said: info.as_ref().map(|i| i.said.clone()).unwrap_or_default(),
-            term,
-            ws,
-            reviewed: Default::default(),
-            linked,
-            confirm: None,
-        })));
-        if head.is_none() {
-            return;
+        Some((task, info, head.linked))
+    }
+
+    /// Throw a worktree away: its sessions end, its folder and branch go.
+    pub(super) fn throw_away(&mut self, dir: &std::path::Path) {
+        if let Some(ws) = self.snap.workspaces.iter().find(|w| design::path_key(&w.cwd) == design::path_key(dir)).map(|w| w.id) {
+            self.cmd(Command::RemoveWorktree { ws, force: true, delete_branch: true });
+        } else {
+            let d = dir.to_path_buf();
+            self.spawn_bg(move || Bg::Done(remove_worktree_dir(&d), false));
         }
-        self.spawn_bg(move || Bg::Changes(top, tasks::load_review(task).map(Box::new)));
+        self.notify("discarding…".into(), false);
     }
 
     /// A path an agent printed (Ctrl+click): relative to where it runs. Text opens in the file

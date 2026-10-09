@@ -80,7 +80,8 @@ src/
     hydra/       the layout: mod.rs (state, model, click targets), screen.rs (grid, sidebar
                  card, tab row, pane cards), card.rs (cards, pills, fading; the Look from
                  settings), leader.rs (key map, actions list, new tab), popups.rs,
-                 dialogs.rs, splash.rs, popover.rs (follow-up and why, beside a row), sheet.rs (the card docked right of the panes:
+                 dialogs.rs, splash.rs, popover.rs (follow-up and why, beside a row), heads.rs (same-file heads-ups,
+                 both diffs), sheet.rs (the card docked right of the panes:
                  Inbox, Changes), behaviour.rs (its keys and clicks)
     render.rs, design.rs  drawing entry point and shared helpers
     menu.rs, views.rs, files.rs, find.rs, branch.rs, recipes.rs, overlap.rs,

@@ -1592,6 +1592,61 @@ mod hydra_tests {
     }
 
     #[test]
+    fn heads_up_and_review_from_the_inbox() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let key = |app: &mut App, c: char| app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        // The fixture's repo and its two checkouts (the main folder, rate-limit).
+        let model = app.hy_model();
+        let p = model.iter().find(|p| p.git && p.wts.len() >= 2).expect("a repo with a worktree").clone();
+        let names: Vec<String> = p.wts.iter().map(|w| w.name.clone()).collect();
+        let o = crate::client::overlap::Overlap { file: "src/checkout.ts".into(), checkouts: names.clone() };
+        app.hy.overlaps.insert(p.path.clone(), vec![o]);
+        app.hy_fresh();
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("⇆ checkout.ts"), "a quiet tag under the agents' rows");
+        // In the Inbox: HEADS UP, with what you can do about it.
+        app.act(Action::Jump);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("HEADS UP") && o.contains("both changed checkout.ts") && o.contains("both diffs") && o.contains(" dismiss"), "the heads-up row");
+        let Mode::GoTo { query, .. } = app.mode.clone() else { panic!("the Inbox") };
+        let rows = hydra::goto_rows(&app.hy_model(), &query, 1);
+        let at = rows.iter().position(|r| matches!(r, hydra::GoRow::Heads(_))).unwrap();
+        app.mode = Mode::GoTo { query: String::new(), sel: at };
+        // d: both diffs in the sheet.
+        key(&mut app, 'd');
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(matches!(app.view, Some(View::Both(_))) && o.contains("╭─ Changes") && o.contains("reading both diffs"), "both diffs, docked");
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.view.is_none());
+        // k: dismissed (and the tag goes with it).
+        app.mode = Mode::GoTo { query: String::new(), sel: at };
+        key(&mut app, 'k');
+        app.mode = Mode::Normal;
+        let o = draw(&mut app, 160, 45);
+        assert!(!o.contains("⇆ checkout.ts"), "dismissed: not said again");
+        // A finished worktree: merge is asked in its row; Esc backs out.
+        let t = app.snap.terms.get_mut(&2).unwrap();
+        t.status = Status::Done;
+        app.hy_fresh();
+        app.act(Action::Jump);
+        let rows = hydra::goto_rows(&app.hy_model(), "", 0);
+        let done = rows.iter().position(|r| matches!(r, hydra::GoRow::Done(_))).expect("a finished row");
+        app.mode = Mode::GoTo { query: String::new(), sel: done };
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains(" merge") && o.contains("throw away"), "what you can do with what it finished");
+        key(&mut app, 'M');
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("Merge into main, then remove the worktree and branch?") && o.contains("Cancel"), "asked in the row");
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.hy.inbox_confirm.is_none() && matches!(app.mode, Mode::GoTo { .. }), "Esc: not merged, still in the Inbox");
+    }
+
+    #[test]
     fn the_sheet_and_sidebar_draw_at_every_width_a_slide_passes() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         app.act(Action::Jump);

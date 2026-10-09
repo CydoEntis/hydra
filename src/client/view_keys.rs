@@ -17,6 +17,11 @@ impl App {
                     self.view = Some(View::Files(v));
                 }
             }
+            View::Both(mut v) => {
+                if self.on_both_key(&mut v, k) {
+                    self.view = Some(View::Both(v));
+                }
+            }
         }
     }
 
@@ -40,13 +45,8 @@ impl App {
                         }
                         'p' => self.spawn_bg(move || Bg::Done(tasks::pull_request(&task), true)),
                         'd' => {
-                            if let Some(ws) = self.snap.workspaces.iter().find(|w| design::path_key(&w.cwd) == design::path_key(&v.dir)).map(|w| w.id) {
-                                self.cmd(Command::RemoveWorktree { ws, force: true, delete_branch: true });
-                            } else {
-                                let d = v.dir.clone();
-                                self.spawn_bg(move || Bg::Done(remove_worktree_dir(&d), false));
-                            }
-                            self.notify("discarding…".into(), false);
+                            let d = v.dir.clone();
+                            self.throw_away(&d);
                             return false;
                         }
                         _ => {}

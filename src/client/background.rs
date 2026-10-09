@@ -348,6 +348,16 @@ impl App {
                     v.refresh_preview();
                 }
             }
+            (Bg::BothDiff(repo, parts), _) => {
+                if let Some(View::Both(v)) = &mut self.view
+                    && v.repo == repo
+                {
+                    v.parts = Some(parts);
+                }
+            }
+            (Bg::ChangeSize(dir, since, size), _) => {
+                self.hy.change_sizes.insert(dir, (since, size));
+            }
             (Bg::Overlaps(repo, found), _) => {
                 // Say each overlap once, when it first shows up.
                 let seen = self.hy.overlaps.get(&repo).cloned().unwrap_or_default();
@@ -355,19 +365,26 @@ impl App {
                 if let Some(msg) = super::overlap::say(&new) {
                     self.notify(msg, false);
                 }
+                // A dismissed one that has cleared may say so again next time.
+                self.hy.dismissed.retain(|(r, f)| r != &repo || found.iter().any(|o| &o.file == f));
                 self.hy.overlaps.insert(repo, found);
             }
-            (Bg::Merged(result, dir), _) => match result {
-                Ok(msg) => {
-                    self.notify(format!("{msg}; closing its sessions and removing the worktree and branch"), false);
-                    self.cmd(Command::CloseWorktree { path: dir });
-                    if matches!(self.view, Some(View::Changes(_))) {
-                        self.view = None;
+            (Bg::Merged(result, dir), _) => {
+                // A merge asked from the Inbox is over either way.
+                self.hy.inbox_confirm = None;
+                match result {
+                    Ok(msg) => {
+                        self.notify(format!("{msg}; closing its sessions and removing the worktree and branch"), false);
+                        self.cmd(Command::CloseWorktree { path: dir });
+                        if matches!(self.view, Some(View::Changes(_))) {
+                            self.view = None;
+                        }
                     }
+                    Err(e) => self.notify(e, true),
                 }
-                Err(e) => self.notify(e, true),
-            },
+            }
             (Bg::Done(result, reload), _) => {
+                self.hy.inbox_confirm = None;
                 match result {
                     Ok(msg) => self.notify(msg, false),
                     Err(e) => self.notify(e, true),

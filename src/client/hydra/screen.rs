@@ -125,7 +125,7 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
                 app.view = Some(crate::client::View::Files(v));
             }
             // In the sheet (above).
-            v @ crate::client::View::Changes(_) => app.view = Some(v),
+            v @ (crate::client::View::Changes(_) | crate::client::View::Both(_)) => app.view = Some(v),
         }
     }
     g.panes
@@ -209,7 +209,15 @@ pub(in crate::client) fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec
         for (wi, si) in rows {
             any = true;
             out.push(Line::Sess(pi, wi, si));
-            session_lines(&p.wts[wi].sessions[si], t, &mut out);
+            let s = &p.wts[wi].sessions[si];
+            session_lines(s, t, &mut out);
+            // A file another checkout changed too: a quiet tag under the row.
+            if s.is_agent {
+                for (_, o) in heads_up(app).iter().filter(|(repo, o)| repo == &p.path && o.checkouts.contains(&p.wts[wi].name)) {
+                    let name = o.file.rsplit('/').next().unwrap_or(&o.file);
+                    out.push(Line::Note(format!("⇆ {name}"), blend(t.blocked, t.text, 0.45), s.term));
+                }
+            }
         }
         if !any {
             out.push(Line::Empty(pi));

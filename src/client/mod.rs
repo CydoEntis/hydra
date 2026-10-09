@@ -102,6 +102,8 @@ enum Mode {
 pub(super) enum View {
     Changes(Box<views::ChangesView>),
     Files(Box<views::FilesTree>),
+    /// Both diffs of a file two checkouts changed (in the sheet).
+    Both(Box<hydra::BothView>),
 }
 
 /// Clickable chips and buttons.
@@ -123,6 +125,10 @@ pub(super) enum Bg {
     Done(Result<String, String>, bool),
     /// A worktree's branch merged (or not): then the worktree and its branch go.
     Merged(Result<String, String>, PathBuf),
+    /// Each checkout's diff of a heads-up's file: (repo, [(checkout, diff)]).
+    BothDiff(PathBuf, Vec<(String, String)>),
+    /// What a checkout changed: (its folder, the status time it's for, "+42 −7 · 3 files").
+    ChangeSize(PathBuf, u64, String),
     /// Files more than one checkout of a repo changed (by the repo's folder).
     Overlaps(PathBuf, Vec<overlap::Overlap>),
     /// Pulled a shared setup from another machine.

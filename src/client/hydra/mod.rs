@@ -121,6 +121,13 @@ pub(super) struct Hy {
     /// Files changed in more than one checkout, per repo folder, and when each repo was
     /// last looked at.
     pub overlaps: HashMap<PathBuf, Vec<crate::client::overlap::Overlap>>,
+    /// What each finished checkout changed ("+42 −7 · 3 files"), by folder, and the status
+    /// time it was worked out for.
+    pub change_sizes: HashMap<PathBuf, (u64, String)>,
+    /// Heads-ups you dismissed: (repo, file). One comes back once it clears and recurs.
+    pub dismissed: HashSet<(PathBuf, String)>,
+    /// A merge (or throw-away) asked inside an Inbox row: (session, merge?, under way?).
+    pub inbox_confirm: Option<(TermId, bool, bool)>,
     pub overlap_at: HashMap<PathBuf, Instant>,
     /// Dragging the sidebar edge or the split divider.
     pub drag: Option<Drag>,
@@ -965,12 +972,13 @@ mod card;
 mod dialogs;
 mod leader;
 mod popups;
+mod heads;
 mod popover;
 mod screen;
 mod sheet;
 mod splash;
 
-pub(in crate::client) use self::{card::*, dialogs::*, leader::*, popups::*, screen::*, splash::*, sheet::*, popover::*};
+pub(in crate::client) use self::{card::*, dialogs::*, leader::*, popups::*, screen::*, splash::*, sheet::*, popover::*, heads::*};
 
 
 #[cfg(test)]

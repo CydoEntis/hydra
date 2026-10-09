@@ -819,6 +819,28 @@ impl App {
             i
         };
         let sel_row = rows.get(land(sel, true)).cloned();
+        // A merge or throw-away asked in a finished row: Enter does it, Esc doesn't, the rest wait.
+        if let Some((term, merge, false)) = self.hy.inbox_confirm {
+            match k.code {
+                KeyCode::Esc => self.hy.inbox_confirm = None,
+                KeyCode::Enter => {
+                    if let Some((_, wt, _)) = find(&model, term) {
+                        let dir = wt.path.clone();
+                        if merge {
+                            if let Some((task, ..)) = self.task_for(&dir) {
+                                self.spawn_bg(move || crate::client::Bg::Merged(crate::client::tasks::merge(&task), dir));
+                            }
+                        } else {
+                            self.throw_away(&dir);
+                        }
+                        self.hy.inbox_confirm = Some((term, merge, true));
+                    }
+                }
+                _ => {}
+            }
+            self.mode = Mode::GoTo { query, sel };
+            return;
+        }
         match k.code {
             KeyCode::Esc => {
                 self.mode = Mode::Normal;
@@ -836,6 +858,35 @@ impl App {
                 }
             }
             // Seen: a finished one leaves the list.
+            // A heads-up: both diffs, a note to the first agent, or dismiss it.
+            KeyCode::Char(c @ ('d' | 'm' | 'k')) if query.is_empty() && matches!(sel_row, Some(GoRow::Heads(_))) => {
+                let Some(GoRow::Heads(i)) = sel_row else { return };
+                let Some((repo, o)) = heads_up(self).get(i).cloned() else { return };
+                match c {
+                    'd' => return self.open_both(repo, o),
+                    'm' => return self.tell_about(&repo, &o, 0, Some((query, sel))),
+                    _ => self.dismiss_heads_up(&repo, &o),
+                }
+                self.mode = Mode::GoTo { query, sel: sel.saturating_sub(1) };
+                return;
+            }
+            // A finished one: its diff (in the sheet), or merge it or throw it away (asked first).
+            KeyCode::Char(c @ ('d' | 'M' | 'x')) if query.is_empty() && matches!(sel_row, Some(GoRow::Done(_))) => {
+                let Some(GoRow::Done(term)) = sel_row else { return };
+                let Some((_, wt, _)) = find(&model, term) else { return };
+                match c {
+                    'd' => {
+                        let dir = wt.path.clone();
+                        self.mode = Mode::Normal;
+                        self.open_changes(dir);
+                        return;
+                    }
+                    _ if !wt.main => self.hy.inbox_confirm = Some((term, c == 'M', false)),
+                    _ => self.notify("the main folder isn't a worktree: open Changes (d) to commit".into(), false),
+                }
+                self.mode = Mode::GoTo { query, sel };
+                return;
+            }
             // m: a follow-up, inside the row.
             KeyCode::Char('m') if query.is_empty() && matches!(sel_row, Some(GoRow::Ask(_) | GoRow::Done(_))) => {
                 if let Some(GoRow::Ask(term) | GoRow::Done(term)) = sel_row {

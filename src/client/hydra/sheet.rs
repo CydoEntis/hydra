@@ -10,6 +10,8 @@ use crate::client::overlap::Overlap;
 pub(in crate::client) enum SheetKind {
     Inbox,
     Changes,
+    /// Both diffs of a heads-up's file.
+    Both,
 }
 
 /// Its width beside the panes, and from `WIDE_AT` columns on.
@@ -24,6 +26,8 @@ pub(in crate::client) fn open_sheet(app: &App) -> Option<SheetKind> {
         Some(SheetKind::Inbox)
     } else if matches!(app.view, Some(crate::client::View::Changes(_))) {
         Some(SheetKind::Changes)
+    } else if matches!(app.view, Some(crate::client::View::Both(_))) {
+        Some(SheetKind::Both)
     } else {
         None
     }
@@ -49,13 +53,17 @@ pub(in crate::client) fn split_for_sheet(screen_w: u16, col: Rect, gap: u16, fra
 pub(in crate::client) fn heads_up(app: &App) -> Vec<(PathBuf, Overlap)> {
     let mut repos: Vec<&PathBuf> = app.hy.overlaps.keys().collect();
     repos.sort();
-    repos.into_iter().flat_map(|r| app.hy.overlaps[r].iter().map(move |o| (r.clone(), o.clone()))).collect()
+    repos
+        .into_iter()
+        .flat_map(|r| app.hy.overlaps[r].iter().map(move |o| (r.clone(), o.clone())))
+        .filter(|(r, o)| !app.hy.dismissed.contains(&(r.clone(), o.file.clone())))
+        .collect()
 }
 
 pub(in crate::client) fn draw_sheet(app: &mut App, buf: &mut Buffer, r: Rect, kind: SheetKind, t: &Theme) {
     let (title, close) = match kind {
         SheetKind::Inbox => ("Inbox", HyHit::Close),
-        SheetKind::Changes => ("Changes", HyHit::ViewClose),
+        SheetKind::Changes | SheetKind::Both => ("Changes", HyHit::ViewClose),
     };
     let mut c = Card::new(t, title).lit(t.accent);
     // Changes paints the desk's ground (its diff colours are tuned for it).
@@ -73,11 +81,16 @@ pub(in crate::client) fn draw_sheet(app: &mut App, buf: &mut Buffer, r: Rect, ki
                 app.view = Some(crate::client::View::Changes(v));
             }
         }
+        SheetKind::Both => {
+            if let Some(crate::client::View::Both(v)) = &app.view {
+                draw_both(buf, inside, t, v);
+            }
+        }
     }
 }
 
 /// The sheet's last row: a pill of key hints, and a note at the right when there's room.
-fn status_bar(buf: &mut Buffer, inside: Rect, t: &Theme, keys: &[(&str, &str)], note: &[Seg]) {
+pub(in crate::client) fn status_bar(buf: &mut Buffer, inside: Rect, t: &Theme, keys: &[(&str, &str)], note: &[Seg]) {
     let y = inside.bottom().saturating_sub(1);
     let bar = Rect { x: inside.x + 1, y, width: inside.width.saturating_sub(2), height: 1 };
     strip(buf, bar, t.card2);
@@ -111,14 +124,16 @@ fn inbox_place(app: &App) -> Option<(String, usize)> {
 }
 
 /// How many rows a row of the Inbox takes; the one with a follow-up open grows by its box.
-fn row_height(row: &GoRow, compose: Option<&Compose>, box_rows: u16) -> u16 {
+fn row_height(row: &GoRow, compose: Option<&Compose>, box_rows: u16, asking: Option<TermId>) -> u16 {
     let writing = |term: &TermId| compose.is_some_and(|c| c.term == *term);
     match row {
+        // A merge or throw-away being asked: its buttons go under the question.
+        GoRow::Done(t) if asking == Some(*t) => 5,
         GoRow::Ask(t) if writing(t) => 3 + box_rows,
         GoRow::Done(t) if writing(t) => 3 + box_rows,
         GoRow::Ask(_) => 4,
-        GoRow::Heads(_) => 3,
-        GoRow::Done(_) => 3,
+        GoRow::Heads(_) => 4,
+        GoRow::Done(_) => 4,
         _ => 1,
     }
 }
@@ -154,7 +169,8 @@ fn draw_inbox(app: &mut App, buf: &mut Buffer, inside: Rect, t: &Theme) {
     // Scrolled so the selected row is whole on screen.
     let avail = bottom.saturating_sub(y);
     let box_rows = compose.as_ref().map(|c| compose_rows(c, w.saturating_sub(1), INBOX_ROWS)).unwrap_or(0);
-    let height = |r: &GoRow| row_height(r, compose.as_ref(), box_rows);
+    let asking = app.hy.inbox_confirm.filter(|(.., busy)| !busy).map(|(t, ..)| t);
+    let height = |r: &GoRow| row_height(r, compose.as_ref(), box_rows, asking);
     let mut start = 0;
     while start < sel && rows[start..=sel.min(rows.len().saturating_sub(1))].iter().map(height).sum::<u16>() > avail {
         start += 1;
@@ -257,9 +273,21 @@ fn draw_inbox(app: &mut App, buf: &mut Buffer, inside: Rect, t: &Theme) {
                 left.push(seg(o.file.rsplit('/').next().unwrap_or(&o.file).to_string(), st.fg(t.sky())));
                 head_line(buf, left, vec![]);
                 put(buf, x + 3, y + 1, &[seg(truncate("Different branches, same file: it may conflict when they merge.", w.saturating_sub(4) as usize), c.fg(t.muted).add_modifier(Modifier::ITALIC))], x + w);
+                let tell = format!("tell {}", o.checkouts.first().cloned().unwrap_or_default());
+                put(buf, x + 3, y + 2, &cap_hints(t, t.card, &[("d", "both diffs"), ("m", &tell), ("k", "dismiss")]), x + w);
             }
             GoRow::Done(term) => {
-                let Some((p, _, s)) = find(&model, *term) else { continue };
+                let Some((p, wt, s)) = find(&model, *term) else { continue };
+                // What it changed, worked out once per finish (off the UI thread).
+                let size = match app.hy.change_sizes.get(&wt.path) {
+                    Some((since, size)) if *since == s.since => size.clone(),
+                    _ => {
+                        app.hy.change_sizes.insert(wt.path.clone(), (s.since, String::new()));
+                        let (dir, since, base) = (wt.path.clone(), s.since, (!wt.main).then(|| crate::gitfs::main_branch(&p.path)).flatten());
+                        app.spawn_bg(move || crate::client::Bg::ChangeSize(dir.clone(), since, crate::client::overlap::change_size(&dir, base.as_deref())));
+                        String::new()
+                    }
+                };
                 head_line(
                     buf,
                     vec![
@@ -267,13 +295,35 @@ fn draw_inbox(app: &mut App, buf: &mut Buffer, inside: Rect, t: &Theme) {
                         seg(s.name.clone(), st.fg(t.strong).add_modifier(Modifier::BOLD)),
                         seg(format!("  {} · {}", s.agent, p.name), st.fg(t.muted)),
                     ],
-                    vec![seg(age(s.since), st.fg(t.muted))],
+                    vec![if size.is_empty() { seg(age(s.since), st.fg(t.muted)) } else { seg(size, st.fg(t.text)) }],
                 );
                 let said = app.snap.terms.get(term).map(|i| i.said.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default().trim().to_string()).unwrap_or_default();
                 let said = if said.is_empty() { "finished".to_string() } else { format!("“{said}”") };
                 put(buf, x + 3, y + 1, &[seg(truncate(&said, w.saturating_sub(4) as usize), c.fg(t.text).add_modifier(Modifier::ITALIC))], x + w);
                 if let Some(cm) = compose.as_ref().filter(|cm| cm.term == *term) {
                     compose_box(app, buf, Rect { x: x + 1, y: y + 2, width: w.saturating_sub(1), height: 0 }, cm, INBOX_ROWS, t.card, t);
+                } else {
+                    // Merge and throw-away are asked here, then run with a spinner.
+                    match app.hy.inbox_confirm.filter(|(ct, ..)| ct == term) {
+                        Some((_, merge, true)) => {
+                            let what = if merge { format!("Merging {} into main…", s.name) } else { "Removing the worktree…".to_string() };
+                            let spin = app.cfg.ui.spinner.get(app.spinner_frame() as usize % app.cfg.ui.spinner.len().max(1)).cloned().unwrap_or_default();
+                            put(buf, x + 3, y + 2, &[seg(format!("{spin} "), c.fg(t.accent)), seg(what, c.fg(t.text))], x + w);
+                        }
+                        Some((_, merge, false)) => {
+                            let ask = if merge { "Merge into main, then remove the worktree and branch?  " } else { "Throw it away and remove the worktree?  " };
+                            put(buf, x + 3, y + 2, &[seg(ask.trim_end(), c.fg(t.strong))], x + w);
+                            let mut bx = x + 3;
+                            for (label, key, primary) in [(if merge { "Merge" } else { "Throw away" }, "Enter", true), ("Cancel", "Esc", false)] {
+                                let segs = button_pill(look, t, label, key, primary, false, t.card);
+                                bx = put(buf, bx, y + 3, &segs, x + w) + 1;
+                            }
+                        }
+                        None => {
+                            let keys: &[(&str, &str)] = if wt.main { &[("d", "diff"), ("m", "follow-up")] } else { &[("d", "diff"), ("M", "merge"), ("x", "throw away"), ("m", "follow-up")] };
+                            put(buf, x + 3, y + 2, &cap_hints(t, t.card, keys), x + w);
+                        }
+                    }
                 }
             }
             GoRow::Sess(pi, term) => {
