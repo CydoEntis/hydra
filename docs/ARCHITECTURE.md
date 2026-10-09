@@ -83,7 +83,8 @@ src/
                  dialogs.rs, splash.rs, popover.rs (follow-up and why, beside a row), sheet.rs (the card docked right of the panes:
                  Inbox, Changes), behaviour.rs (its keys and clicks)
     render.rs, design.rs  drawing entry point and shared helpers
-    menu.rs, views.rs, files.rs, find.rs, branch.rs, recipes.rs, …
+    menu.rs, views.rs, files.rs, find.rs, branch.rs, recipes.rs, overlap.rs,
+    motion.rs (slides and glides), …
     tests.rs     rendering and behaviour tests
   mcp.rs, project.rs, gitfs.rs, alert.rs, reveal.rs, update.rs, sync.rs
 docs/            these docs, the roadmap, design briefs
