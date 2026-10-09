@@ -72,8 +72,6 @@ pub(super) struct Hy {
     /// Two sessions side by side: (left, right). One of them is the focused one.
     /// Tabs: each shows one session or any number side by side.
     pub tabs: Vec<HyTab>,
-    /// Shown alone for now, out of its split (Zoom).
-    pub zoom: Option<TermId>,
     /// Panes whose program gets right-clicks (no seshi menu there; Shift+right-click for it).
     pub right_clicks: HashSet<TermId>,
     /// Which way the next "split" goes.

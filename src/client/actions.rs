@@ -171,7 +171,6 @@ impl App {
             Action::Focus(Dir::Right),
             Action::Focus(Dir::Up),
             Action::Focus(Dir::Down),
-            Action::Zoom,
             Action::ToggleSidebar,
             Action::ClosePane,
             Action::NewTab,

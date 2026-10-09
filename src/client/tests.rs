@@ -947,11 +947,11 @@ mod hydra_tests {
         assert!(o.contains("inbox ● 1") && o.contains("worktrees  ›"), "counts on their keys, steps marked");
         // Tab, then words: a search over every leader key.
         key(&mut app, KeyCode::Tab);
-        for c in "zoom".chars() {
+        for c in "sidebar".chars() {
             key(&mut app, KeyCode::Char(c));
         }
         let o = draw(&mut app, 160, 45);
-        assert!(matches!(&app.mode, Mode::KeyMap(km) if km.query == "zoom") && o.contains("Zoom"), "a search for zoom");
+        assert!(matches!(&app.mode, Mode::KeyMap(km) if km.query == "sidebar") && o.contains("sidebar"), "a search for the sidebar");
         // A key with › opens its second step; Backspace goes back.
         app.mode = Mode::Normal;
         app.on_key(lead);
@@ -1230,7 +1230,7 @@ mod hydra_tests {
         app.update_notes = vec!["Fixed: copying".into(), "New: an Update now button".into()];
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("\u{f013} ●"), "a dot after the settings cog");
+        assert!(o.contains("\u{f013}  ●"), "a dot after the settings cog (and its room)");
         assert!(app.palette_commands().contains(&Action::Update), "and it's in the palette");
         // Settings: the version, the new one, and the button.
         app.act(Action::Settings);

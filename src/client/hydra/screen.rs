@@ -542,7 +542,9 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     show(app, buf, x0 + 3, actions, HyHit::Actions);
     // Settings: a cog (the Nerd Font one with the round pill ends that need that font too),
     // with a dot when an update is ready.
-    let cog = if look.caps { SETTINGS_COG } else { "⚙" };
+    // A Nerd Font icon is drawn wider than its cell: a space after it gives it the room, or
+    // the pill's end is drawn over its right half.
+    let cog = if look.caps { format!("{SETTINGS_COG} ") } else { "⚙".to_string() };
     let mut set = vec![seg(cog, plain.fg(t.text).add_modifier(Modifier::BOLD))];
     if app.update_available.is_some() {
         set.push(seg(" ●", hot));
@@ -588,7 +590,7 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         .tabs
         .get(app.hy.tab)
         .map(|tab| tab.layout.clone())
-        .filter(|l| l.contains(focus) && l.leaves().len() > 1 && app.hy.zoom != Some(focus));
+        .filter(|l| l.contains(focus) && l.leaves().len() > 1);
     let Some(layout) = layout else {
         app.hy.leaf_rects = vec![(focus, area)];
         draw_session(app, f, area, focus, true, model, t);

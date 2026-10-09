@@ -24,7 +24,6 @@ pub enum Act {
     Changes(PathBuf),
     RenamePane(TermId),
     Split(TermId, crate::layout::Dir),
-    Zoom(TermId),
     RightClicks(TermId),
     RenameProject(String, String),
     /// End everything in a project and forget it.
@@ -130,16 +129,11 @@ impl App {
         }
         let model = self.hy_model();
         let agent = find(&model, term).map(|(_, _, s)| s.agent.clone()).unwrap_or_default();
-        let in_split = self.hy.tabs.get(self.hy.tab).is_some_and(|tab| tab.layout.contains(term) && tab.layout.leaves().len() > 1);
-        let zoomed = self.hy.zoom == Some(term);
         let mut items = vec![
             ("Rename pane".to_string(), Act::RenamePane(term)),
             ("Split right".to_string(), Act::Split(term, crate::layout::Dir::Right)),
             ("Split down".to_string(), Act::Split(term, crate::layout::Dir::Down)),
         ];
-        if in_split || zoomed {
-            items.push((if zoomed { "Unzoom" } else { "Zoom" }.to_string(), Act::Zoom(term)));
-        }
         items.push((
             if self.hy.right_clicks.contains(&term) { "Stop sending right-clicks to pane" } else { "Send right-clicks to pane" }.to_string(),
             Act::RightClicks(term),
@@ -374,7 +368,6 @@ impl App {
                     }))
                 });
             }
-            Act::Zoom(t) => self.hy.zoom = if self.hy.zoom == Some(t) { None } else { Some(t) },
             Act::TeachAgent(term) => self.cmd(Command::TeachAgent { term }),
             Act::RightClicks(t) => {
                 if !self.hy.right_clicks.remove(&t) {

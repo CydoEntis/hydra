@@ -615,7 +615,6 @@ pub(super) fn key_rows() -> Vec<(&'static str, Vec<(&'static str, Vec<crate::key
             vec![
                 ("Split right", vec![A::SplitRight]),
                 ("Split down", vec![A::SplitDown]),
-                ("Zoom pane", vec![A::Zoom]),
                 ("Close pane", vec![A::ClosePane]),
                 ("Show / hide the sidebar", vec![A::ToggleSidebar]),
                 ("Resize left", vec![A::Resize(Left)]),

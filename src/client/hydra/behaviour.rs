@@ -397,13 +397,6 @@ impl App {
                     self.jump_prompt(t, *a == Action::PrevPrompt);
                 }
             }
-            // In a split: just this one, and back. On its own: hide the sidebar.
-            Action::Zoom => match focused {
-                Some(f) if self.hy.tabs.get(self.hy.tab).is_some_and(|t| t.layout.contains(f) && t.layout.leaves().len() > 1) => {
-                    self.hy.zoom = if self.hy.zoom == Some(f) { None } else { Some(f) };
-                }
-                _ => self.sidebar = !self.sidebar,
-            },
             Action::Focus(d) => match focused.and_then(|f| crate::layout::neighbor(&self.hy.leaf_rects, f, *d)) {
                 Some(to) => self.cmd(Command::FocusPane { term: to }),
                 // Past the left edge: the sidebar.

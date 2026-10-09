@@ -93,7 +93,7 @@ Everything below is shipped on `dev` unless marked.
 **The UI (one layout, ADR-0004)**
 - Floating look: rounded cards with gaps, title and state in the border, unfocused cards faded, pill tabs, no app footer; floating or tiled, corners, gap, dim, focus border, pill ends in Settings — done, unreleased — `src/client/hydra/card.rs`, `screen.rs`, ADR-0007
 - Sidebar card: projects → sessions, state glyph + name, branch · age, question under it, attention sort, keyboard and mouse, row letter keys, `a actions` / `, settings` foot — shipped — `src/client/hydra/screen.rs` `draw_side`
-- Panes: tabs as pills (named in their pill), any number of splits (grid for 3+), zoom, drag the gap between them, ✕ in the border — shipped — `src/client/hydra/screen.rs` `draw_session`
+- Panes: tabs as pills (named in their pill), any number of splits (grid for 3+), drag the gap between them, ✕ in the border — shipped — `src/client/hydra/screen.rs` `draw_session`
 - Inbox (what needs you first, type to go anywhere), command palette (plain-word commands), key map (searchable, second steps), actions list — shipped — `draw_goto`, `draw_palette`, `src/client/hydra/leader.rs`
 - Right-click menus, confirm before closing, toasts — shipped — `src/client/menu.rs`
 - Splash: Resume / New shell here — shipped — `draw_splash`
