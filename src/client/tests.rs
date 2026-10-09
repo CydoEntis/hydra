@@ -189,7 +189,7 @@ mod hydra_tests {
         assert!(text.contains("● claude") && text.contains("main · 3m"), "state, then the name; branch · age on the right");
         assert!(text.contains("Run npm test -- checkout?"), "the question under the agent");
         assert!(text.contains("↳ Explore"), "subagents under their agent");
-        assert!(text.contains("⠋ rate") && text.contains("rate-limit · 2m"), "a worktree's session is named after it");
+        assert!(text.contains("⣾ rate") && text.contains("rate-limit · 2m"), "a worktree's session is named after it");
         assert!(!text.contains("Rate limit /login"), "under a session only its question, as in the redesign");
         assert!(text.contains("› shell") && !text.contains("shell 2"), "a shell in the project's folder is just 'shell', no age");
         assert!(!text.contains("session"), "no 'session' wording on screen");
@@ -381,9 +381,9 @@ mod hydra_tests {
         app.view = Some(View::Map(Box::new(hydra::MapView { proj: None, sel: 1 })));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("map  shop-api") && o.contains("▌shop-api  ●1 ⠋1"), "the project at the top");
+        assert!(o.contains("map  shop-api") && o.contains("▌shop-api  ●1 ⣾1"), "the project at the top");
         assert!(o.contains("⎇ main") && o.contains("⑂ rate") && o.contains("⑂ orders"), "a box per folder");
-        assert!(o.contains("● claude") && o.contains("needs you 3m") && o.contains("⠋ codex") && o.contains("working 2m"));
+        assert!(o.contains("● claude") && o.contains("needs you 3m") && o.contains("⣾ codex") && o.contains("working 2m"));
         assert!(o.contains("┴") && (o.contains("┬") || o.contains("┼")), "boxes hang off the project");
     }
 

@@ -480,7 +480,7 @@ impl Default for Ui {
             which_key_delay_ms: 600,
             which_key: true,
             mouse: true,
-            spinner: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"].map(String::from).to_vec(),
+            spinner: SPINNER.map(String::from).to_vec(),
             workspace_colors: ["#a593ff", "#5aa9ff", "#ff7ab6", "#3dd6c0", "#e8c565", "#ff9f6b", "#c792ea", "#7fd8a4"]
                 .map(String::from)
                 .to_vec(),
@@ -530,6 +530,11 @@ impl Default for Worktree {
         }
     }
 }
+
+/// The working animation: full-height braille, so it sits in the middle of its cell.
+const SPINNER: [&str; 8] = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
+/// The one before, in the top three rows of the cell (it looked high next to text).
+const OLD_SPINNER: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
 
 /// The "done" icon before it became a green dot.
 const OLD_DONE_ICON: &str = "✓";
@@ -812,6 +817,9 @@ impl Config {
         }
         if cfg.icons.shell == OLD_SHELL_ICON {
             cfg.icons.shell = Icons::default().shell;
+        }
+        if cfg.ui.spinner == OLD_SPINNER {
+            cfg.ui.spinner = Ui::default().spinner;
         }
         Ok(cfg)
     }
