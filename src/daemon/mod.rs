@@ -425,6 +425,7 @@ impl Daemon {
                 }
                 _ = tick.tick() => {
                     self.update_statuses();
+                    self.phone_alerts();
                     self.auto_continue();
                     self.poll_codex();
                     if self.last_sleep_check.elapsed() >= SLEEP_CHECK_EVERY {

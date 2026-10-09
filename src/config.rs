@@ -292,6 +292,18 @@ pub struct Notify {
     /// Sounds: glass, ping, chime, pop, off, or a path to a sound file.
     pub sound_needs: String,
     pub sound_done: String,
+    /// Alerts on your phone through ntfy (the free ntfy app): your topic's name. Empty is off.
+    /// On the public server the name is all that keeps them private, so make it hard to guess.
+    pub phone_topic: String,
+    /// The ntfy server (your own, if you host one).
+    pub phone_server: String,
+    /// Only once it has waited this long (seconds) with nobody answering: at your desk you
+    /// answer first and the phone stays quiet.
+    pub phone_after: u64,
+    /// Also when an agent finishes and nobody has looked.
+    pub phone_done: bool,
+    /// Say what the agent is doing in the alert, not just which agent and where.
+    pub phone_text: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -527,7 +539,17 @@ impl Default for Detection {
 
 impl Default for Notify {
     fn default() -> Self {
-        Notify { bell: false, desktop: true, sound_needs: "ping".into(), sound_done: "glass".into() }
+        Notify {
+            bell: false,
+            desktop: true,
+            sound_needs: "ping".into(),
+            sound_done: "glass".into(),
+            phone_topic: String::new(),
+            phone_server: "https://ntfy.sh".into(),
+            phone_after: 60,
+            phone_done: false,
+            phone_text: false,
+        }
     }
 }
 

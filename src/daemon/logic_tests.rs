@@ -529,3 +529,27 @@ fn codex_shows_working_from_its_screen_after_a_turn() {
     assert_eq!(d.terms[&t].status, Status::Done);
     close(&mut d, &[t]);
 }
+
+#[tokio::test]
+async fn a_phone_alert_goes_once_after_the_wait() {
+    let (mut d, _rx) = daemon();
+    // A server nothing listens on: the alert is tried and fails quietly.
+    d.cfg.notify.phone_topic = "seshi-test".into();
+    d.cfg.notify.phone_server = "http://127.0.0.1:9".into();
+    d.cfg.notify.phone_after = 60;
+    let t = pane(&mut d);
+    let now = term::unix_now();
+    let tm = d.terms.get_mut(&t).unwrap();
+    tm.agent = Some("claude".into());
+    tm.status = Status::Blocked;
+    tm.status_since = now - 10;
+    d.phone_alerts();
+    assert_eq!(d.terms[&t].phoned, 0, "still inside the wait: you may be at your desk");
+    d.terms.get_mut(&t).unwrap().status_since = now - 120;
+    d.phone_alerts();
+    assert_eq!(d.terms[&t].phoned, now - 120, "waited long enough: it goes");
+    d.terms.get_mut(&t).unwrap().status = Status::Done;
+    d.phone_alerts();
+    assert_eq!(d.terms[&t].phoned, now - 120, "finished: only when asked for (phone_done)");
+    close(&mut d, &[t]);
+}

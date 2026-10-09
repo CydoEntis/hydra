@@ -34,6 +34,39 @@ pub fn alert(cfg: &crate::config::Notify, kind: Kind, title: &str, body: &str, l
     std::thread::spawn(move || play(&sound));
 }
 
+/// An alert on your phone: an ntfy message to your topic. Blocks until sent (run it off the
+/// UI thread); what went wrong when it isn't.
+pub fn phone(cfg: &crate::config::Notify, title: &str, body: &str) -> Result<(), String> {
+    let url = phone_url(&cfg.phone_server, &cfg.phone_topic).ok_or("no phone topic set (notify.phone_topic)")?;
+    let one_line = |s: &str| s.replace(['\r', '\n'], " ");
+    crate::proc::run(
+        crate::proc::system_tool("curl")
+            .args(["-fsS", "--max-time", "10", "-H"])
+            .arg(format!("Title: {}", one_line(title)))
+            .args(["-H", "Tags: seshi", "--data-raw", body])
+            .arg(&url),
+    )
+    .map(|_| ())
+}
+
+/// Where a topic's messages go: `<server>/<topic>`. None without a topic.
+pub fn phone_url(server: &str, topic: &str) -> Option<String> {
+    let topic = topic.trim().trim_matches('/');
+    if topic.is_empty() {
+        return None;
+    }
+    let server = if server.trim().is_empty() { "https://ntfy.sh" } else { server.trim().trim_end_matches('/') };
+    Some(format!("{server}/{topic}"))
+}
+
+/// The phone alert for an agent: who and where always; what it's doing only with `text`.
+pub fn phone_message(agent: &str, place: &str, needs_you: bool, doing: &str, text: bool) -> (String, String) {
+    let title = format!("{agent} {}", if needs_you { "needs you" } else { "finished" });
+    let doing = doing.trim();
+    let body = if text && !doing.is_empty() { format!("{place} · {doing}") } else { place.to_string() };
+    (title, body)
+}
+
 fn quiet(cmd: &mut Command) -> &mut Command {
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     crate::proc::quiet(cmd)
@@ -176,5 +209,16 @@ mod tests {
         if cfg!(windows) {
             assert!(sound_file("ping").is_some_and(|p| p.ends_with("Windows Ding.wav")));
         }
+    }
+
+    #[test]
+    fn a_phone_alert_says_who_and_where_and_the_task_only_when_asked() {
+        assert_eq!(phone_url("", "seshi-x7k2").as_deref(), Some("https://ntfy.sh/seshi-x7k2"));
+        assert_eq!(phone_url("https://ntfy.example.com/", " /seshi-x7k2 ").as_deref(), Some("https://ntfy.example.com/seshi-x7k2"));
+        assert_eq!(phone_url("https://ntfy.sh", "  "), None, "no topic: off");
+        let m = |text| phone_message("claude", "AeVox", true, "Run npm test?", text);
+        assert_eq!(m(false), ("claude needs you".to_string(), "AeVox".to_string()));
+        assert_eq!(m(true).1, "AeVox · Run npm test?");
+        assert_eq!(phone_message("codex", "shop-api", false, "", true).0, "codex finished");
     }
 }

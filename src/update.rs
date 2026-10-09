@@ -45,18 +45,7 @@ fn gh_signed_in() -> bool {
     crate::proc::run(Command::new("gh").args(["auth", "status"])).is_ok()
 }
 
-/// A system tool by its usual Windows home (System32 has curl and a tar that reads zips),
-/// so a Git Bash or MSYS one earlier on PATH isn't picked instead.
-fn system_tool(name: &str) -> Command {
-    #[cfg(windows)]
-    if let Some(root) = std::env::var_os("SystemRoot") {
-        let p = Path::new(&root).join("System32").join(format!("{name}.exe"));
-        if p.is_file() {
-            return Command::new(p);
-        }
-    }
-    Command::new(name)
-}
+use crate::proc::system_tool;
 
 /// The newest release's tag, e.g. `v0.3.0`.
 pub fn latest_tag() -> Result<String, String> {

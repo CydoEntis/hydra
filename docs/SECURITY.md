@@ -111,7 +111,9 @@ user), their source code, and API keys in `config.local.toml`. Threats: another
 local user or process driving the daemon's socket; a process inside one pane
 forging status for another pane; command injection through names, branches or
 paths that end up in shell commands; secrets leaking through config sync or logs;
-an SSH remote being someone else's machine.
+an SSH remote being someone else's machine; what agents work on leaking through phone alerts
+(ntfy, off by default: they name the agent and folder only, unless `phone_text` is on, and
+the topic name is the only secret on the public server).
 
 ## Project-specific: auth and permissions
 

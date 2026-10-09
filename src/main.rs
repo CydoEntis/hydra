@@ -314,6 +314,13 @@ fn main() {
                 }
                 alert::notify("claude needs you", "seshi · this is a test", link.as_deref());
             }
+            match alert::phone_url(&cfg.notify.phone_server, &cfg.notify.phone_topic) {
+                None => println!("phone: off (notify.phone_topic)"),
+                Some(url) => match alert::phone(&cfg.notify, "claude needs you", "seshi · this is a test") {
+                    Ok(()) => println!("phone: sent to {url}"),
+                    Err(e) => println!("phone: didn't go to {url}: {e}"),
+                },
+            }
             for (what, sound) in [("needs you", &cfg.notify.sound_needs), ("done", &cfg.notify.sound_done)] {
                 match alert::sound_file(sound) {
                     Some(f) => {

@@ -209,6 +209,14 @@ A desktop notification and a sound when an agent you're not looking at needs you
 also when no seshi window is open (the server sends it). Sounds: glass, ping, chime, pop, off,
 or a path to your own file (`[notify] sound_needs`, `sound_done`). `seshi test-alert` tries them.
 
+**On your phone** (off until you set it up): install the free [ntfy](https://ntfy.sh) app (no
+account), subscribe to a topic name nobody would guess, and put it in Settings → Phone alerts
+(`[notify] phone_topic`). An alert goes once an agent has needed you for a minute with nobody
+answering (`phone_after`), so it stays quiet while you're at your desk; `phone_done` adds
+finished ones. Alerts say which agent and where; `phone_text` adds what it's doing. On the
+public server the topic name is all that keeps them private (`phone_server` for your own).
+`seshi test-alert` sends a test.
+
 Click a notification to go to its session: seshi comes to the front on it (its split too).
 That works for the note inside seshi and the desktop pop-ups on Windows and Linux (on
 Omarchy / Hyprland the window is brought forward too); on macOS, install

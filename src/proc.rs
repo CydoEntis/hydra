@@ -4,6 +4,19 @@
 use std::path::Path;
 use std::process::Command;
 
+/// A system tool by its usual Windows home (System32 has curl and a tar that reads zips),
+/// so a Git Bash or MSYS one earlier on PATH isn't picked instead.
+pub fn system_tool(name: &str) -> Command {
+    #[cfg(windows)]
+    if let Some(root) = std::env::var_os("SystemRoot") {
+        let p = Path::new(&root).join("System32").join(format!("{name}.exe"));
+        if p.is_file() {
+            return Command::new(p);
+        }
+    }
+    Command::new(name)
+}
+
 /// Windows: start a console program without opening a console window.
 #[cfg(windows)]
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;

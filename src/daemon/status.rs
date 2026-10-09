@@ -222,6 +222,33 @@ impl Daemon {
         }
     }
 
+    /// Phone alerts for agents that have waited `phone_after` with nobody answering (or,
+    /// when asked for, finished with nobody looking). Each status at most once.
+    pub(super) fn phone_alerts(&mut self) {
+        let n = &self.cfg.notify;
+        if n.phone_topic.trim().is_empty() {
+            return;
+        }
+        let now = term::unix_now();
+        for t in self.terms.values_mut() {
+            let Some(agent) = t.agent.clone() else { continue };
+            let wanted = t.status == Status::Blocked || (t.status == Status::Done && n.phone_done);
+            if !wanted || t.phoned == t.status_since || now.saturating_sub(t.status_since) < n.phone_after {
+                continue;
+            }
+            t.phoned = t.status_since;
+            let place = t.head.as_ref().map(|h| h.top.clone()).unwrap_or_else(|| t.cwd.clone());
+            let place = place.file_name().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+            let (title, body) = crate::alert::phone_message(&agent, &place, t.status == Status::Blocked, &t.summary, n.phone_text);
+            let cfg = n.clone();
+            std::thread::spawn(move || {
+                if let Err(e) = crate::alert::phone(&cfg, &title, &body) {
+                    tracing::warn!("phone alert didn't go: {e}");
+                }
+            });
+        }
+    }
+
     pub(super) fn update_statuses(&mut self) {
         // Messages typed to a sleeping agent: deliver once it's ready (its hooks say idle) or
         // after a few seconds.

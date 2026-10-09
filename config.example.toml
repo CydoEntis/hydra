@@ -77,6 +77,11 @@ desktop = true              # a desktop notification when an agent you're not lo
 sound_needs = "ping"        # glass | ping | chime | pop | off | a path to a sound file
 sound_done = "glass"
 bell = false                # also ring the terminal bell
+# phone_topic = "seshi-pick-something-unguessable"   # ntfy app topic; empty is off
+# phone_after = 60          # seconds an agent waits unanswered before your phone buzzes
+# phone_done = false        # also when one finishes and nobody looked
+# phone_text = false        # include what it's doing (the topic name is the only secret)
+# phone_server = "https://ntfy.sh"
 
 [detection]
 working_window_ms = 1500
