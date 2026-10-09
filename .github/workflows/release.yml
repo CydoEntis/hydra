@@ -78,6 +78,24 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # Full history and tags, for the notes below.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      # What's new since the previous tag: its feat and fix commits, one "- " line each. The
+      # app's update dialog shows these lines.
+      - name: Release notes
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          prev=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          git log --no-merges --pretty='%s' ${prev:+$prev..}"$TAG" \
+            | sed -nE 's/^feat(\([^)]*\))?!?: */- New: /p; s/^fix(\([^)]*\))?!?: */- Fixed: /p' > notes.md
+          [ -s notes.md ] || echo "- Small fixes and improvements." > notes.md
+          cat notes.md
+
       - uses: actions/download-artifact@v8
         with:
           path: dist
@@ -94,7 +112,7 @@ jobs:
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber -R "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG" dist/* --title "hydra $TAG" --generate-notes -R "$GITHUB_REPOSITORY"
+            gh release create "$TAG" dist/* --title "hydra $TAG" --notes-file notes.md -R "$GITHUB_REPOSITORY"
           fi
 
   # Install the release just published, the way users do, and run it.
