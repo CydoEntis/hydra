@@ -290,7 +290,8 @@ impl App {
             },
             KeyCode::Char('o') => {
                 if let Some(n) = node {
-                    let _ = files::open_default(&n.path);
+                    let name = n.path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+                    self.open_outside(n.path.clone(), name);
                 }
             }
             KeyCode::Char('e') => {
@@ -422,7 +423,7 @@ impl App {
             KeyCode::Left | KeyCode::Char('h') => step(self, -1),
             KeyCode::Right | KeyCode::Char('l') => step(self, 1),
             KeyCode::Char('o') => {
-                let _ = files::open_default(&crate::config::config_path());
+                self.open_outside(crate::config::config_path(), "config.toml".into());
             }
             KeyCode::Enter | KeyCode::Char(' ') => match &row {
                 Some(design::SRow::Setting(s)) => match s.kind {

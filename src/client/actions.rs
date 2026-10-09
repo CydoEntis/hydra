@@ -311,8 +311,31 @@ impl App {
                 v.reveal = Some((path, line));
             }
         } else {
-            let _ = files::open_default(&path);
-            self.notify(format!("opening {}", path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()), false);
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            self.open_outside(path, name);
+        }
+    }
+
+    /// Open a file, folder or web link in its default app, off the UI thread: say so, and say
+    /// why when it didn't.
+    pub(super) fn open_outside(&mut self, target: PathBuf, label: String) {
+        self.notify(format!("opening {label}"), false);
+        self.spawn_bg(move || {
+            let result = files::open_default(&target);
+            Bg::Then(Box::new(move |app: &mut App| {
+                if let Err(e) = result {
+                    app.notify(format!("couldn't open {label}: {e}"), true);
+                }
+            }))
+        });
+    }
+
+    /// A web link (http or https) in your browser; anything else is refused.
+    pub(super) fn open_link(&mut self, url: String) {
+        if files::is_web_link(&url) {
+            self.open_outside(PathBuf::from(&url), url);
+        } else {
+            self.notify(format!("only web links open from a pane: {url}"), true);
         }
     }
 

@@ -374,8 +374,7 @@ impl App {
             if m.modifiers.contains(KeyModifiers::CONTROL)
                 && let Some(url) = self.parsers.get(&term).and_then(|p| pick::url_at(p.screen(), row, col))
             {
-                files::open_url(&url);
-                self.notify(format!("opening {url}"), false);
+                self.open_link(url);
                 return;
             }
             if m.modifiers.contains(KeyModifiers::CONTROL)

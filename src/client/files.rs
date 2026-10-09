@@ -128,14 +128,15 @@ pub fn looks_like_text(path: &Path) -> bool {
     }
 }
 
-/// Open a link in the browser (https only).
-pub fn open_url(url: &str) {
-    if url.starts_with("https://") {
-        let _ = open_default(Path::new(url));
-    }
+/// Only web links open from a pane: anything else a program prints could be made to run
+/// something.
+pub fn is_web_link(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.starts_with("https://") || lower.starts_with("http://")
 }
 
-/// Open a file (or folder) in its default app.
+/// Open a file, folder or web link in its default app. It can take a moment (it waits to
+/// see whether the opener worked), so call it off the UI thread.
 pub fn open_default(path: &Path) -> std::io::Result<()> {
     // A leading '-' would be read as an option by open / xdg-open.
     if path.as_os_str().to_string_lossy().starts_with('-') {
@@ -175,11 +176,37 @@ fn shell_open(target: &std::ffi::OsStr) -> std::io::Result<()> {
     if r > 32 { Ok(()) } else { Err(std::io::Error::other(format!("Windows couldn't open it (code {r})"))) }
 }
 
-/// Start a program without waiting for it or keeping its output.
+/// How long to wait for an opener (xdg-open, open) to say it failed; one still running by
+/// then has handed over to the app.
 #[cfg(not(windows))]
-fn spawn_detached(mut cmd: std::process::Command) -> std::io::Result<()> {
-    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-    cmd.spawn().map(|_| ())
+const OPENER_WAIT: std::time::Duration = std::time::Duration::from_secs(4);
+
+/// Run an opener and say whether it worked: what it printed when it failed, or that it
+/// isn't installed.
+#[cfg(not(windows))]
+fn run_opener(mut cmd: std::process::Command) -> std::io::Result<()> {
+    use std::io::Read;
+    let tool = cmd.get_program().to_string_lossy().into_owned();
+    cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound { std::io::Error::other(format!("{tool} isn't installed (it opens links and files)")) } else { e }
+    })?;
+    let started = std::time::Instant::now();
+    while started.elapsed() < OPENER_WAIT {
+        if let Some(status) = child.try_wait()? {
+            if status.success() {
+                return Ok(());
+            }
+            let mut err = String::new();
+            if let Some(mut e) = child.stderr.take() {
+                let _ = e.read_to_string(&mut err);
+            }
+            let why = err.lines().map(str::trim).find(|l| !l.is_empty()).map(String::from).unwrap_or_else(|| format!("{tool} failed ({status})"));
+            return Err(std::io::Error::other(why));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Ok(())
 }
 
 #[cfg(not(windows))]
@@ -192,7 +219,7 @@ fn open_with_tool(path: &Path) -> std::io::Result<()> {
         cmd = std::process::Command::new("xdg-open");
         cmd.arg(path);
     }
-    spawn_detached(cmd)
+    run_opener(cmd)
 }
 
 #[cfg(test)]
@@ -224,6 +251,12 @@ mod open_tests {
         let w = super::wide(url.as_ref());
         assert_eq!(String::from_utf16(&w[..w.len() - 1]).unwrap(), url);
         assert!(super::open_default(std::path::Path::new("-x")).is_err());
+    }
+
+    #[test]
+    fn web_links_open_and_nothing_else() {
+        assert!(super::is_web_link("https://x.io") && super::is_web_link("http://localhost:5173/") && super::is_web_link("HTTP://X.IO"));
+        assert!(!super::is_web_link("file:///etc/passwd") && !super::is_web_link("javascript:alert(1)") && !super::is_web_link("ssh://box"));
     }
 }
 
