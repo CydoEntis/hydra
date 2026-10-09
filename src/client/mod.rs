@@ -27,7 +27,7 @@ use crate::keys::{self, Action, KeySpec};
 use crate::protocol::*;
 use crate::theme::Theme;
 use anyhow::Result;
-use futures_util::StreamExt;
+use futures_util::{FutureExt, StreamExt};
 use ratatui::crossterm::event::{
     self, Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
@@ -575,6 +575,21 @@ impl App {
             tokio::select! {
                 _ = tokio::time::sleep_until(next_draw), if self.dirty => {}
                 ev = events.next() => match ev {
+                    // Windows hands a paste over as keystrokes: take the keys already waiting
+                    // with this one, so a pasted line break isn't an Enter that sends.
+                    Some(Ok(ev @ Event::Key(_))) if cfg!(windows) => {
+                        let mut burst = vec![ev];
+                        while let Some(Some(next)) = events.next().now_or_never() {
+                            burst.push(next?);
+                        }
+                        match input::paste_from_burst(&burst) {
+                            Some(text) => {
+                                self.dirty = true;
+                                self.on_paste(text);
+                            }
+                            None => burst.into_iter().for_each(|ev| self.on_event(ev)),
+                        }
+                    }
                     Some(Ok(ev)) => self.on_event(ev),
                     Some(Err(e)) => return Err(e.into()),
                     None => return Ok(()),

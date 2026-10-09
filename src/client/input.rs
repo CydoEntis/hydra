@@ -2,6 +2,34 @@
 
 use super::*;
 
+/// A burst of keys read at once that is really a paste: plain text with a line break inside
+/// it (Enter followed by more text). Windows hands a terminal paste over this way, each new
+/// line an Enter; sent as keys, the first one would send the message. Typing ahead that
+/// ends in Enter isn't a paste, and stays keys.
+pub(super) fn paste_from_burst(events: &[Event]) -> Option<String> {
+    let mut text = String::new();
+    let mut broken_line = false;
+    for ev in events {
+        let Event::Key(k) = ev else { return None };
+        if k.kind == KeyEventKind::Release {
+            continue;
+        }
+        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = k.modifiers.contains(KeyModifiers::ALT);
+        match k.code {
+            // AltGr arrives as Ctrl+Alt; it types a character.
+            KeyCode::Char(c) if !(ctrl || alt) || (ctrl && alt && !c.is_ascii_alphabetic()) => {
+                broken_line |= text.ends_with('\n');
+                text.push(c);
+            }
+            KeyCode::Enter if !(ctrl || alt) => text.push('\n'),
+            KeyCode::Tab if k.modifiers.is_empty() => text.push('\t'),
+            _ => return None,
+        }
+    }
+    broken_line.then_some(text)
+}
+
 impl App {
     pub(super) fn on_event(&mut self, ev: Event) {
         self.dirty = true;
@@ -874,5 +902,36 @@ impl App {
             _ => return false,
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::paste_from_burst;
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+
+    fn keys(s: &str) -> Vec<Event> {
+        s.chars()
+            .flat_map(|c| {
+                let code = match c {
+                    '\n' => KeyCode::Enter,
+                    c => KeyCode::Char(c),
+                };
+                let press = KeyEvent::new(code, KeyModifiers::NONE);
+                let release = KeyEvent { kind: KeyEventKind::Release, ..press };
+                [Event::Key(press), Event::Key(release)]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_pasted_line_break_is_text_not_send() {
+        assert_eq!(paste_from_burst(&keys("first\nsecond")).as_deref(), Some("first\nsecond"));
+        assert_eq!(paste_from_burst(&keys("one\ntwo\n")).as_deref(), Some("one\ntwo\n"), "a trailing line break stays in the paste");
+        assert_eq!(paste_from_burst(&keys("yes\n")), None, "typed ahead and sent: still keys");
+        assert_eq!(paste_from_burst(&keys("abc")), None, "one line: keys do the same");
+        let mut with_ctrl = keys("a\nb");
+        with_ctrl.push(Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)));
+        assert_eq!(paste_from_burst(&with_ctrl), None, "a shortcut in it: keys");
     }
 }
