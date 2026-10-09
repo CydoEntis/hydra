@@ -179,7 +179,7 @@ mod hydra_tests {
         assert!(lines[6].contains("> fix the flaky checkout test"), "the terminal a row below the border, inset");
         assert!(text.contains("shop-api · ⎇ main"), "folder and branch in the card's footer");
         assert!(!text.contains("needs you   a inbox"), "no app footer");
-        assert!(text.contains("actions") && text.contains(", settings"), "the sidebar's foot: actions (its key lit in the word) and settings");
+        assert!(text.contains("actions") && text.contains('\u{f013}') && !text.contains(", settings"), "the sidebar's foot: actions (its key lit in the word) and a settings cog");
         // Projects and their sessions, nothing in between.
         assert!(text.contains("▾ shop-api") && text.contains("● 1"), "a project: its fold arrow and name, what needs you on the right");
         assert!(text.contains("AGENTS 2 ─") && text.contains("TERMINALS 1 ─") && !text.contains("BRANCHES") && !text.contains("WORKTREES"), "a heading per section");
@@ -1193,7 +1193,7 @@ mod hydra_tests {
         assert!(lines[1].starts_with(" ╭────────────────────────╮"), "a slim sidebar: {}", lines[1]);
         let side: String = lines.iter().map(|l| l.chars().take(30).collect::<String>() + "\n").collect();
         assert!(!side.contains("main · 3m") && !side.contains("Run npm test"), "no meta or questions in the slim sidebar: {side}");
-        assert!(o.contains(", prefs"), "settings says prefs when narrow");
+        assert!(o.contains("actions") && o.contains('\u{f013}'), "actions and the cog fit a slim sidebar");
     }
 
     #[test]
@@ -1467,12 +1467,12 @@ mod hydra_tests {
     fn a_newer_hydra_has_an_update_button_that_asks_first() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains(", settings") && !o.contains(", settings ●"), "no dot without a newer version");
+        assert!(o.contains('\u{f013}') && !o.contains("\u{f013} ●"), "no dot without a newer version");
         app.update_available = Some("9.9.9".into());
         app.update_notes = vec!["Fixed: copying".into(), "New: an Update now button".into()];
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains(", settings ●"), "a dot after settings");
+        assert!(o.contains("\u{f013} ●"), "a dot after the settings cog");
         assert!(app.palette_commands().contains(&Action::Update), "and it's in the palette");
         // Settings: the version, the new one, and the button.
         app.act(Action::Settings);

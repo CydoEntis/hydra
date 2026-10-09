@@ -8,6 +8,9 @@ pub(in crate::client) fn side_w(width: u16) -> u16 {
     if width < NARROW { 26 } else { 34 }
 }
 
+/// The Nerd Font cog (nf-fa-cog) at the sidebar's foot.
+const SETTINGS_COG: &str = "\u{f013}";
+
 /// Below this many columns the layout tightens: a slimmer sidebar without its right-hand
 /// meta, and tabs other than the current one shrink to their number and state.
 pub(in crate::client) const NARROW: u16 = 140;
@@ -549,7 +552,10 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     let actions = label(k(app, &Action::Actions), "actions");
     let aw = segs_width(&actions);
     show(app, buf, x0 + 3, actions, HyHit::Actions);
-    let mut set = label(k(app, &Action::Settings), if w < 30 { "prefs" } else { "settings" });
+    // Settings: a cog (the Nerd Font one with the round pill ends that need that font too),
+    // with a dot when an update is ready.
+    let cog = if look.caps { SETTINGS_COG } else { "⚙" };
+    let mut set = vec![seg(cog, plain.fg(t.text).add_modifier(Modifier::BOLD))];
     if app.update_available.is_some() {
         set.push(seg(" ●", hot));
     }
