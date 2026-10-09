@@ -613,7 +613,6 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("p", "split-right"),
     ("z", "zoom"),
     ("x", "close-pane"),
-    ("l", "arrange"),
     ("left", "focus-left"),
     ("down", "focus-down"),
     ("up", "focus-up"),
@@ -629,7 +628,6 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("y", "copy-mode"),
     ("pageup", "scroll-up"),
     ("pagedown", "scroll-down"),
-    ("=", "arrange"),
     ("{", "prev-prompt"),
     ("}", "next-prompt"),
     // Tabs

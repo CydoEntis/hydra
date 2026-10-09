@@ -1191,7 +1191,6 @@ impl App {
             HyHit::TabNew => self.act(Action::NewTab),
             HyHit::Actions => self.act(Action::Actions),
             HyHit::ActionRow(i) => self.actions_run(i),
-            HyHit::Layout => self.act(Action::Arrange),
             HyHit::Leader => self.open_keymap(None),
             HyHit::KeyRow(i) => {
                 if let Mode::KeyMap(km) = &self.mode {

@@ -1025,8 +1025,6 @@ pub(super) enum HyHit {
     Actions,
     /// A row of the actions list.
     ActionRow(usize),
-    /// The layout chip at the end of the tab row: the next arrangement.
-    Layout,
     /// The leader pill (leader mode is on): the key map.
     Leader,
     /// A key in the key map (its row in the shown list).

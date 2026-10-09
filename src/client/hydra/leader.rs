@@ -13,7 +13,7 @@ const MATCHES_SHOWN: usize = 12;
 fn groups() -> Vec<(&'static str, Vec<(Action, &'static str)>)> {
     vec![
         ("AGENTS", vec![(Action::Jump, "jump to waiting"), (Action::Talk, "talk to an agent"), (Action::Answer('1'), "answer"), (Action::ShellHere, "new shell here")]),
-        ("PANES", vec![(Action::SplitRight, "new pane beside"), (Action::Zoom, "zoom"), (Action::ClosePane, "close"), (Action::Arrange, "layout"), (Action::Focus(Dir::Left), "move focus")]),
+        ("PANES", vec![(Action::SplitRight, "new pane beside"), (Action::Zoom, "zoom"), (Action::ClosePane, "close"), (Action::Focus(Dir::Left), "move focus")]),
         ("TABS", vec![(Action::NewTab, "new tab"), (Action::SelectTab(1), "go to tab"), (Action::RenameTab, "rename")]),
         ("PROJECT", vec![(Action::OpenProject, "open project"), (Action::Worktrees, "worktrees  ›"), (Action::Files, "files"), (Action::Changes, "changes")]),
         ("SESHI", vec![(Action::Settings, "settings"), (Action::Help, "all keys"), (Action::Detach, "quit, agents keep running")]),
@@ -30,7 +30,6 @@ pub(in crate::client) fn action_items() -> Vec<(&'static str, Action)> {
         ("Open project", Action::OpenProject),
         ("Talk to an agent", Action::Talk),
         ("Zoom pane", Action::Zoom),
-        ("Change layout", Action::Arrange),
         ("All keys", Action::Help),
     ]
 }

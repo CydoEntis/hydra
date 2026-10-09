@@ -174,7 +174,7 @@ mod hydra_tests {
         // tab pills one row down, the cards below a row of air.
         assert!(lines[0].trim().is_empty(), "a row of margin on top");
         assert!(lines[1].starts_with(" ╭─"), "the sidebar card, a column in: {}", lines[1]);
-        assert!(lines[2].contains(" 1 claude") && lines[2].contains(" + ") && lines[2].contains('▯'), "tab pills, + and the layout chip: {}", lines[2]);
+        assert!(lines[2].contains(" 1 claude") && lines[2].contains(" + ") && !lines[2].contains('▯'), "tab pills and +, no layout switch: {}", lines[2]);
         assert!(lines[4].contains("╭─ claude ─ Fix flaky checkout test · shop-api · main") && lines[4].contains("● needs you ─ ✕ ─"), "title, project · branch, state and ✕ set into the card's border: {}", lines[4]);
         assert!(lines[6].contains("> fix the flaky checkout test"), "the terminal a row below the border, inset");
         assert!(text.contains("shop-api · ⎇ main"), "folder and branch in the card's footer");
@@ -182,7 +182,7 @@ mod hydra_tests {
         assert!(text.contains("actions") && text.contains(", settings"), "the sidebar's foot: actions (its key lit in the word) and settings");
         // Projects and their sessions, nothing in between.
         assert!(text.contains("▾ shop-api") && text.contains("● 1"), "a project: its fold arrow and name, what needs you on the right");
-        assert!(!text.contains("── Agents") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
+        assert!(text.contains("AGENTS 2 ─") && text.contains("TERMINALS 1 ─") && !text.contains("BRANCHES") && !text.contains("WORKTREES"), "a heading per section");
         assert!(!text.contains("main folder"), "no 'main folder' wording");
         assert!(!text.contains("+ open a project"), "opening a project is in the header now");
         // Rows: state and name, branch · age on the right, its question underneath.
@@ -1583,7 +1583,7 @@ mod hydra_tests {
         show(&o);
         let at = |s: &str| o.find(s).unwrap_or_else(|| panic!("{s} in the sidebar"));
         assert!(at("▾ shop-api") < at("▾ notes") && at("▾ notes") < at("▾ build-box"), "agents, then terminals, then other machines");
-        assert!(!o.contains("── Agents") && !o.contains("SESSIONS"), "no headings over them");
+        assert!(at("AGENTS 2") < at("TERMINALS 1") && at("TERMINALS 1") < at("SSH 1"), "a heading per section, in order");
     }
 
     #[test]

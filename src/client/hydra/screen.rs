@@ -156,6 +156,8 @@ pub(in crate::client) fn hline(buf: &mut Buffer, x: u16, y: u16, w: u16, t: &The
 /// A line of the sidebar tree.
 #[derive(Debug, Clone)]
 pub(in crate::client) enum Line {
+    /// A section's heading: AGENTS, TERMINALS, SSH (with how many sessions).
+    Section(Kind, usize),
     Proj(usize),
     /// A heading: BRANCHES or WORKTREES.
     /// An agent or shell (pi, wi, si).
@@ -185,6 +187,10 @@ pub(in crate::client) fn session_lines(s: &Session, t: &Theme, out: &mut Vec<Lin
 pub(in crate::client) fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec<Line> {
     let mut out = Vec::new();
     for (pi, p) in model.iter().enumerate() {
+        if pi == 0 || model[pi - 1].kind != p.kind {
+            let n = model.iter().filter(|q| q.kind == p.kind).map(|q| q.sessions().count()).sum();
+            out.push(Line::Section(p.kind, n));
+        }
         out.push(Line::Proj(pi));
         if app.hy.saved.closed.contains(&format!("p:{}", p.key)) {
             out.push(Line::Gap);
@@ -473,6 +479,13 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 );
                 hit(app, row, HyHit::ShellIn(*pi));
             }
+            // A quiet heading: "AGENTS 2 ────".
+            Line::Section(kind, n) => {
+                let st = Style::default().bg(pb);
+                let label = format!("{} {n} ", kind.heading().to_uppercase());
+                let rest = right.saturating_sub(x0 + 3 + label.width() as u16);
+                put(buf, x0 + 3, y, &[seg(label, st.fg(t.muted).add_modifier(Modifier::BOLD)), seg("─".repeat(rest as usize), st.fg(t.line))], right);
+            }
             Line::Gap => {}
         }
     }
@@ -684,7 +697,7 @@ pub(in crate::client) fn armed(app: &App) -> bool {
 }
 
 /// The tab row: a pill per tab (number, name, its most urgent state; the current one in the
-/// accent), a + pill, and the layout chip at the far right (the leader pill while armed).
+/// accent), a + pill, and the leader pill at the far right while leader mode is on.
 pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
     let look = Look::of(&app.cfg.ui);
     let pb = pane_bg(t);
@@ -700,19 +713,14 @@ pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, 
         }
         pill(look, segs, t.sky(), t.bg)
     } else {
-        let n = app.hy.tabs.get(app.hy.tab).map(|tab| tab.layout.leaves().len()).unwrap_or(1);
-        let shape = match n {
-            0 | 1 => "▯",
-            2 => "▯▯",
-            _ => "▦",
-        };
-        let tint = blend(t.sky(), t.bg, 0.78);
-        pill(look, vec![seg(shape, Style::default().fg(t.sky()).add_modifier(Modifier::BOLD))], tint, t.bg)
+        Vec::new()
     };
     let rw = segs_width(&right);
     let rx = r.right().saturating_sub(rw);
-    put(buf, rx, r.y, &right, r.right());
-    hit(app, Rect { x: rx, y: r.y, width: rw, height: 1 }, if armed(app) { HyHit::Leader } else { HyHit::Layout });
+    if rw > 0 {
+        put(buf, rx, r.y, &right, r.right());
+        hit(app, Rect { x: rx, y: r.y, width: rw, height: 1 }, HyHit::Leader);
+    }
     let mut x = r.x;
     let tabs = app.session_tabs();
     for (n, i) in tabs.iter().copied().enumerate() {
@@ -979,33 +987,27 @@ pub(in crate::client) fn draw_toast(app: &mut App, buf: &mut Buffer, panes: Rect
         return;
     }
     let hint = if about.is_some() { "   click to open" } else { "" };
-    let text = truncate(&msg, (panes.width.saturating_sub(12) as usize).saturating_sub(hint.width()));
-    let w = text.width() as u16 + hint.width() as u16 + 7;
-    if panes.height < 4 || panes.width < w + 2 {
+    let text = truncate(&msg, (panes.width.saturating_sub(14) as usize).saturating_sub(hint.width()));
+    // A pill inside the top right of the panes, a row below the card's border: away from
+    // where you type (an agent's prompt is at the bottom).
+    let segs = pill(
+        Look::of(&app.cfg.ui),
+        vec![
+            seg(" ", Style::default()),
+            seg(if err { "✕ " } else { "✓ " }, Style::default().fg(if err { t.err } else { t.done }).add_modifier(Modifier::BOLD)),
+            seg(text, Style::default().fg(t.strong).add_modifier(Modifier::BOLD)),
+            seg(hint, Style::default().fg(t.muted)),
+            seg(" ", Style::default()),
+        ],
+        t.card2,
+        pane_bg(t),
+    );
+    let w = segs_width(&segs);
+    if panes.height < 4 || panes.width < w + 6 {
         return;
     }
-    // Top right, under the title bar: away from where you type (an agent's prompt is at
-    // the bottom).
-    let r = Rect { x: panes.right().saturating_sub(w + 2), y: panes.y + 1, width: w, height: 3 };
-    fill(buf, r, t.card2);
-    let edge = Style::default().fg(if err { t.err } else { t.done }).bg(t.card2);
-    for y in r.top()..r.bottom() {
-        if let Some(px) = buf.cell_mut((r.x, y)) {
-            px.set_symbol("▌").set_style(edge);
-        }
-    }
-    let st = Style::default().bg(t.card2);
-    put(
-        buf,
-        r.x + 2,
-        r.y + 1,
-        &[
-            seg(if err { "✕ " } else { "✓ " }, st.fg(if err { t.err } else { t.done }).add_modifier(Modifier::BOLD)),
-            seg(text, st.fg(t.strong).add_modifier(Modifier::BOLD)),
-            seg(hint, st.fg(t.muted)),
-        ],
-        r.right() - 1,
-    );
+    let r = Rect { x: panes.right().saturating_sub(w + 3), y: panes.y + 1, width: w, height: 1 };
+    put(buf, r.x, r.y, &segs, r.right());
     if let Some(term) = about {
         hit(app, r, HyHit::Session(term));
     }
