@@ -221,10 +221,10 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains("███████ ███████ ███████ ██   ██ ██") && o.contains("every session, one calm place") && !o.contains("⣿"), "the block wordmark, no art");
-        assert!(o.contains("while you were away") && o.contains("1 need you") && o.contains("Resume where you left off") && o.contains("New session"));
+        assert!(o.contains("while you were away") && o.contains("1 need you") && o.contains("Resume where you left off") && o.contains("New shell here"));
         // Small windows keep it all.
         let o = draw(&mut app, 100, 30);
-        assert!(!o.contains("⣿") && o.contains("New session"));
+        assert!(!o.contains("⣿") && o.contains("New shell here"));
     }
 
     #[test]
@@ -1752,7 +1752,7 @@ mod settings_splash_tests {
             println!("{splash}\n{settings}\n{keys}");
         }
         assert!(splash.contains("███████") && splash.contains("every session, one calm place"));
-        assert!(splash.contains("Resume where you left off") && splash.contains("New session") && !splash.contains("Open a folder"));
+        assert!(splash.contains("Resume where you left off") && splash.contains("New shell here") && !splash.contains("Open a folder"));
         for page in ["General", "Sessions", "Appearance", "Agents", "Keys"] {
             assert!(settings.contains(page), "page {page}");
         }

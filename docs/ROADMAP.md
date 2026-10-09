@@ -87,7 +87,7 @@ Everything below is shipped on `dev` unless marked.
 - Panes: tabs as pills (named in their pill), any number of splits (grid for 3+), zoom, drag the gap between them, ✕ in the border — shipped — `src/client/hydra/screen.rs` `draw_session`
 - Inbox (what needs you first, type to go anywhere), command palette (plain-word commands), key map (searchable, second steps), actions list — shipped — `draw_goto`, `draw_palette`, `src/client/hydra/leader.rs`
 - Right-click menus, confirm before closing, toasts — shipped — `src/client/menu.rs`
-- Splash: Resume / New / Open a folder — shipped — `draw_splash`
+- Splash: Resume / New shell here — shipped — `draw_splash`
 - Settings popup grouped by section, key rebinding, themes with contrast audit — shipped — `draw_settings`, `src/theme.rs`
 - Leader keys from the floating design's key map, armed pill in sky — done, unreleased — `src/keys.rs` `DEFAULT_PREFIX_KEYS`, ADR-0006
 - Copy on select with toast, copy mode, Ctrl+click paths, paste images — shipped — `src/client/copy.rs`, `src/client/pick.rs`

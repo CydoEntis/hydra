@@ -24,7 +24,7 @@ pub(in crate::client) fn splash_options(app: &App) -> Vec<(String, String, char)
         let n = app.snap.terms.len();
         v.push((format!("Resume where you left off  ·  {n} running"), "r".to_string(), 'r'));
     }
-    v.push(("New session".to_string(), "n".to_string(), 'n'));
+    v.push(("New shell here".to_string(), "n".to_string(), 'n'));
     v
 }
 
