@@ -1273,17 +1273,34 @@ mod hydra_tests {
     }
 
     #[test]
-    fn a_newer_hydra_has_an_update_button() {
+    fn a_newer_hydra_has_an_update_button_that_asks_first() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         let o = draw(&mut app, 160, 45);
-        assert!(!o.contains(" Update "), "no button without a newer version");
+        assert!(!o.contains("Update now"), "no button without a newer version");
         app.update_available = Some("9.9.9".into());
+        app.update_notes = vec!["Fixed: copying".into(), "New: an Update now button".into()];
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("9.9.9 is out") && o.contains(" Update "), "the button by the version");
-        // Not clicked here: that would download a release over the test program.
-        assert!(app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::Update)), "it can be clicked");
+        assert!(o.contains(&format!("hydra {}   Update now", env!("CARGO_PKG_VERSION"))), "the button by the version");
         assert!(app.palette_commands().contains(&Action::Update), "and it's in the palette");
+        // Clicking asks first: from this version to the new one, and what changed.
+        let at = app.hits.iter().find_map(|(r, h)| (*h == Hit::Hy(hydra::HyHit::Update)).then_some((r.x + 1, r.y))).expect("it can be clicked");
+        app.on_mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: at.0, row: at.1, modifiers: KeyModifiers::NONE });
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(matches!(&app.mode, Mode::Confirm(c) if c.act == menu::Act::Update), "a dialog, not an update");
+        assert!(o.contains(&format!("{} → 9.9.9", env!("CARGO_PKG_VERSION"))), "current → new");
+        assert!(o.contains("What's new") && o.contains("• Fixed: copying") && o.contains("• New: an Update now button"), "the change log");
+        assert!(o.contains("Update now u") && o.contains("Cancel"), "and the choice");
+        // Not confirmed here: that would download a release over the test program.
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.mode == Mode::Normal && !app.updating, "Cancel leaves it be");
+        // A narrow window (a slim sidebar) and a long version: the button still fits.
+        let (_, mut app) = super::design_tests::render_with(100, 30);
+        app.update_available = Some("10.12.10".into());
+        let o = draw(&mut app, 100, 30);
+        assert!(o.contains("Update now"), "the button fits a narrow window: {o}");
+        assert!(app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::Update)), "and can be clicked");
     }
 
     #[test]

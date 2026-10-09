@@ -39,6 +39,8 @@ pub enum Act {
     Dev(PathBuf, crate::protocol::DevAction),
     /// Roll a checkout back to a checkpoint (its folder, the commit).
     Checkpoint(PathBuf, String),
+    /// Download the newest hydra and restart into it.
+    Update,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -52,6 +54,8 @@ pub struct Confirm {
     pub detail: String,
     /// A plain line of explanation.
     pub note: String,
+    /// A short list under the note ("What's new"), or none.
+    pub list: Vec<String>,
     /// The button that does it, and its key ("Close", "Enter").
     pub yes: String,
     pub key: char,
@@ -59,6 +63,9 @@ pub struct Confirm {
     pub danger: bool,
     pub act: Act,
 }
+
+/// Items a confirm's list shows before "…and N more".
+const CONFIRM_LIST_MAX: usize = 8;
 
 /// A modal like everything else: what it's about, a line of explanation, the action
 /// (red when it destroys something) and Cancel.
@@ -69,21 +76,36 @@ pub(super) fn draw_confirm(app: &mut App, f: &mut ratatui::Frame, area: ratatui:
     use ratatui::style::{Modifier, Style};
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
-    let w = (c.what.chars().count() + c.detail.chars().count() + 12).max(c.note.chars().count() + 8).clamp(58, 90) as u16;
-    let r = panel(app, buf, area, w, 9, &c.title, &[], t);
+    let widest_item = c.list.iter().map(|l| l.chars().count() + 10).max().unwrap_or(0);
+    let w = (c.what.chars().count() + c.detail.chars().count() + 12).max(c.note.chars().count() + 8).max(widest_item).clamp(58, 90) as u16;
+    // The list (its heading, at most CONFIRM_LIST_MAX items and a "more" line), then a gap.
+    let shown = c.list.len().min(CONFIRM_LIST_MAX);
+    let more = c.list.len() - shown;
+    let list_h = if c.list.is_empty() { 0 } else { 2 + shown as u16 + u16::from(more > 0) };
+    let r = panel(app, buf, area, w, 9 + list_h, &c.title, &[], t);
     if !c.sub.is_empty() {
         put(buf, r.x + 3 + c.title.chars().count() as u16, r.y, &[seg(format!("  {}", c.sub), Style::default().bg(t.accent).fg(t.acc_ink))], r.right().saturating_sub(12));
     }
     let card = Style::default().bg(t.card);
     put(buf, r.x + 3, r.y + 2, &[seg(c.what.clone(), card.fg(t.strong).add_modifier(Modifier::BOLD)), seg(format!("   {}", c.detail), card.fg(t.muted))], r.right() - 2);
     put(buf, r.x + 3, r.y + 3, &[seg(c.note.clone(), card.fg(t.text))], r.right() - 2);
+    if !c.list.is_empty() {
+        put(buf, r.x + 3, r.y + 5, &[seg("What's new".to_string(), card.fg(t.muted).add_modifier(Modifier::BOLD))], r.right() - 2);
+        for (i, item) in c.list.iter().take(shown).enumerate() {
+            put(buf, r.x + 3, r.y + 6 + i as u16, &[seg("• ".to_string(), card.fg(t.accent)), seg(item.clone(), card.fg(t.text))], r.right() - 2);
+        }
+        if more > 0 {
+            put(buf, r.x + 5, r.y + 6 + shown as u16, &[seg(format!("…and {more} more"), card.fg(t.muted))], r.right() - 2);
+        }
+    }
+    let buttons_y = r.y + 6 + list_h;
     let key = if c.key == '\n' { "Enter".to_string() } else { c.key.to_string() };
     let (yb, yf) = if c.danger { (t.danger_fill(), t.ink_on(t.danger_fill())) } else { (t.accent, t.acc_ink) };
     let yes = vec![seg(format!(" {} ", c.yes), Style::default().bg(yb).fg(yf).add_modifier(Modifier::BOLD)), seg(format!("{key} "), Style::default().bg(yb).fg(yf).add_modifier(Modifier::BOLD))];
     let yw: u16 = yes.iter().map(|(x, _)| x.chars().count() as u16).sum();
-    let yr = Rect { x: r.x + 3, y: r.y + 6, width: yw, height: 1 };
+    let yr = Rect { x: r.x + 3, y: buttons_y, width: yw, height: 1 };
     put(buf, yr.x, yr.y, &yes, r.right());
-    let nr = Rect { x: yr.right() + 2, y: r.y + 6, width: 12, height: 1 };
+    let nr = Rect { x: yr.right() + 2, y: buttons_y, width: 12, height: 1 };
     let nb = if hovered(app, nr) { t.hov } else { t.btn };
     put(buf, nr.x, nr.y, &[seg(" Cancel ", Style::default().bg(nb).fg(t.strong).add_modifier(Modifier::BOLD)), seg("Esc ", Style::default().bg(nb).fg(t.accent).add_modifier(Modifier::BOLD))], r.right());
     hit(app, area, HyHit::ConfirmNo);
@@ -293,6 +315,7 @@ impl App {
                     what: name,
                     detail: path,
                     note: if running { "It's still working; the program running in it will stop.".into() } else { "The program running in it will stop.".into() },
+                    list: Vec::new(),
                     yes: "Close".into(),
                     key: '\n',
                     danger: true,
@@ -305,6 +328,7 @@ impl App {
                 what: format!("{} panes", ts.len()),
                 detail: String::new(),
                 note: "The programs running in them will stop.".into(),
+                list: Vec::new(),
                 yes: "Close".into(),
                 key: '\n',
                 danger: true,
@@ -316,6 +340,7 @@ impl App {
                 what: p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
                 detail: p.display().to_string(),
                 note: "git init, then what's there as the first commit. Agents then get worktrees.".into(),
+                list: Vec::new(),
                 yes: "Make it a git repo".into(),
                 key: 'g',
                 danger: false,
@@ -329,6 +354,7 @@ impl App {
                     what: p.name.clone(),
                     detail: format!("{n} pane{}", if n == 1 { "" } else { "s" }),
                     note: "Everything running in it stops; the folder stays where it is.".into(),
+                    list: Vec::new(),
                     yes: "Close".into(),
                     key: '\n',
                     danger: true,
@@ -363,6 +389,7 @@ impl App {
                 self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd: None });
             }
             Act::Checkpoint(top, commit) => self.restore_checkpoint(top, commit),
+            Act::Update => self.start_update(),
             Act::GitInit(dir) => {
                 self.notify("making it a git repo…".into(), false);
                 self.spawn_bg(move || {

@@ -1080,14 +1080,11 @@ pub(in crate::client) fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, m
     put(buf, r.right().saturating_sub(rw), r.y, &right, r.right());
     // Under the sidebar: which hydra this is, and an Update button when a newer one is out.
     if app.mode != Mode::Side {
-        let mut ver = vec![seg(format!("hydra {}", env!("CARGO_PKG_VERSION")), s.fg(t.muted))];
-        if let Some(v) = &app.update_available {
-            ver.push(seg(format!(" · {v} is out "), s.fg(t.accent)));
-        }
         let end = app.hy.crumb_x.max(r.x + 1).saturating_sub(1);
+        let ver = [seg(format!("hydra {}  ", env!("CARGO_PKG_VERSION")), s.fg(t.muted))];
         let x = put(buf, r.x + 2, r.y, &ver, end);
         if app.update_available.is_some() {
-            let label = if app.updating { " updating… " } else { " Update " };
+            let label = if app.updating { " updating… " } else { " Update now " };
             let w = label.width() as u16;
             if x + w <= end {
                 let br = Rect { x, y: r.y, width: w, height: 1 };

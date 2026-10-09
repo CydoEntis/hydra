@@ -126,10 +126,11 @@ another `hydra` comes first. No admin rights needed. `HYDRA_VERSION=v0.3.0` pick
 `HYDRA_INSTALL_DIR` a folder. If scripts are blocked (a locked-down work PC), download the archive
 for your machine from [Releases](https://github.com/CydoEntis/hydra/releases) and put `hydra` on your PATH.
 To update later: Hydra checks each time you open it (and every few hours while it stays
-open), and when a newer version is out an **Update** button
+open), and when a newer version is out an **Update now** button
 shows by the version at the bottom left of the footer (also "Update hydra" in the command
-palette). Click it: the new version downloads and the window restarts into it, with your
-sessions still running. From a shell it's `hydra update` (or `hydra update --check` to just
+palette). Click it to see your version, the new one and what changed; confirm, and the new
+version downloads and the window restarts into it, with your sessions still running. From a
+shell it's `hydra update` (or `hydra update --check` to just
 look). Turn the check off in Settings (Check for updates).
 
 Then run `hydra doctor` to check your setup. For the best look: a terminal with true colour and a

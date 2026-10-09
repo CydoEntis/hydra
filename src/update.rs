@@ -228,9 +228,56 @@ pub fn newer_release() -> Option<String> {
     is_newer(&tag).then(|| tag.trim_start_matches('v').to_string())
 }
 
+/// What changed since this build: the `- ` lines of every newer release's notes, newest
+/// release first. Empty when GitHub can't be reached. Slow (network): off the UI thread.
+pub fn changes_since_this() -> Vec<String> {
+    let path = format!("repos/{REPO}/releases?per_page={RELEASES_LOOKED_AT}");
+    let json = if gh_signed_in() {
+        crate::proc::run(Command::new("gh").args(["api", &path]))
+    } else {
+        let url = format!("https://api.github.com/{path}");
+        crate::proc::run(system_tool("curl").args(["-fsSL", "--max-time", "20", "-H", "Accept: application/vnd.github+json", &url]))
+    };
+    json.map(|j| changes_in(&j, env!("CARGO_PKG_VERSION"))).unwrap_or_default()
+}
+
+/// Enough releases to cover anyone a few versions behind.
+const RELEASES_LOOKED_AT: usize = 20;
+
+/// The notes' `- ` lines from the releases (GitHub's JSON) newer than `current`.
+fn changes_in(json: &str, current: &str) -> Vec<String> {
+    #[derive(serde::Deserialize)]
+    struct Release {
+        tag_name: String,
+        #[serde(default)]
+        body: Option<String>,
+        #[serde(default)]
+        draft: bool,
+    }
+    let Ok(releases) = serde_json::from_str::<Vec<Release>>(json) else { return Vec::new() };
+    let Some(mine) = version(current) else { return Vec::new() };
+    releases
+        .iter()
+        .filter(|r| !r.draft && version(&r.tag_name).is_some_and(|v| v > mine))
+        .flat_map(|r| r.body.as_deref().unwrap_or("").lines().filter_map(|l| l.trim().strip_prefix("- ")).map(str::to_string).collect::<Vec<_>>())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changes_are_the_note_lines_of_newer_releases() {
+        let json = r#"[
+            {"tag_name": "v0.12.9", "draft": false, "body": "- Fixed: copying\r\n- New: an Update now button\r\n\r\n**Full Changelog**: x"},
+            {"tag_name": "v0.12.8", "draft": false, "body": "- New: sidebar hints"},
+            {"tag_name": "v0.13.0", "draft": true, "body": "- not out yet"},
+            {"tag_name": "v0.12.7", "draft": false, "body": "- already have it"}
+        ]"#;
+        assert_eq!(changes_in(json, "0.12.7"), vec!["Fixed: copying", "New: an Update now button", "New: sidebar hints"]);
+        assert!(changes_in("not json", "0.12.7").is_empty());
+    }
 
     #[test]
     fn versions_compare_as_numbers() {

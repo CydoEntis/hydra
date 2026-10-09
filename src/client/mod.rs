@@ -321,6 +321,8 @@ enum PickTarget {
 pub struct App {
     /// A newer release, found when hydra opened or since (the Update button shows).
     update_available: Option<String>,
+    /// What changed in it (and any releases between), for the update dialog.
+    update_notes: Vec<String>,
     /// When hydra last asked whether a newer release is out.
     update_checked: Option<Instant>,
     /// An update is downloading.
@@ -496,6 +498,7 @@ impl App {
         let keymap = cfg.keymap();
         let mut app = App {
             update_available: None,
+            update_notes: Vec::new(),
             update_checked: None,
             updating: false,
             restart: None,
@@ -692,15 +695,38 @@ impl App {
         self.update_checked = Some(Instant::now());
         self.spawn_bg(|| {
             let newer = crate::update::newer_release();
+            // Only asked for when there is something new: one more request, now and then.
+            let notes = if newer.is_some() { crate::update::changes_since_this() } else { Vec::new() };
             Bg::Then(Box::new(move |app: &mut App| {
                 if let Some(v) = newer
                     && app.update_available.as_ref() != Some(&v)
                 {
-                    app.notify(format!("hydra {v} is out: click Update at the bottom left"), false);
+                    app.notify(format!("hydra {v} is out: click Update now at the bottom left"), false);
                     app.update_available = Some(v);
+                    app.update_notes = notes;
                 }
             }))
         });
+    }
+
+    /// Ask before updating: this version, the new one, and what changed.
+    fn ask_update(&mut self) {
+        if self.updating {
+            return;
+        }
+        let new = self.update_available.clone().unwrap_or_else(|| "the latest".into());
+        self.mode = Mode::Confirm(Box::new(menu::Confirm {
+            title: "Update hydra".into(),
+            sub: String::new(),
+            what: format!("{} → {new}", env!("CARGO_PKG_VERSION")),
+            detail: String::new(),
+            note: "Your sessions keep running; this window restarts into the new version.".into(),
+            list: self.update_notes.clone(),
+            yes: "Update now".into(),
+            key: 'u',
+            danger: false,
+            act: menu::Act::Update,
+        }));
     }
 
     fn cmd(&self, c: Command) {

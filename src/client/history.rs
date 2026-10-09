@@ -93,6 +93,7 @@ impl App {
                         what: truncate(&cp.what, 50),
                         detail: format!("{} ago", age(cp.at)),
                         note: "Its files go back to how they were then. What's there now is kept as a checkpoint.".into(),
+                        list: Vec::new(),
                         yes: "Go back".into(),
                         key: '\n',
                         danger: true,

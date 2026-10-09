@@ -134,7 +134,7 @@ impl App {
             Action::KillServer => {
                 self.mode = Mode::Prompt { kind: PromptKind::ConfirmKillServer, input: String::new() };
             }
-            Action::Update => self.start_update(),
+            Action::Update => self.ask_update(),
             Action::None => {}
             // The rest are handled by hy_act above.
             _ => {}
@@ -390,6 +390,7 @@ impl App {
                 what: format!("{} isn't a git repository yet.", dir.display()),
                 detail: String::new(),
                 note: "Git lets you review and undo what agents change here.".into(),
+                list: Vec::new(),
                 yes: "Make it a git repo".into(),
                 key: 'g',
                 danger: false,
