@@ -12,7 +12,7 @@ which ones need you, jump to them, and keep them running when you leave. See
 ## Now
 
 Active phase: **7 — test-week feedback** (collecting: the user runs Seshi for a week)
-Next unblocked: none (the rest is on hold)
+Next: **8**, once its designs are in (`docs/design-brief-v4.md`)
 
 ## Phases
 
@@ -62,6 +62,15 @@ Next, in order:
 
 On hold (2026-10-05, the user's call): #31 package managers (AUR name and account to decide),
 #23 more machines, #27 graphics, #29 extras, #30 web terminal and SSH server mode.
+
+### 8 — Back, and new: the agent loop from task to merged · waiting on designs
+
+Chosen 2026-10-09. Designs first: `docs/design-brief-v4.md` goes to the designer; nothing here is
+built before its design is in. Coming back (cut the same day, wanted after all): quick follow-up,
+tickets (GitHub, Linear, Plane), the queue, pull requests and Ship, dev server per worktree,
+checkpoints (off by default), SSH remotes, config sync. New, in this order: two agents touching
+the same files, review and merge from the Inbox, why this status, today on the splash, alerts on
+your phone (ntfy, off by default).
 
 ## In scope
 
@@ -115,7 +124,7 @@ Everything below is shipped on `dev` unless marked.
 
 ## Out
 
-- Features cut 2026-10-09 (the user's call: they repeated something else or weren't used): talk / reply / answer, open project, go to, next agent that needs you, arrange panes, undo automatic workspace, quick prompt, the map, ideas, races, the queue, run a preset (presets stay in the new-agent dialog), memory per session, checkpoints, past chats, agent tools, tickets (GitHub, Linear, Plane); then SSH remotes (`--remote`), extensions, config sync, the dev-server runner, the pull-request view and Ship, and the tmux stand-in for Claude agent teams. Bringing one back needs a new decision.
+- Features cut 2026-10-09 (the user's call: they repeated something else or weren't used): open project, go to, next agent that needs you, arrange panes, undo automatic workspace, the map, ideas, races, run a preset as a list (presets stay in the new-agent dialog), memory per session, past chats, agent tools, extensions, and the tmux stand-in for Claude agent teams. Bringing one back needs a new decision. (Talk / reply / answer, the quick prompt, tickets, the queue, checkpoints, SSH remotes, config sync, the dev-server runner and the pull-request view with Ship were cut the same day and are coming back in phase 8, redesigned.)
 - Other UI layouts (workspaces, tree, dock, sidebar) — declined 2026-10-03: one layout to build and test (ADR-0004, now ADR-0007: floating and tiled are styles of it). Bringing them back needs a new decision.
 
 ## Later
