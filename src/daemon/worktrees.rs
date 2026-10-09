@@ -240,7 +240,6 @@ impl Daemon {
 
     /// Run a worktree hook in the background and say how it went.
     pub(super) fn worktree_hook(&self, dir: &std::path::Path, create: bool) {
-        self.ext_event(if create { "worktree_create" } else { "worktree_remove" }, Some(dir), None);
         if let Some(job) = self.hook_job(dir, create) {
             let tx = self.tx.clone();
             tokio::task::spawn_blocking(move || {

@@ -118,61 +118,7 @@ impl App {
 
 
 
-    /// Run an extension's command about the worktree you're in: hidden (its last line is
-    /// shown), or in a pane beside.
-    pub(super) fn run_ext(&mut self, ei: usize, ci: usize) {
-        let Some(e) = self.exts.get(ei).cloned() else { return };
-        let Some(c) = e.commands.get(ci).cloned() else { return };
-        let term = self.focused();
-        let info = term.and_then(|t| self.snap.terms.get(&t)).cloned();
-        let dir = info.as_ref().map(|t| t.top.clone().unwrap_or_else(|| t.cwd.clone())).unwrap_or_else(|| self.here_dir());
-        if c.background {
-            let shell = self.cfg.shell_command();
-            self.notify(format!("{}…", c.title), false);
-            self.spawn_bg(move || {
-                let vars = crate::ext::vars("command", &dir, info.as_ref());
-                Bg::ExtDone(crate::ext::run(&shell, &e, &dir, &c.run, &vars))
-            });
-        } else {
-            let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "seshi".into());
-            let t = term.map(|t| format!(" --term {t}")).unwrap_or_default();
-            let cmd = format!("{} ext run {} {ci}{t}", self.cfg.quote_for_shell(&exe), self.cfg.quote_for_shell(&e.name));
-            let cmd = if self.cfg.shell_command()[0].to_lowercase().contains("powershell") || self.cfg.shell_command()[0].to_lowercase().contains("pwsh") { format!("& {cmd}") } else { cmd };
-            self.hy_new_session(dir, Some(cmd), true);
-        }
-    }
 
-    /// Ask extensions for their worktree labels when they're due.
-    pub(super) fn refresh_ext_labels(&mut self, worktrees: Vec<(String, PathBuf)>) {
-        if self.exts.iter().all(|e| e.labels.is_empty()) {
-            return;
-        }
-        let mut n = 0;
-        for (ei, e) in self.exts.clone().into_iter().enumerate() {
-            for (li, l) in e.labels.iter().enumerate() {
-                let slot = ei * 100 + li;
-                for (key, path) in &worktrees {
-                    let due = self.ext_labels.get(&(key.clone(), slot)).is_none_or(|(_, at)| at.elapsed().as_secs() >= l.every.max(5));
-                    if !due {
-                        continue;
-                    }
-                    let old = self.ext_labels.get(&(key.clone(), slot)).map(|x| x.0.clone()).unwrap_or_default();
-                    self.ext_labels.insert((key.clone(), slot), (old, Instant::now()));
-                    let (shell, e, l, key, path) = (self.cfg.shell_command(), e.clone(), l.clone(), key.clone(), path.clone());
-                    self.spawn_bg(move || {
-                        let vars = crate::ext::vars("label", &path, None);
-                        let text = crate::ext::run(&shell, &e, &path, &l.run, &vars).map(|o| o.lines().next().unwrap_or("").trim().chars().take(24).collect()).unwrap_or_default();
-                        Bg::ExtLabel(key, slot, text)
-                    });
-                    n += 1;
-                    // A few at a time.
-                    if n >= 8 {
-                        return;
-                    }
-                }
-            }
-        }
-    }
 
     pub(super) fn reload_config(&mut self) {
         match Config::load() {
@@ -480,15 +426,6 @@ impl App {
     pub(super) fn pick_items(&self, query: &str, commands: bool) -> Vec<PickItem> {
         let q = query.to_lowercase();
         let command_items: Vec<PickItem> = if commands {
-            let ext = self.exts.iter().enumerate().flat_map(|(ei, e)| {
-                e.commands.iter().enumerate().map(move |(ci, c)| PickItem {
-                    label: c.title.clone(),
-                    detail: format!("extension · {}", e.name),
-                    status: Status::None,
-                    key: String::new(),
-                    target: PickTarget::Ext(ei, ci),
-                })
-            });
             self.palette_commands()
                 .into_iter()
                 .map(|a| PickItem {
@@ -498,7 +435,6 @@ impl App {
                     key: self.key_for(&a),
                     target: PickTarget::Command(a),
                 })
-                .chain(ext)
                 .collect()
         } else {
             Vec::new()

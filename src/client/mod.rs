@@ -134,9 +134,6 @@ pub(super) enum Bg {
     /// One pull request (by number or branch), and its diff.
     Pr(String, Result<pr::PrInfo, String>),
     PrDiff(String, Result<String, String>),
-    /// An extension's label for a worktree, or a background command's result.
-    ExtLabel(String, usize, String),
-    ExtDone(Result<String, String>),
     /// Every file under a folder (Find).
     FindFiles(PathBuf, Vec<String>),
     /// A checkout's branches: (folder, current, branches, files with changes).
@@ -286,8 +283,6 @@ enum PickTarget {
     Workspace(WsId),
     Pane(TermId),
     Command(Action),
-    /// An extension's command: (extension, command).
-    Ext(usize, usize),
 }
 
 pub struct App {
@@ -310,12 +305,8 @@ pub struct App {
     /// What happened lately, newest last: (unix secs, pane, kind, text). Kinds: '!' needs
     /// you, '✓' finished, '♪' bell, 'i' a message, 'x' an error.
     pub(super) history: std::collections::VecDeque<(u64, Option<TermId>, char, String)>,
-    /// Extensions, and the labels they put on worktree rows: (worktree key, label n) ->
-    /// (text, when it was asked for).
-    pub(super) exts: Vec<crate::ext::Ext>,
     /// When the right button last went down (menus open on press or release, once).
     right_down: Option<Instant>,
-    pub(super) ext_labels: HashMap<(String, usize), (String, Instant)>,
     snap: Snapshot,
     got_state: bool,
     parsers: HashMap<TermId, vt100::Parser>,
@@ -497,8 +488,6 @@ impl App {
             notice: None,
             notice_term: None,
             history: Default::default(),
-            exts: if cfg!(test) { Vec::new() } else { crate::ext::load_all().0 },
-            ext_labels: HashMap::new(),
             right_down: None,
             snap: Snapshot::default(),
             got_state: false,

@@ -3,7 +3,6 @@ mod cli;
 mod clock;
 mod client;
 mod config;
-mod ext;
 mod daemon;
 mod gitfs;
 mod ipc;
@@ -210,19 +209,6 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<String>,
     },
-    /// Extensions: `seshi ext list`, `seshi ext new <name>`.
-    Ext {
-        /// list | new | run
-        #[arg(default_value = "list")]
-        action: String,
-        /// The extension's name (new, run).
-        name: Option<String>,
-        /// The command's number (run).
-        index: Option<usize>,
-        /// The pane it's about (run).
-        #[arg(long)]
-        term: Option<protocol::TermId>,
-    },
     /// Start, stop or restart this worktree's dev server (from `.seshi.toml`).
     Dev {
         /// start | stop | restart
@@ -318,7 +304,6 @@ fn main() {
         Some(Cmd::Update { check, force }) => update::run(check, force),
         Some(Cmd::Allow { dir }) => cli::allow(dir),
         Some(Cmd::Proxy) => cli::block_on(ipc::proxy()),
-        Some(Cmd::Ext { action, name, index, term }) => cli::ext(&action, name, index, term),
         Some(Cmd::DebugColors { pane }) => cli::debug_colors(pane),
         Some(Cmd::TestAlert) => {
             let (cfg, _) = config::Config::load_or_default();

@@ -205,7 +205,6 @@ impl Daemon {
         t.status_since = term::unix_now();
         self.dirty = true;
         if matches!(new, Status::Blocked | Status::Done) {
-            self.ext_event(if new == Status::Blocked { "needs_you" } else { "agent_done" }, None, Some(term));
             self.broadcast(|c| c.attach, ServerMsg::Attention { term, status: new });
             // No window open: the server tells you itself.
             if !self.has_viewer()

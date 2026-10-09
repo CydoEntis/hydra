@@ -153,8 +153,6 @@ struct Daemon {
     spent: Vec<(u64, f64)>,
     codex_busy: bool,
     last_codex: Instant,
-    /// Extensions (their hooks run here).
-    exts: Vec<crate::ext::Ext>,
     /// Extra environment for the next pane spawned (a dev server's PORT).
     next_env: Vec<(String, String)>,
     /// The next pane runs its command once and ends with it (a popup).
@@ -408,8 +406,6 @@ impl Daemon {
             last_codex: Instant::now() - Duration::from_secs(3600),
             next_env: Vec::new(),
             next_once: false,
-            // Tests don't load the user's extensions.
-            exts: if cfg!(test) { Vec::new() } else { crate::ext::load_all().0 },
             spare: None,
             spare_making: false,
             adopt: None,
@@ -681,9 +677,6 @@ impl Daemon {
                         self.dirty = true;
                     }
                 }
-                for term in &started {
-                    self.ext_event("agent_start", None, Some(*term));
-                }
                 if self.cfg.auto_workspace {
                     for term in started {
                         self.auto_workspace(term);
@@ -934,32 +927,7 @@ impl Daemon {
         ws.tab().map(|t| t.focus)
     }
 
-    /// Run every extension's hook for `event` (in the background, quietly; failures are
-    /// logged).
-    fn ext_event(&self, event: &str, dir: Option<&std::path::Path>, term: Option<TermId>) {
-        let jobs: Vec<(crate::ext::Ext, String)> =
-            self.exts.iter().filter(|e| !e.hooks.get(event).trim().is_empty()).map(|e| (e.clone(), e.hooks.get(event).to_string())).collect();
-        if jobs.is_empty() {
-            return;
-        }
-        let info = term.and_then(|t| self.snapshot_term(t));
-        let dir = dir.map(|d| d.to_path_buf()).or_else(|| term.and_then(|t| self.terms.get(&t)).map(|t| t.head.as_ref().map(|h| h.top.clone()).unwrap_or_else(|| t.cwd.clone()))).unwrap_or_else(home);
-        let shell = self.cfg.shell_command();
-        let event = event.to_string();
-        tokio::task::spawn_blocking(move || {
-            let vars = crate::ext::vars(&event, &dir, info.as_ref());
-            for (e, cmd) in jobs {
-                if let Err(err) = crate::ext::run(&shell, &e, &dir, &cmd, &vars) {
-                    tracing::warn!("extension {} on {event}: {err}", e.name);
-                }
-            }
-        });
-    }
 
-    /// One pane as clients see it.
-    fn snapshot_term(&self, term: TermId) -> Option<TermInfo> {
-        self.snapshot().terms.get(&term).cloned()
-    }
 
     fn snapshot(&self) -> Snapshot {
         let terms: BTreeMap<TermId, TermInfo> = self

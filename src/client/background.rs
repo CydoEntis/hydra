@@ -240,24 +240,6 @@ impl App {
                 self.dirty = true;
                 return;
             }
-            Bg::ExtLabel(key, i, text) => {
-                if let Some(l) = self.ext_labels.get_mut(&(key, i)) {
-                    l.0 = text;
-                }
-                self.hy_fresh();
-                self.dirty = true;
-                return;
-            }
-            Bg::ExtDone(r) => {
-                match r {
-                    Ok(out) => {
-                        let last = out.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("done").trim().to_string();
-                        self.notify(last, false);
-                    }
-                    Err(e) => self.notify(e, true),
-                }
-                return;
-            }
             Bg::FindFiles(dir, list) => {
                 if let Mode::Find(v) = &mut self.mode
                     && v.dir == dir

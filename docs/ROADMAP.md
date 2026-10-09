@@ -107,7 +107,6 @@ Everything below is shipped on `dev` unless marked.
 - Seshi Night (default) and Seshi Day themes; block SESHI wordmark on the splash — done, unreleased — `src/theme.rs`, `src/client/hydra/splash.rs`
 
 **Extras**
-- Extensions (manifest, commands, hooks) — shipped — `src/ext.rs`
 - Desktop alerts and sounds, notification history — shipped — `src/alert.rs`
 - Click a notification to jump to its session — shipped — `src/reveal.rs`, `src/alert.rs` (#19)
 - Sidebar groups sessions by where they work now (repo, or folder outside git); no projects to open; splits stay with their session — shipped — `src/client/hydra/mod.rs`

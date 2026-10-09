@@ -786,10 +786,6 @@ impl App {
             self.hy.proj = focus.and_then(proj_of).or_else(|| model.first().map(|p| p.key.clone()));
         }
         self.recipe_followup();
-        if !cfg!(test) {
-            let wts: Vec<(String, PathBuf)> = model.iter().flat_map(|p| p.wts.iter().map(|w| (w.key.clone(), w.path.clone()))).collect();
-            self.refresh_ext_labels(wts);
-        }
         // Your pull requests, every two minutes per repo.
         if !cfg!(test) {
             for p in model.iter().filter(|p| p.git) {

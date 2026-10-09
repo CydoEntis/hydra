@@ -212,7 +212,6 @@ impl App {
                                 PickTarget::Workspace(ws) => self.cmd(Command::SelectWorkspace { ws }),
                                 PickTarget::Pane(term) => self.cmd(Command::FocusPane { term }),
                                 PickTarget::Command(a) => self.act(a),
-                                PickTarget::Ext(e, c) => self.run_ext(e, c),
                             }
                         }
                         return;

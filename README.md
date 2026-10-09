@@ -447,7 +447,6 @@ seshi send -p 3 --wait "fix the bug"   # waits for the turn to end, prints the a
 seshi wait -p 3 [--regex "passed"]     # the turn ending, or text on the screen (exit 2: timeout)
 seshi worktree --move [name]           # run by an agent: move itself into a new worktree
 seshi dev start|stop|restart           # this worktree's dev server (from .seshi.toml)
-seshi ext list | new <name>            # extensions
 seshi doctor                           # check everything seshi relies on
 seshi --remote me@box                  # the UI here, agents on another machine (any command)
 ```
@@ -492,14 +491,6 @@ on_remove = ""
 Hooks don't run until you allow them: run `seshi allow` in the repo (it shows the
 commands). If they change, they wait for `seshi allow` again, so a cloned repo can't run
 code on its own. A hook is stopped after 10 minutes.
-
-## Extensions
-
-`seshi ext new deploy` makes `<config>/extensions/deploy/seshi-ext.toml`: `[[commands]]` show in
-the palette (hidden with their last line shown, or in a pane), `[[labels]]` put a short line on
-every worktree row, and `[hooks]` run on agent start, agent done, needs you, worktree create
-and remove, with `SESHI_EVENT`, `SESHI_WORKTREE`, `SESHI_BRANCH`, `SESHI_AGENT`, `SESHI_SAID` and
-more set. `./` in a command is the extension's folder.
 
 ## Remote
 

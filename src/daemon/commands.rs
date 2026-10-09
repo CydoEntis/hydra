@@ -341,7 +341,6 @@ impl Daemon {
                 let tx = self.tx.clone();
                 self.pending_ops += 1;
                 let hook = self.hook_job(&head.top, false);
-                self.ext_event("worktree_remove", Some(&head.top), None);
                 let top = head.top;
                 tokio::task::spawn_blocking(move || {
                     if let Some(h) = hook {
@@ -367,7 +366,6 @@ impl Daemon {
                 let tx = self.tx.clone();
                 self.pending_ops += 1;
                 let hook = self.hook_job(&path, false);
-                self.ext_event("worktree_remove", Some(&path), None);
                 tokio::task::spawn_blocking(move || {
                     if let Some(h) = hook {
                         let _ = h();
@@ -482,7 +480,6 @@ impl Daemon {
                 self.terms.get_mut(&term).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?.grants = grants;
             }
             Command::ReloadConfig => {
-                self.exts = crate::ext::load_all().0;
                 self.cfg = Config::load()?;
                 self.agents = self.cfg.agent_defs();
                 let mut s = self.scan.lock().unwrap();
