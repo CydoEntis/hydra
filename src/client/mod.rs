@@ -10,6 +10,7 @@ mod branch;
 mod hydra;
 mod menu;
 mod modal;
+mod overlap;
 mod pick;
 mod recipes;
 mod render;
@@ -117,6 +118,8 @@ pub(super) enum Bg {
     Done(Result<String, String>, bool),
     /// A worktree's branch merged (or not): then the worktree and its branch go.
     Merged(Result<String, String>, PathBuf),
+    /// Files more than one checkout of a repo changed (by the repo's folder).
+    Overlaps(PathBuf, Vec<overlap::Overlap>),
     /// Pulled a shared setup from another machine.
     Synced(bool),
     /// Every file under a folder (Find).

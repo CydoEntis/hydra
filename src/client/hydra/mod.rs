@@ -118,6 +118,10 @@ pub(super) struct Hy {
     pub model_cache: std::cell::RefCell<Option<Vec<Proj>>>,
     /// A recipe's worktree being made: (branch, the commands to start there, since).
     pub pending_recipe: Option<(String, Vec<String>, Instant)>,
+    /// Files changed in more than one checkout, per repo folder, and when each repo was
+    /// last looked at.
+    pub overlaps: HashMap<PathBuf, Vec<crate::client::overlap::Overlap>>,
+    pub overlap_at: HashMap<PathBuf, Instant>,
     /// Dragging the sidebar edge or the split divider.
     pub drag: Option<Drag>,
     /// The group being dragged in the sidebar (its key).
@@ -773,8 +777,40 @@ impl App {
             self.hy.proj = focus.and_then(proj_of).or_else(|| model.first().map(|p| p.key.clone()));
         }
         self.recipe_followup();
+        if !cfg!(test) {
+            self.check_overlaps(&model);
+        }
+    }
+
+    /// Once a minute per repo with two or more checkouts in use: which files more than one
+    /// of them changed (off the UI thread; the answer comes back as `Bg::Overlaps`).
+    fn check_overlaps(&mut self, model: &[Proj]) {
+        let mut repos: HashMap<PathBuf, Vec<Wt>> = HashMap::new();
+        for p in model.iter().filter(|p| p.git) {
+            repos.entry(p.path.clone()).or_default().extend(p.wts.iter().filter(|w| !w.sessions.is_empty()).cloned());
+        }
+        for (repo, mut wts) in repos {
+            wts.sort_by(|a, b| a.path.cmp(&b.path));
+            wts.dedup_by(|a, b| a.path == b.path);
+            if wts.len() < 2 || self.hy.overlap_at.get(&repo).is_some_and(|t| t.elapsed() < OVERLAP_EVERY) {
+                continue;
+            }
+            self.hy.overlap_at.insert(repo.clone(), Instant::now());
+            let base = crate::gitfs::main_branch(&repo);
+            let tx = self.bg.clone();
+            std::thread::spawn(move || {
+                let changes: Vec<(String, Vec<String>)> = wts
+                    .iter()
+                    .map(|w| (w.name.clone(), crate::client::overlap::changed_files(&w.path, if w.main { None } else { base.as_deref() })))
+                    .collect();
+                let _ = tx.send(super::Bg::Overlaps(repo, crate::client::overlap::find(&changes)));
+            });
+        }
     }
 }
+
+/// How often a repo's checkouts are compared for files changed in more than one.
+const OVERLAP_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// What to call a session: its name if renamed, else the agent's last prompt, else where a
 /// shell is (inside its worktree), else the program.

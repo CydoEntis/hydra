@@ -348,6 +348,15 @@ impl App {
                     v.refresh_preview();
                 }
             }
+            (Bg::Overlaps(repo, found), _) => {
+                // Say each overlap once, when it first shows up.
+                let seen = self.hy.overlaps.get(&repo).cloned().unwrap_or_default();
+                let new: Vec<_> = found.iter().filter(|o| !seen.contains(o)).cloned().collect();
+                if let Some(msg) = super::overlap::say(&new) {
+                    self.notify(msg, false);
+                }
+                self.hy.overlaps.insert(repo, found);
+            }
             (Bg::Merged(result, dir), _) => match result {
                 Ok(msg) => {
                     self.notify(format!("{msg}; closing its sessions and removing the worktree and branch"), false);
