@@ -72,6 +72,11 @@ pub(in crate::client) fn draw_splash(app: &mut App, f: &mut Frame, area: Rect, t
     if !app.snap.terms.is_empty() {
         put(buf, center(segs_width(&away)), y, &away, area.right());
     }
+    // The last day, summed (each agent's own row waits for the v4 design).
+    if let Some(line) = today_line(&app.snap.today, app.snap.spent_today) {
+        let segs = vec![seg("today   ", Style::default().fg(t.muted)), seg(line, Style::default().fg(t.text))];
+        put(buf, center(segs_width(&segs)), y + 1, &segs, area.right());
+    }
     y += 3;
     let last = app.focused().and_then(|fo| find(&model, fo)).map(|(p, w, s)| (p.name.clone(), p.color, w.name.clone(), s.title.clone()));
     // A short list, one under the other: Resume (when there's something to go back to),
@@ -114,4 +119,37 @@ pub(in crate::client) fn draw_splash(app: &mut App, f: &mut Frame, area: Rect, t
     let rw = segs_width(&rr);
     put(buf, area.right().saturating_sub(rw), sy, &rr, area.right());
     hit(app, Rect { x: area.right().saturating_sub(rw), y: sy, width: rw, height: 1 }, HyHit::SplashKey('?'));
+}
+
+/// "12 turns · 2h 10m working · $3.40" over the last day; None when nothing happened.
+pub(in crate::client) fn today_line(day: &[crate::protocol::AgentDay], spent: f64) -> Option<String> {
+    let turns: u32 = day.iter().map(|d| d.turns).sum();
+    let secs: u64 = day.iter().map(|d| d.working_secs).sum();
+    if turns == 0 && spent < 0.01 {
+        return None;
+    }
+    let working = match secs {
+        0..=59 => format!("{secs}s"),
+        60..=3599 => format!("{}m", secs / 60),
+        _ => format!("{}h {}m", secs / 3600, secs % 3600 / 60),
+    };
+    let mut line = format!("{turns} turn{} · {working} working", if turns == 1 { "" } else { "s" });
+    if spent >= 0.01 {
+        line.push_str(&format!(" · ${spent:.2}"));
+    }
+    Some(line)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::today_line;
+    use crate::protocol::AgentDay;
+
+    #[test]
+    fn the_day_in_one_line() {
+        let d = |turns, working_secs| AgentDay { agent: "claude".into(), place: "shop".into(), turns, working_secs, cost: 0.0 };
+        assert_eq!(today_line(&[d(9, 5400), d(3, 2400)], 3.4).as_deref(), Some("12 turns · 2h 10m working · $3.40"));
+        assert_eq!(today_line(&[d(1, 90)], 0.0).as_deref(), Some("1 turn · 1m working"));
+        assert_eq!(today_line(&[], 0.0), None, "nothing happened: no line");
+    }
 }

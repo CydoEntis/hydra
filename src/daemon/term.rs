@@ -406,6 +406,12 @@ fn argv(cfg: &Config, cmd: Option<&str>, once: bool) -> Vec<String> {
 }
 
 impl Term {
+    /// The folder it works in, by name: its checkout's, else where its shell is.
+    pub fn place(&self) -> String {
+        let dir = self.head.as_ref().map(|h| h.top.clone()).unwrap_or_else(|| self.cwd.clone());
+        dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+    }
+
     pub fn spawn(cfg: &Config, spec: SpawnSpec, tx: mpsc::Sender<Ev>) -> Result<Term> {
         let token = new_secret()?;
         let pty = native_pty_system();

@@ -34,18 +34,19 @@ impl Daemon {
     /// Claude's status line said what this pane's session has used.
     pub(super) fn report_usage(&mut self, term: TermId, usage: Usage, limits: Vec<Limit>) {
         let Some(t) = self.terms.get_mut(&term) else { return };
+        let agent = t.agent.clone().unwrap_or_else(|| "claude".into());
+        let place = t.place();
         if let Some(cost) = usage.cost {
             let before = t.usage.cost.unwrap_or(0.0);
             // Lower than before: a new session (/clear) counting from zero.
             let added = if cost >= before { cost - before } else { cost };
             if added > 0.0 {
                 let now = term::unix_now();
-                self.spent.retain(|(at, _)| now.saturating_sub(*at) < DAY);
-                self.spent.push((now, added));
+                self.spent.retain(|(at, ..)| now.saturating_sub(*at) < DAY);
+                self.spent.push((now, added, agent.clone(), place));
                 self.dirty = true;
             }
         }
-        let agent = t.agent.clone().unwrap_or_else(|| "claude".into());
         if t.usage != usage {
             t.usage = usage;
             self.dirty = true;
@@ -59,7 +60,14 @@ impl Daemon {
     /// What sessions in seshi have cost over the last day.
     pub(super) fn spent_today(&self) -> f64 {
         let now = term::unix_now();
-        self.spent.iter().filter(|(at, _)| now.saturating_sub(*at) < DAY).map(|(_, c)| c).sum()
+        self.spent.iter().filter(|(at, ..)| now.saturating_sub(*at) < DAY).map(|(_, c, ..)| c).sum()
+    }
+
+    /// A turn ended: note it, and how long the agent worked, for the day's summary.
+    pub(super) fn note_turn(&mut self, agent: String, place: String, secs: u64) {
+        let now = term::unix_now();
+        self.turns.retain(|(at, ..)| now.saturating_sub(*at) < DAY);
+        self.turns.push((now, agent, place, secs));
     }
 
     /// Codex writes its numbers to its session file: read them now and then, off the loop.
@@ -233,9 +241,58 @@ pub(super) fn codex_facts(tail: &str) -> (Option<Usage>, Option<Vec<Limit>>) {
     (usage, (!limits.is_empty()).then_some(limits))
 }
 
+/// The last day by agent and folder: turns, time working and cost, most work first.
+pub(super) fn today(turns: &[(u64, String, String, u64)], spent: &[(u64, f64, String, String)], now: u64) -> Vec<crate::protocol::AgentDay> {
+    use crate::protocol::AgentDay;
+    let mut rows: Vec<AgentDay> = Vec::new();
+    let mut row = |agent: &str, place: &str| -> usize {
+        match rows.iter().position(|r| r.agent == agent && r.place == place) {
+            Some(i) => i,
+            None => {
+                rows.push(AgentDay { agent: agent.to_string(), place: place.to_string(), ..Default::default() });
+                rows.len() - 1
+            }
+        }
+    };
+    let mut turns_by: Vec<(usize, u64)> = Vec::new();
+    for (_, agent, place, secs) in turns.iter().filter(|(at, ..)| now.saturating_sub(*at) < DAY) {
+        turns_by.push((row(agent, place), *secs));
+    }
+    let mut cost_by: Vec<(usize, f64)> = Vec::new();
+    for (_, cost, agent, place) in spent.iter().filter(|(at, ..)| now.saturating_sub(*at) < DAY) {
+        cost_by.push((row(agent, place), *cost));
+    }
+    for (i, secs) in turns_by {
+        rows[i].turns += 1;
+        rows[i].working_secs += secs;
+    }
+    for (i, cost) in cost_by {
+        rows[i].cost += cost;
+    }
+    rows.sort_by(|a, b| b.working_secs.cmp(&a.working_secs).then_with(|| a.agent.cmp(&b.agent)));
+    rows
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_day_sums_turns_time_and_cost_per_agent_and_folder() {
+        let now = 100_000;
+        let turns = vec![
+            (now - 60, "claude".to_string(), "shop".to_string(), 300),
+            (now - 30, "claude".to_string(), "shop".to_string(), 120),
+            (now - 10, "codex".to_string(), "api".to_string(), 60),
+            (now - DAY - 1, "claude".to_string(), "shop".to_string(), 9_999),
+        ];
+        let spent = vec![(now - 5, 1.25, "claude".to_string(), "shop".to_string()), (now - 4, 0.5, "gemini".to_string(), "web".to_string())];
+        let day = today(&turns, &spent, now);
+        assert_eq!((day[0].agent.as_str(), day[0].place.as_str(), day[0].turns, day[0].working_secs), ("claude", "shop", 2, 420), "most work first; older than a day left out");
+        assert!((day[0].cost - 1.25).abs() < 1e-9);
+        assert_eq!((day[1].agent.as_str(), day[1].turns), ("codex", 1));
+        assert_eq!((day[2].agent.as_str(), day[2].turns, day[2].working_secs), ("gemini", 0, 0), "cost without a turn still counts");
+    }
 
     #[test]
     fn codex_numbers_come_from_its_session_file() {

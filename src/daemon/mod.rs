@@ -150,7 +150,10 @@ struct Daemon {
     /// Plan limits by agent, as last reported.
     limits: BTreeMap<String, Vec<Limit>>,
     /// What sessions cost, as it was reported (when, US dollars), over the last day.
-    spent: Vec<(u64, f64)>,
+    /// Costs reported over the last day: (when, cost, agent, folder).
+    spent: Vec<(u64, f64, String, String)>,
+    /// Turns agents finished over the last day: (when, agent, folder, seconds working).
+    turns: Vec<(u64, String, String, u64)>,
     codex_busy: bool,
     last_codex: Instant,
     /// The next pane runs its command once and ends with it (a popup).
@@ -399,6 +402,7 @@ impl Daemon {
             made_worktrees: Vec::new(),
             limits: BTreeMap::new(),
             spent: Vec::new(),
+            turns: Vec::new(),
             codex_busy: false,
             last_codex: Instant::now() - Duration::from_secs(3600),
             next_once: false,
@@ -972,6 +976,7 @@ impl Daemon {
             questions: self.questions.iter().map(|(q, ..)| q.clone()).collect(),
             limits: self.limits.iter().map(|(a, l)| (a.clone(), l.clone())).collect(),
             spent_today: self.spent_today(),
+            today: usage::today(&self.turns, &self.spent, term::unix_now()),
         }
     }
 

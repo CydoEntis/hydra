@@ -201,10 +201,15 @@ impl Daemon {
             return;
         }
         t.status_why = why.to_string();
+        let turn = (t.status == Status::Working && t.agent.is_some())
+            .then(|| (t.agent.clone().unwrap_or_default(), t.place(), term::unix_now().saturating_sub(t.status_since)));
         t.blocked_at = (new == Status::Blocked).then(Instant::now);
         t.status = new;
         t.status_since = term::unix_now();
         self.dirty = true;
+        if let Some((agent, place, secs)) = turn {
+            self.note_turn(agent, place, secs);
+        }
         if matches!(new, Status::Blocked | Status::Done) {
             self.broadcast(|c| c.attach, ServerMsg::Attention { term, status: new });
             // No window open: the server tells you itself.
@@ -212,8 +217,7 @@ impl Daemon {
                 && let Some(t) = self.terms.get(&term)
             {
                 let agent = t.agent.clone().unwrap_or_else(|| "an agent".into());
-                let place = t.head.as_ref().map(|h| h.top.clone()).unwrap_or_else(|| t.cwd.clone());
-                let place = place.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let place = t.place();
                 let summary = t.summary.trim();
                 let body = if summary.is_empty() { place } else { format!("{place} · {summary}") };
                 let (kind, what) = if new == Status::Blocked { (crate::alert::Kind::Needs, "needs you") } else { (crate::alert::Kind::Done, "finished") };
@@ -237,8 +241,7 @@ impl Daemon {
                 continue;
             }
             t.phoned = t.status_since;
-            let place = t.head.as_ref().map(|h| h.top.clone()).unwrap_or_else(|| t.cwd.clone());
-            let place = place.file_name().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+            let place = t.place();
             let (title, body) = crate::alert::phone_message(&agent, &place, t.status == Status::Blocked, &t.summary, n.phone_text);
             let cfg = n.clone();
             std::thread::spawn(move || {

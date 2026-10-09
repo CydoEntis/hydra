@@ -276,9 +276,22 @@ pub struct Snapshot {
     /// Plan limits by agent ("claude", "codex"), as last reported.
     #[serde(default)]
     pub limits: Vec<(String, Vec<Limit>)>,
-    /// What Claude sessions in seshi have cost today (local day), at list price.
+    /// What Claude sessions in seshi have cost over the last day, at list price.
     #[serde(default)]
     pub spent_today: f64,
+    /// What each agent got done over the last day, by agent and folder.
+    #[serde(default)]
+    pub today: Vec<AgentDay>,
+}
+
+/// An agent's last day in one folder: turns it finished, time it spent working, its cost.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AgentDay {
+    pub agent: String,
+    pub place: String,
+    pub turns: u32,
+    pub working_secs: u64,
+    pub cost: f64,
 }
 
 /// A question an agent asked you, with the answers it allows.
