@@ -396,7 +396,6 @@ fn add_agent_to(file: &std::path::Path, def: &AgentDef) -> Result<()> {
     t.set_position(isize::MAX);
     agents.push(t);
     write_atomic(file, doc.to_string()).context("writing config")?;
-    crate::sync::push_soon();
     Ok(())
 }
 
@@ -763,7 +762,7 @@ impl Config {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => toml::Table::new(),
             Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
         };
-        // This machine's own settings (never synced) win over the shared ones.
+        // This machine's own settings win over config.toml.
         let local = path.with_file_name("config.local.toml");
         if std::env::var_os("SESHI_CONFIG").is_none()
             && let Ok(s) = std::fs::read_to_string(&local)

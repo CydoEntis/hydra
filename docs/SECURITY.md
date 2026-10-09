@@ -110,7 +110,7 @@ Assets: the user's shells and agent sessions (which can run any command as the
 user), their source code, and API keys in `config.local.toml`. Threats: another
 local user or process driving the daemon's socket; a process inside one pane
 forging status for another pane; command injection through names, branches or
-paths that end up in shell commands; secrets leaking through config sync or logs;
+paths that end up in shell commands; secrets leaking through logs;
 an SSH remote being someone else's machine.
 
 ## Project-specific: auth and permissions
@@ -122,8 +122,7 @@ started the daemon. Status reports (`seshi hook`) are accepted only from a
 process inside the pane (traced through its process tree) or carrying that
 pane's `SESHI_PANE_TOKEN`, a random secret set only in that pane's environment.
 Remote work goes over the user's own `ssh`, so SSH's authentication applies.
-Secrets (Linear/Plane keys) belong in `config.local.toml`, which config sync never
-uploads.
+Machine-only settings belong in `config.local.toml`.
 
 ## Project-specific: tooling
 

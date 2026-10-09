@@ -13,7 +13,6 @@ mod keys;
 mod layout;
 mod proc;
 mod protocol;
-mod sync;
 mod theme;
 mod update;
 mod reveal;
@@ -236,12 +235,6 @@ enum Cmd {
     /// Run as an MCP server (stdio) so agents can see and steer the others.
     /// `seshi integrate mcp` registers it with Claude Code.
     Mcp,
-    /// Share your config between machines through a private GitHub repo:
-    /// `seshi sync setup [repo]`, `seshi sync` (pull + push now), `seshi sync off`.
-    Sync {
-        action: Option<String>,
-        name: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]
@@ -327,7 +320,6 @@ fn main() {
         Some(Cmd::Proxy) => cli::block_on(ipc::proxy()),
         Some(Cmd::Ext { action, name, index, term }) => cli::ext(&action, name, index, term),
         Some(Cmd::DebugColors { pane }) => cli::debug_colors(pane),
-        Some(Cmd::Sync { action, name }) => sync::command(action.as_deref(), name.as_deref()),
         Some(Cmd::TestAlert) => {
             let (cfg, _) = config::Config::load_or_default();
             println!("notification: {}", if cfg.notify.desktop { "on" } else { "off (notify.desktop)" });

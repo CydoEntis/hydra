@@ -204,7 +204,6 @@ pub fn write_at(parts: &[&str], value: toml_edit::Value) -> Result<()> {
     }
     table.insert(leaf, toml_edit::value(value));
     crate::config::write_atomic(&file, doc.to_string()).context("writing config")?;
-    crate::sync::push_soon();
     Ok(())
 }
 

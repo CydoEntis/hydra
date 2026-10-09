@@ -85,7 +85,7 @@ src/
     render.rs, design.rs  drawing entry point and shared helpers
     menu.rs, views.rs, files.rs, find.rs, branch.rs, recipes.rs, pr.rs, …
     tests.rs     rendering and behaviour tests
-  mcp.rs, ext.rs, project.rs, gitfs.rs, alert.rs, reveal.rs, update.rs, sync.rs
+  mcp.rs, ext.rs, project.rs, gitfs.rs, alert.rs, reveal.rs, update.rs
 docs/            these docs, the roadmap, design briefs
 config.example.toml
 ```
@@ -182,7 +182,7 @@ Rules for the language live in `docs/stack/rust.md`.
 - **Infrastructure:** `ipc.rs` (sockets, SSH proxy), `daemon/term.rs` (PTY +
   emulator per pane), `daemon/scan.rs` (status detection), `daemon/git.rs`,
   `daemon/persist.rs`, `gitfs.rs`, `alert.rs`, `reveal.rs` (notification links,
-  bringing the window forward), `update.rs`, `sync.rs`, `ext.rs`, `mcp.rs`,
+  bringing the window forward), `update.rs`, `ext.rs`, `mcp.rs`,
   `daemon/usage.rs` (agents' usage, limits, continue after a limit).
 - **Application:** `daemon/mod.rs` (the server loop: commands in, state and
   output out) and `client/mod.rs` (the client loop: events in, commands out).
@@ -210,7 +210,7 @@ src/
   client/        the UI: mod.rs (loop, input), hydra.rs (layout), design.rs
                  (drawing helpers), render.rs, menu.rs, views.rs, and one file
                  per feature (files, find, branch, recipes, pr, …)
-  mcp.rs, ext.rs, project.rs, gitfs.rs, alert.rs, reveal.rs, update.rs, sync.rs
+  mcp.rs, ext.rs, project.rs, gitfs.rs, alert.rs, reveal.rs, update.rs
 docs/            these docs, the roadmap, design briefs
 config.example.toml
 ```

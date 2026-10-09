@@ -280,13 +280,6 @@ impl App {
                 self.dirty = true;
                 return;
             }
-            Bg::Synced(changed) => {
-                if changed {
-                    self.reload_config();
-                    self.notify("pulled your setup from another machine".into(), false);
-                }
-                return;
-            }
             Bg::PrDiff(which, d) => {
                 if let Some(View::Pr(v)) = &mut self.view
                     && v.which == which

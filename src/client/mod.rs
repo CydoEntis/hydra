@@ -134,8 +134,6 @@ pub(super) enum Bg {
     /// One pull request (by number or branch), and its diff.
     Pr(String, Result<pr::PrInfo, String>),
     PrDiff(String, Result<String, String>),
-    /// Pulled a shared setup from another machine.
-    Synced(bool),
     /// An extension's label for a worktree, or a background command's result.
     ExtLabel(String, usize, String),
     ExtDone(Result<String, String>),
@@ -410,9 +408,6 @@ async fn run_async(opts: Options) -> Result<Option<PathBuf>> {
     let (cfg, err) = Config::load_or_default();
     let (bg_tx, mut bg_rx) = mpsc::unbounded_channel::<Bg>();
     let mut app = App::new(cfg, out_tx, opts.open, bg_tx);
-    if crate::sync::enabled() {
-        app.spawn_bg(|| Bg::Synced(crate::sync::pull().unwrap_or(false)));
-    }
     app.check_for_update();
     if let Some(e) = err {
         app.notify(format!("config error: {e}"), true);

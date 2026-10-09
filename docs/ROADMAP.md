@@ -113,7 +113,6 @@ Everything below is shipped on `dev` unless marked.
 - Sidebar groups sessions by where they work now (repo, or folder outside git); no projects to open; splits stay with their session — shipped — `src/client/hydra/mod.rs`
 - Releases and installers (Windows, macOS, Linux; checksums), `seshi update` and a daily update check — shipped — `.github/workflows/release.yml`, `install.sh`, `install.ps1`, `src/update.rs`
 - CI: test and clippy on Linux and Windows, a macOS check — shipped — `.github/workflows/ci.yml`
-- Config sync across machines (local file never synced) — shipped — `src/sync.rs`
 - `seshi doctor` — shipped — `src/cli.rs`
 
 ## Out
