@@ -248,6 +248,13 @@ impl App {
                 self.dirty = true;
                 return;
             }
+            Bg::Synced(changed) => {
+                if changed {
+                    self.reload_config();
+                    self.notify("pulled your setup from another machine".into(), false);
+                }
+                return;
+            }
             b => b,
         };
         match (b, &mut self.mode) {

@@ -630,6 +630,7 @@ pub fn doctor() -> Result<()> {
     let writable = std::fs::create_dir_all(&data).is_ok() && std::fs::write(data.join(".doctor"), b"ok").is_ok();
     let _ = std::fs::remove_file(data.join(".doctor"));
     line(Some(writable), "data folder", data.display().to_string());
+    line(None, "sync", if crate::sync::enabled() { format!("on ({})", crate::sync::dir().display()) } else { "off (`seshi sync setup` shares config and ideas)".into() });
     if let Some(ed) = Some(cfg.editor.clone()).filter(|e| !e.is_empty()).or_else(|| std::env::var("VISUAL").ok()).or_else(|| std::env::var("EDITOR").ok()) {
         line(Some(true), "editor", ed);
     } else {

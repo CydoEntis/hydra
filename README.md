@@ -257,10 +257,16 @@ safe = ["npm test", "cargo test", "git status"]   # with "safe": only prompts th
 scope = "project"    # project: only sessions in the calling agent's repo | all
 ```
 
-## This machine only
+## Sync between machines
 
-Anything for one machine only (a shell path, keys) can go in `config.local.toml` next to
-`config.toml`; it wins over `config.toml`.
+```sh
+seshi sync setup          # first machine: makes a private GitHub repo seshi-config
+seshi sync setup          # other machines: picks it up (your old config is kept as a backup)
+seshi sync                # pull + push now (it also happens on its own)
+```
+
+Shared: `config.toml`. Anything for one machine only (a shell path, keys) goes in
+`config.local.toml` next to it, which is never synced and wins over `config.toml`.
 
 ## Splash and settings
 

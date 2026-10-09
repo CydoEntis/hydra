@@ -117,6 +117,8 @@ pub(super) enum Bg {
     Done(Result<String, String>, bool),
     /// A worktree's branch merged (or not): then the worktree and its branch go.
     Merged(Result<String, String>, PathBuf),
+    /// Pulled a shared setup from another machine.
+    Synced(bool),
     /// Every file under a folder (Find).
     FindFiles(PathBuf, Vec<String>),
     /// A checkout's branches: (folder, current, branches, files with changes).
@@ -357,6 +359,9 @@ async fn run_async(opts: Options) -> Result<Option<PathBuf>> {
     let (cfg, err) = Config::load_or_default();
     let (bg_tx, mut bg_rx) = mpsc::unbounded_channel::<Bg>();
     let mut app = App::new(cfg, out_tx, opts.open, bg_tx);
+    if crate::sync::enabled() {
+        app.spawn_bg(|| Bg::Synced(crate::sync::pull().unwrap_or(false)));
+    }
     app.check_for_update();
     if let Some(e) = err {
         app.notify(format!("config error: {e}"), true);
