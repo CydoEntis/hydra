@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>@font-face{font-family:'JBM';src:url(https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@2.304/fonts/webfonts/JetBrainsMono-Regular.woff2) format('woff2');font-weight:400;font-style:normal}@font-face{font-family:'JBM';src:url(https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@2.304/fonts/webfonts/JetBrainsMono-Bold.woff2) format('woff2');font-weight:700;font-style:normal}@font-face{font-family:'JBM';src:url(https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@2.304/fonts/webfonts/JetBrainsMono-Italic.woff2) format('woff2');font-weight:400;font-style:italic}@font-face{font-family:'NFS';src:url(https://cdn.jsdelivr.net/gh/ryanoasis/nerd-fonts@v3.2.1/patched-fonts/NerdFontsSymbolsOnly/SymbolsNerdFontMono-Regular.ttf) format('truetype');unicode-range:U+E000-F8FF}body{margin:0;background:#04070a;color:#a7b4c2;font-family:'JBM','JetBrains Mono',monospace}a{color:#c3f53c}a:hover{color:#f2f6f8}</style>
+</helmet>
+<sc-for list="{{ turns }}" as="tn" hint-placeholder-count="2">
+<section style="display:flex;flex-direction:column;gap:16px;padding:32px 28px;background:#04070a">
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:1100px"><h2 style="margin:0;font-size:18px;color:#f2f6f8">{{ tn.title }}</h2><p style="margin:0;font-size:13px;line-height:1.6;color:#71808f;text-wrap:pretty">{{ tn.note }}</p></div>
+  <div style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start">
+    <sc-for list="{{ tn.opts }}" as="o">
+    <div id="{{ o.id }}" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:10px;align-items:baseline"><span style="font-weight:700;font-size:12px;color:#0a1204;background:#c3f53c;padding:2px 8px;border-radius:999px">{{ o.id }}</span><span style="font-weight:700;font-size:13px;color:#f2f6f8">{{ o.name }}</span><span style="font-size:12px;color:#71808f">{{ o.sub }}</span></div>
+      <div style="display:inline-block;font-family:'JBM','NFS','JetBrains Mono',monospace;font-size:12px;line-height:16px;font-variant-ligatures:none;border:1px solid #1f2c3a"><sc-for list="{{ o.rows }}" as="row"><div style="display:flex;height:16px;white-space:pre"><sc-for list="{{ row }}" as="r"><span style="color:{{ r.fg }};background:{{ r.bg }};font-weight:{{ r.fw }};font-style:{{ r.fs }};text-decoration:{{ r.td }};width:{{ r.wd }};flex:none;overflow:{{ r.ov }};font-size:{{ r.fz }};line-height:{{ r.lh }};text-align:{{ r.ta }};display:flex;justify-content:{{ r.ta }}">{{ r.t }}</span></sc-for></div></sc-for></div>
+    </div>
+    </sc-for>
+  </div>
+</section>
+</sc-for>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { turns: [] };
+  componentDidMount() {
+    import(new URL('./seshi-app.js', document.baseURI).href).then(m => {
+      const r = (p, fl) => m.render(m.preset(p, 160, 45, fl)).rows;
+      this.setState({ turns: [
+        { title: 'Tickets, Queue and Checkpoints: docked sheet or centred modal', note: 'Left: today, docked beside the panes so agents stay in view. Right: a centred modal over the dimmed screen, wider and focused, for pick-and-go tasks. Inbox, Changes, PR and Server stay docked either way.', opts: [
+          { id: '1a', name: 'Tickets · sheet', sub: 'current', rows: r('Tickets', {}) },
+          { id: '1b', name: 'Tickets · modal', sub: 'proposed', rows: r('Tickets', { modalTools: 1 }) },
+          { id: '1c', name: 'Queue · modal', sub: '', rows: r('Queue', { modalTools: 1 }) },
+          { id: '1d', name: 'Checkpoints · modal', sub: '', rows: r('Checkpoints · list', { modalTools: 1 }) }] },
+        { title: 'A softer look without a fake bigger radius', note: 'Corners stay one cell. Soft adds a filled pill title on every card (lime when focused), a 3-column gap instead of 2, and 4-column padding inside panes and sheets instead of 3.', opts: [
+          { id: '2a', name: 'Line', sub: 'current', rows: r('Inbox', {}) },
+          { id: '2b', name: 'Soft', sub: 'pill titles · gap 3 · padding 4', rows: r('Inbox', { soft: 1 }) },
+          { id: '2c', name: 'Soft · main', sub: '', rows: r('Main', { soft: 1 }) }] }] });
+    }).catch(e => console.error(e));
+  }
+  renderVals() { return { turns: this.state.turns }; }
+}
+</script>
+</body>
+</html>

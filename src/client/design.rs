@@ -281,8 +281,9 @@ pub(super) fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Them
     use super::views::ChangesRow;
     fill(buf, area, t.bg);
     let (green, red, yellow) = (t.done, t.err, Color::Rgb(0xe8, 0xc5, 0x65));
-    let mut left: Vec<Seg> = vec![seg("changes  ", Style::default().fg(t.strong).add_modifier(Modifier::BOLD))];
-    let mut right: Vec<Seg> = Vec::new();
+    // The sheet's title says "Changes" and has the ✕: this line is the summary.
+    let mut left: Vec<Seg> = Vec::new();
+    let right: Vec<Seg> = Vec::new();
     if let Some(r) = &v.review {
         let added: i64 = r.files.iter().map(|f| f.added).sum();
         let removed: i64 = r.files.iter().map(|f| f.removed).sum();
@@ -296,9 +297,7 @@ pub(super) fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Them
             left.push(seg(format!(" · {} of {} reviewed", v.reviewed.len(), r.files.len()), Style::default().fg(if all { t.done } else { t.muted })));
         }
     }
-    right.push(seg("✕ ", Style::default().fg(t.muted)));
     title_bar(buf, area, t, &left, &right, true);
-    app.hits.push((Rect { x: area.right().saturating_sub(2), y: area.y, width: 2, height: 1 }, Hit::Button(super::Btn::CloseView)));
 
     let body = Rect { y: area.y + 1, height: area.height.saturating_sub(2), ..area };
     let Some(r) = &v.review else {

@@ -22,6 +22,8 @@ pub(in crate::client) struct Grid {
     pub panes: Rect,
     /// Between the sidebar and the right column (drag it to resize).
     pub edge: Rect,
+    /// The sheet docked right of the panes, when one is open (else empty).
+    pub sheet: Rect,
 }
 
 /// The floating grid: a margin of a column and a row, the sidebar card the full height, a
@@ -51,7 +53,8 @@ pub(in crate::client) fn grid(app: &App, area: Rect) -> Grid {
     let tabs = Rect { y: col.y + tab_dy, height: 1, ..col };
     let top = tabs.y + 1 + air;
     let panes = Rect { y: top, height: col.bottom().saturating_sub(top), ..col };
-    Grid { side, tabs, panes, edge }
+    let (sheet, panes) = if open_sheet(app).is_some() { split_for_sheet(area.width, panes, look.gap.max(1)) } else { (Rect::default(), panes) };
+    Grid { side, tabs, panes, edge, sheet }
 }
 
 /// Draw the main screen; returns the pane area.
@@ -75,7 +78,12 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
         hit(app, g.edge, HyHit::SideEdge);
     }
     let col = Rect { y: g.tabs.y, height: g.panes.bottom().saturating_sub(g.tabs.y), ..g.tabs };
-    draw_main(app, f, col, &model, t);
+    if g.panes.width > 0 {
+        draw_main(app, f, Rect { width: g.panes.width, ..col }, &model, t);
+    }
+    if let Some(kind) = open_sheet(app) {
+        draw_sheet(app, f.buffer_mut(), g.sheet, kind, t);
+    }
     app.hy.crumb_x = g.panes.x + 1;
     // A popup (`seshi popup`) floats over everything, the rest dimmed.
     if let Some(term) = app.popup() {
@@ -87,8 +95,8 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
         draw_session(app, f, r, term, true, &model, t);
     }
     draw_toast(app, f.buffer_mut(), g.panes, t);
-    // Files and diffs open over everything in one tool-window size; Esc closes.
-    if let Some(view) = app.view.take() {
+    // Files open over everything in one tool-window size; Esc closes. (Changes is a sheet.)
+    if let Some(view) = app.view.take_if(|v| matches!(v, crate::client::View::Files(_))) {
         let buf = f.buffer_mut();
         dim_all(buf, area, t);
         let frame = tool_rect(area);
@@ -103,10 +111,8 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
                 crate::client::design::draw_files(app, buf, inner, t, &v);
                 app.view = Some(crate::client::View::Files(v));
             }
-            crate::client::View::Changes(v) => {
-                crate::client::design::draw_changes(app, buf, inner, t, &v);
-                app.view = Some(crate::client::View::Changes(v));
-            }
+            // In the sheet (above).
+            v @ crate::client::View::Changes(_) => app.view = Some(v),
         }
     }
     g.panes
@@ -116,28 +122,6 @@ pub(in crate::client) fn find(model: &[Proj], term: TermId) -> Option<(&Proj, &W
     model.iter().find_map(|p| p.wts.iter().find_map(|w| w.sessions.iter().find(|s| s.term == term).map(|s| (p, w, s))))
 }
 
-/// `●1 ✓1 ⠹2`: counts of a list of sessions by state.
-pub(in crate::client) fn counts<'a>(app: &App, t: &Theme, list: impl Iterator<Item = &'a Session>, ink: Option<Color>) -> Vec<Seg> {
-    let mut c = [0usize; 4];
-    for s in list {
-        if s.is_agent || s.status != Status::None {
-            c[rank(s.status) as usize] += 1;
-        }
-    }
-    let states = [Status::Blocked, Status::Done, Status::Working, Status::Idle];
-    states
-        .iter()
-        .zip(c)
-        .filter(|(_, n)| *n > 0)
-        .map(|(st, n)| {
-            let mut s = Style::default().fg(ink.unwrap_or(t.status(*st)));
-            if *st == Status::Blocked {
-                s = s.add_modifier(Modifier::BOLD);
-            }
-            seg(format!("{}{n} ", glyph(app, *st)), s)
-        })
-        .collect()
-}
 
 pub(in crate::client) fn hline(buf: &mut Buffer, x: u16, y: u16, w: u16, t: &Theme, bg: Color) {
     for i in 0..w {

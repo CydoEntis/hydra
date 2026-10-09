@@ -287,7 +287,7 @@ runs a nested server with `SESHI_SOCKET=<name> seshi`.
 
 ## Project-specific: workflow and tooling
 
-- **Plan:** `docs/ROADMAP.md` (the plan doc: phases, scope, decisions, rules). Design references: `docs/design-brief.md`, `docs/design-brief-v3.md`, `docs/design-brief-v4.md` (phase 8, out for design).
+- **Plan:** `docs/ROADMAP.md` (the plan doc: phases, scope, decisions, rules). Design references: `docs/design-brief.md`, `docs/design-brief-v3.md`, `docs/design-brief-v4.md` and its handoff `docs/design/v4/` (phase 8; `seshi-app.js` is the spec).
 - **Branches:** work lands on `dev` at https://github.com/CydoEntis/seshi; one
   commit per logical change, pushed after the gate passes.
 - **Install locally:** `cargo install --path .` (stop a running `seshi` first on

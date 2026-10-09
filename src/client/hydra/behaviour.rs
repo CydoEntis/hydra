@@ -381,6 +381,8 @@ impl App {
                 self.hy_new_session(dir, None, false);
             }
             // One place: what needs you on top, and type to go anywhere.
+            // It opens the Inbox, and closes it again.
+            Action::Jump if matches!(self.mode, Mode::GoTo { .. }) => self.mode = Mode::Normal,
             Action::Jump => self.open_goto(),
             Action::PrevPrompt | Action::NextPrompt => {
                 if let Some(t) = self.focused() {
@@ -595,7 +597,7 @@ impl App {
 
     /// Go to, opened on its first row you can pick (what needs you, when anything does).
     pub(in crate::client) fn open_goto(&mut self) {
-        let rows = goto_rows(&self.hy_model(), "");
+        let rows = goto_rows(&self.hy_model(), "", heads_up(self).len());
         let sel = rows.iter().position(GoRow::pickable).unwrap_or(0);
         self.mode = Mode::GoTo { query: String::new(), sel };
     }
@@ -788,7 +790,7 @@ impl App {
 
     pub(in crate::client) fn on_goto_key(&mut self, mut query: String, mut sel: usize, k: &KeyEvent) {
         let model = self.hy_model();
-        let rows = goto_rows(&model, &query);
+        let rows = goto_rows(&model, &query, heads_up(self).len());
         // Headings aren't rows you land on.
         let land = |sel: usize, down: bool| -> usize {
             let n = rows.len();
@@ -832,13 +834,9 @@ impl App {
                 self.mode = Mode::Normal;
                 match sel_row.as_ref() {
                     Some(GoRow::Ask(t) | GoRow::Done(t)) => self.hy_focus(*t),
-                    Some(GoRow::Head(_)) => {}
+                    Some(GoRow::Head(_) | GoRow::Heads(_)) => {}
                     Some(GoRow::Sess(_, t)) => self.hy_focus(*t),
                     // A project: its most urgent session, or a shell there.
-                    Some(GoRow::Proj(pi)) => match model[*pi].sessions().min_by_key(|s| (rank(s.status), s.term)) {
-                        Some(s) => self.hy_focus(s.term),
-                        None => self.on_hy_hit(HyHit::ShellIn(*pi), false),
-                    },
                     None => {}
                 }
                 return;
@@ -850,7 +848,7 @@ impl App {
             KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) => {
                 query.push(c);
                 // Land on the first session that matches, when there is one.
-                let rows = goto_rows(&model, &query);
+                let rows = goto_rows(&model, &query, heads_up(self).len());
                 sel = rows.iter().position(|r| matches!(r, GoRow::Sess(..))).unwrap_or(0);
             }
             _ => {}
@@ -1069,6 +1067,7 @@ impl App {
                 }
             }
             HyHit::Close => self.mode = Mode::Normal,
+            HyHit::ViewClose => self.view = None,
             HyHit::Noop => {}
             HyHit::FinderPick(i) => {
                 if let Mode::Finder(fd) = &self.mode {

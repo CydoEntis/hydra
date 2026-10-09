@@ -72,10 +72,8 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::The
             let c = (**c).clone();
             super::menu::draw_confirm(app, f, area, &t, &c);
         }
-        Mode::GoTo { query, sel } => {
-            let (q, s) = (query.clone(), *sel);
-            super::hydra::draw_goto(app, f, area, &t, &q, s);
-        }
+        // The Inbox is a sheet beside the panes (drawn with the screen).
+        Mode::GoTo { .. } => {}
         Mode::History { sel } => {
             let sel = *sel;
             super::hydra::draw_history(app, f, area, &t, sel);

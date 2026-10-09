@@ -249,9 +249,12 @@ mod hydra_tests {
         app.act(Action::Jump);
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("Inbox") && o.contains("NEEDS YOU") && o.contains("JUST FINISHED") && o.contains("EVERYTHING"), "the Inbox, then every session");
-        assert!(o.contains("Run npm test -- checkout?") && o.contains(" Yes 1 ") && o.contains(" Always 2 ") && o.contains(" No 3"), "the question and its answers");
-        assert!(o.contains("All 14 tests pass now."), "what the finished one said");
+        assert!(o.contains("╭─ Inbox") && o.contains("NEEDS YOU 1 ─") && o.contains("JUST FINISHED 1 ─") && !o.contains("EVERYTHING"), "the Inbox sheet: what needs you, what finished");
+        assert!(o.contains("Run npm test -- checkout?") && o.contains("Yes 1") && o.contains("Always 2") && o.contains("No 3"), "the question and its answers");
+        assert!(o.contains("“All 14 tests pass now.”"), "what the finished one said, quoted");
+        assert!(o.contains(" move") && o.contains(" closes"), "the sheet's status bar");
+        // It's docked beside the panes, not over them: the session's card is still there.
+        assert!(o.contains("╭─ claude"), "the panes reflow beside it");
         // 2 answers the selected question without going there.
         app.on_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
         assert!(matches!(app.mode, Mode::GoTo { .. }), "still in the Inbox");
@@ -261,9 +264,10 @@ mod hydra_tests {
             app.on_key(KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE));
         }
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains("Go to") && !o.contains("NEEDS YOU"), "searching: just what matches");
-        // g opens the same place.
-        app.mode = Mode::Normal;
+        assert!(o.contains("FOUND 1") && !o.contains("NEEDS YOU"), "searching: just what matches");
+        // j closes it again, and opens it afresh.
+        app.act(Action::Jump);
+        assert!(app.mode == Mode::Normal, "j closes the Inbox");
         app.act(Action::Jump);
         assert!(matches!(&app.mode, Mode::GoTo { query, .. } if query.is_empty()));
     }
@@ -1438,16 +1442,16 @@ mod hydra_tests {
         app.act(Action::Jump);
         let o = draw(&mut app, 160, 45);
         show(&o);
-        // claude needs you in the fixture: the Inbox, then every session by project.
-        assert!(o.contains("Inbox") && o.contains("▌shop-api") && o.contains("type to go to any session"));
+        // claude needs you in the fixture: the Inbox, and a search for any session.
+        assert!(o.contains("╭─ Inbox") && o.contains("type to find any session"));
         for c in "rate".chars() {
             app.on_key(key(KeyCode::Char(c)));
         }
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("◇ rate"), "typing filters to what matches");
+        assert!(o.contains("FOUND 1 ─") && o.contains("rate  codex · shop-api"), "typing finds what matches");
         let Mode::GoTo { query, sel } = app.mode.clone() else { panic!("still open") };
-        let rows = hydra::goto_rows(&app.hy_model(), &query);
+        let rows = hydra::goto_rows(&app.hy_model(), &query, 0);
         assert!(matches!(rows[sel], hydra::GoRow::Sess(..)), "it lands on the matching session");
         app.on_key(key(KeyCode::Enter));
         assert!(matches!(app.mode, Mode::Normal), "Enter goes there");
@@ -1519,6 +1523,26 @@ mod hydra_tests {
         assert_eq!(at(0).len(), 6, "one colour per letter");
         assert_ne!(at(4), at(7), "the bright band moves");
         assert!(at(7).contains(&Some(base)), "the rest stays the working colour");
+    }
+
+    #[test]
+    fn the_inbox_takes_the_column_when_narrow_and_changes_is_a_sheet() {
+        let (_, mut app) = super::design_tests::render_with(100, 30);
+        app.act(Action::Jump);
+        let o = draw(&mut app, 100, 30);
+        show(&o);
+        assert!(o.contains("╭─ Inbox") && !o.contains("╭─ claude"), "narrow: the sheet covers the pane column");
+        app.mode = Mode::Normal;
+        // Changes of a real repo.
+        let repo = std::env::temp_dir().join(format!("seshi-sheet-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(&repo).unwrap();
+        crate::proc::git(&repo, &["init", "-q"]).unwrap();
+        app.open_changes(repo.clone());
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("╭─ Changes") && o.contains("╭─ claude"), "Changes docks beside the panes");
+        let _ = std::fs::remove_dir_all(&repo);
     }
 
     #[test]

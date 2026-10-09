@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>@font-face{font-family:'JBM';src:url(https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@2.304/fonts/webfonts/JetBrainsMono-Regular.woff2) format('woff2');font-weight:400;font-style:normal}@font-face{font-family:'JBM';src:url(https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@2.304/fonts/webfonts/JetBrainsMono-Bold.woff2) format('woff2');font-weight:700;font-style:normal}@font-face{font-family:'JBM';src:url(https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@2.304/fonts/webfonts/JetBrainsMono-Italic.woff2) format('woff2');font-weight:400;font-style:italic}@font-face{font-family:'NFS';src:url(https://cdn.jsdelivr.net/gh/ryanoasis/nerd-fonts@v3.2.1/patched-fonts/NerdFontsSymbolsOnly/SymbolsNerdFontMono-Regular.ttf) format('truetype');unicode-range:U+E000-F8FF}body{margin:0;background:#04070a;color:#a7b4c2;font-family:'JBM','JetBrains Mono',monospace}a{color:#c3f53c}a:hover{color:#f2f6f8}</style>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:14px;padding:24px 28px 48px;box-sizing:border-box;align-items:flex-start;background:#04070a;min-height:100%">
+  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;max-width:1400px">
+    <span style="background:#c3f53c;color:#0a1204;font-weight:700;font-size:13px;padding:3px 10px;border-radius:999px">seshi v4 · prototype</span>
+    <span style="font-size:13px;color:#71808f;line-height:1.6;text-wrap:pretty">Click the grid, then use keys: <b style="color:#f2f6f8">↑↓</b> sessions · <b style="color:#f2f6f8">j</b> inbox · <b style="color:#f2f6f8">m</b> follow-up · <b style="color:#f2f6f8">i</b> why · <b style="color:#f2f6f8">T</b> tickets · <b style="color:#f2f6f8">Q</b> queue · <b style="color:#f2f6f8">P</b> PR · <b style="color:#f2f6f8">S</b> ship · <b style="color:#f2f6f8">l u U O</b> server · <b style="color:#f2f6f8">C</b> checkpoints · <b style="color:#f2f6f8">,</b> settings · <b style="color:#f2f6f8">Ctrl+Space ?</b> keys</span>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <span style="font-size:12px;color:#71808f;margin-right:4px">Size</span>
+    <sc-for list="{{ sizes }}" as="z" hint-placeholder-count="3"><button onClick="{{ z.pick }}" style="font:700 12px 'JBM',monospace;border:0;padding:6px 12px;border-radius:999px;cursor:pointer;background:{{ z.bg }};color:{{ z.fg }}">{{ z.name }}</button></sc-for>
+    <sc-for list="{{ flags }}" as="fl" hint-placeholder-count="2"><button onClick="{{ fl.pick }}" style="font:700 12px 'JBM',monospace;border:0;padding:6px 12px;border-radius:999px;cursor:pointer;background:{{ fl.bg }};color:{{ fl.fg }};margin-left:6px">{{ fl.name }}</button></sc-for>
+    <button onClick="{{ leader }}" style="font:700 12px 'JBM',monospace;border:0;padding:6px 12px;border-radius:999px;cursor:pointer;background:#5aa9ff;color:#070b10;margin-left:10px">Ctrl+Space</button>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;max-width:1400px">
+    <span style="font-size:12px;color:#71808f;margin-right:4px">Jump to</span>
+    <sc-for list="{{ presets }}" as="p" hint-placeholder-count="12"><button onClick="{{ p.pick }}" style="font:12px 'JBM',monospace;border:0;padding:5px 10px;border-radius:999px;cursor:pointer;background:{{ p.bg }};color:{{ p.fg }}" style-hover="background:#2a3a4c;color:#f2f6f8">{{ p.name }}</button></sc-for>
+  </div>
+  <div style="overflow-x:auto;max-width:100%">
+    <div ref="{{ gridRef }}" tabIndex="0" onClick="{{ onClick }}" style="display:inline-block;font-family:'JBM','NFS','JetBrains Mono',monospace;font-size:12px;line-height:16px;font-variant-ligatures:none;border:1px solid #1f2c3a;user-select:none;cursor:default;outline:none"><sc-for list="{{ rows }}" as="row" hint-placeholder-count="45"><div style="display:flex;height:16px;white-space:pre"><sc-for list="{{ row }}" as="r"><span style="color:{{ r.fg }};background:{{ r.bg }};font-weight:{{ r.fw }};font-style:{{ r.fs }};text-decoration:{{ r.td }};width:{{ r.wd }};flex:none;overflow:{{ r.ov }};font-size:{{ r.fz }};line-height:{{ r.lh }};text-align:{{ r.ta }};display:flex;justify-content:{{ r.ta }}">{{ r.t }}</span></sc-for></div></sc-for></div>
+  </div>
+  <div style="font-size:12px;color:#71808f;max-width:1100px;line-height:1.7;text-wrap:pretty">One <b style="color:#f2f6f8">sheet</b> docks right of the panes for every tool view (Inbox, Tickets/Queue, PR, Changes, Server, Checkpoints); panes reflow, nothing stacks. Popovers (follow-up, why) open beside the row. Only deliberate confirms (Ship, Roll back, Settings) dim the screen. The state machine in <b style="color:#f2f6f8">seshi-app.js</b> is the spec.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { s: null, pick: 'Main', fl: { modalTools: 0, soft: 0 } };
+  gridRef = React.createRef();
+  timers = [];
+  componentDidMount() {
+    import(new URL('./seshi-app.js', document.baseURI).href).then(m => {
+      this.lib = m;
+      let s = m.preset('Main');
+      try { const sv = JSON.parse(localStorage.getItem('seshi-proto') || 'null'); if (sv) { s = m.preset(sv.p, sv.W, sv.H); this.setState({ pick: sv.p }); } } catch (e) {}
+      this.setState({ s });
+      this.tick = setInterval(() => { const st = this.state.s; if (st) this.setState({ s: { ...st, f: st.f + 1 } }); }, 300);
+    }).catch(e => console.error(e));
+    this.onKey = e => {
+      if (!this.lib || !this.state.s) return;
+      if (e.ctrlKey && (e.key === ' ' || e.code === 'Space')) { e.preventDefault(); this.apply(this.lib.act(this.state.s, { t: 'leader' })); return; }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const r = this.lib.act(this.state.s, { t: 'key', key: e.key, shift: e.shiftKey });
+      if (r) { e.preventDefault(); this.apply(r); }
+    };
+    window.addEventListener('keydown', this.onKey);
+  }
+  componentWillUnmount() { clearInterval(this.tick); window.removeEventListener('keydown', this.onKey); this.timers.forEach(clearTimeout); }
+  apply(r) {
+    if (!r) return;
+    this.setState({ s: r.state });
+    (r.fx || []).forEach(f => this.timers.push(setTimeout(() => this.apply(this.lib.act(this.state.s, f.act)), f.after)));
+  }
+  save(p, W, H) { try { localStorage.setItem('seshi-proto', JSON.stringify({ p, W, H })); } catch (e) {} }
+  go(p, W, H, fl) { fl = fl || this.state.fl; this.timers.forEach(clearTimeout); this.timers = []; const s = this.lib.preset(p, W, H, fl); this.setState({ fl }); this.setState({ s, pick: p }); this.save(p, W, H); if (this.gridRef.current) this.gridRef.current.focus(); }
+  cell(e, W, H) { const el = this.gridRef.current; if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.floor((e.clientX - r.left) / (r.width / W)), y: Math.floor((e.clientY - r.top) / (r.height / H)) }; }
+  hit(c) { if (!c) return null; const R = this._regions || []; for (let i = R.length - 1; i >= 0; i--) { const q = R[i]; if (c.x >= q.x && c.x < q.x + q.w && c.y >= q.y && c.y < q.y + q.h) return q; } return null; }
+  renderVals() {
+    const s = this.state.s;
+    const base = { gridRef: this.gridRef, leader: () => this.lib && this.state.s && this.apply(this.lib.act(this.state.s, { t: 'leader' })) };
+    if (!s || !this.lib) return { ...base, rows: [], sizes: [], presets: [], flags: [], onClick: null };
+    const out = this.lib.render(s); this._regions = out.regions;
+    const sizes = [[100, 30], [160, 45], [240, 60]].map(([W, H]) => { const on = s.W === W; return { name: W + '×' + H, bg: on ? '#c3f53c' : '#1d2a37', fg: on ? '#0a1204' : '#f2f6f8', pick: () => this.go(this.state.pick, W, H) }; });
+    const presets = this.lib.PRESETS.map(([n]) => { const on = this.state.pick === n; return { name: n, bg: on ? '#c3f53c' : '#0f1821', fg: on ? '#0a1204' : '#a7b4c2', pick: () => this.go(n, this.state.s.W, this.state.s.H) }; });
+    const fl = this.state.fl, flags = [['modalTools', fl.modalTools ? 'Tickets/Checkpoints: modal' : 'Tickets/Checkpoints: sheet'], ['soft', fl.soft ? 'Style: soft' : 'Style: line']].map(([k, n]) => ({ name: n, bg: fl[k] ? '#a593ff' : '#1d2a37', fg: fl[k] ? '#070b10' : '#f2f6f8', pick: () => this.go(this.state.pick, this.state.s.W, this.state.s.H, { ...fl, [k]: fl[k] ? 0 : 1 }) }));
+    return { ...base, rows: out.rows, sizes, presets, flags,
+      onClick: e => { if (this.gridRef.current) this.gridRef.current.focus(); const q = this.hit(this.cell(e, out.W, out.H)); if (q) this.apply(this.lib.act(this.state.s, q.act)); } };
+  }
+}
+</script>
+</body>
+</html>

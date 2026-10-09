@@ -395,7 +395,8 @@ pub(in crate::client) enum GoRow {
     Ask(TermId),
     /// One that finished and you haven't looked at: what it said.
     Done(TermId),
-    Proj(usize),
+    /// Two checkouts changed the same file (index into `heads_up`).
+    Heads(usize),
     Sess(usize, TermId),
 }
 
@@ -405,142 +406,36 @@ impl GoRow {
     }
 }
 
-pub(in crate::client) fn goto_rows(model: &[Proj], q: &str) -> Vec<GoRow> {
+pub(in crate::client) fn goto_rows(model: &[Proj], q: &str, heads: usize) -> Vec<GoRow> {
     let q = q.trim();
-    let hit = |text: &str| q.is_empty() || crate::client::files::fuzzy(q, text).is_some();
     let mut out = Vec::new();
-    // Nothing typed: what needs you first.
-    let mut listed: Vec<TermId> = Vec::new();
     if q.is_empty() {
         let waiting = jump_list(model);
-        for (st, head) in [(Status::Blocked, "NEEDS YOU"), (Status::Done, "JUST FINISHED")] {
-            let these: Vec<TermId> = waiting.iter().filter(|(s, ..)| s.status == st).map(|(s, ..)| s.term).collect();
-            if !these.is_empty() {
-                out.push(GoRow::Head(head));
-                out.extend(these.iter().map(|t| if st == Status::Blocked { GoRow::Ask(*t) } else { GoRow::Done(*t) }));
-                listed.extend(these);
-            }
+        let of = |st: Status| waiting.iter().filter(|(s, ..)| s.status == st).map(|(s, ..)| s.term).collect::<Vec<_>>();
+        out.push(GoRow::Head("NEEDS YOU"));
+        out.extend(of(Status::Blocked).into_iter().map(GoRow::Ask));
+        if heads > 0 {
+            out.push(GoRow::Head("HEADS UP"));
+            out.extend((0..heads).map(GoRow::Heads));
         }
-        if !out.is_empty() {
-            out.push(GoRow::Head("EVERYTHING"));
-        }
+        out.push(GoRow::Head("JUST FINISHED"));
+        out.extend(of(Status::Done).into_iter().map(GoRow::Done));
+        return out;
     }
-    for (pi, p) in model.iter().enumerate() {
-        let proj_hit = hit(&p.name);
-        let mut sess: Vec<&Session> = p.sessions().filter(|s| !listed.contains(&s.term)).collect();
-        sess.sort_by_key(|s| (rank(s.status), s.term));
-        let sess: Vec<&Session> = sess.into_iter().filter(|s| proj_hit || hit(&format!("{} {} {} {}", p.name, s.name, s.agent, s.title))).collect();
-        // Nothing left to show under it (its sessions are up in the Inbox), or no match.
-        let all_listed = sess.is_empty() && p.sessions().any(|s| listed.contains(&s.term));
-        if (!proj_hit && sess.is_empty()) || all_listed {
-            continue;
-        }
-        out.push(GoRow::Proj(pi));
-        out.extend(sess.into_iter().map(|s| GoRow::Sess(pi, s.term)));
-    }
+    // Typed: every session it matches (by name, agent, title or folder), most urgent first.
+    let hit = |text: &str| crate::client::files::fuzzy(q, text).is_some();
+    let mut found: Vec<(usize, &Session)> = model
+        .iter()
+        .enumerate()
+        .flat_map(|(pi, p)| p.sessions().map(move |s| (pi, s)))
+        .filter(|(pi, s)| hit(&model[*pi].name) || hit(&format!("{} {} {} {}", model[*pi].name, s.name, s.agent, s.title)))
+        .collect();
+    found.sort_by_key(|(_, s)| (rank(s.status), s.term));
+    found.dedup_by_key(|(_, s)| s.term);
+    out.push(GoRow::Head("FOUND"));
+    out.extend(found.into_iter().map(|(pi, s)| GoRow::Sess(pi, s.term)));
     out
 }
-
-pub(in crate::client) fn draw_goto(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, query: &str, sel: usize) {
-    let model = app.hy_model();
-    let rows = goto_rows(&model, query);
-    let waiting = rows.iter().any(|r| matches!(r, GoRow::Ask(_) | GoRow::Done(_)));
-    let title = if waiting { "Inbox" } else { "Go to" };
-    let buf = f.buffer_mut();
-    let (r, list, start) = query_list(app, buf, area, t, title, 100, rows.len().max(1), query, "type to go to any session", sel);
-    let c = Style::default().bg(t.card);
-    for (i, row) in rows.iter().enumerate().skip(start).take(list.height as usize) {
-        let y = list.y + (i - start) as u16;
-        let rr = Rect { y, height: 1, ..list };
-        let on = i == sel;
-        let st = list_row(app, buf, rr, on, t);
-        let bg = st.bg.unwrap_or(t.card);
-        match row {
-            GoRow::Head(h) => {
-                fill(buf, rr, t.card);
-                put(buf, rr.x + 2, y, &[seg(*h, c.fg(if *h == "NEEDS YOU" { t.blocked } else { t.muted }).add_modifier(Modifier::BOLD))], rr.right());
-                continue;
-            }
-            // Its question, and its answers as buttons (a number answers it).
-            GoRow::Ask(term) => {
-                let Some((p, _, s)) = find(&model, *term) else { continue };
-                let left = vec![
-                    seg(format!("{} ", glyph(app, Status::Blocked)), st.fg(t.blocked).add_modifier(Modifier::BOLD)),
-                    seg(format!("{} ", s.name), st.fg(t.strong).add_modifier(Modifier::BOLD)),
-                    seg(format!("{}  ", p.name), st.fg(t.muted)),
-                ];
-                let lw = segs_width(&left);
-                let mut x = put(buf, rr.x + 3, y, &left, rr.right());
-                let mut chips: Vec<(String, char)> = Vec::new();
-                for (n, label) in app.answer_options(*term).iter().enumerate().take(4) {
-                    chips.push((format!(" {label} {} ", n + 1), char::from(b'1' + n as u8)));
-                }
-                let cw: u16 = chips.iter().map(|(c, _)| c.width() as u16 + 1).sum();
-                let room = rr.width.saturating_sub(lw + cw + 6) as usize;
-                let q = s.question.clone().unwrap_or_else(|| "waiting on you".into());
-                x = put(buf, x, y, &[seg(format!("{}  ", truncate(&q, room)), st.fg(t.blocked))], rr.right());
-                for (chip, key) in chips {
-                    let w = chip.width() as u16;
-                    if x + w >= rr.right() {
-                        break;
-                    }
-                    put(buf, x, y, &[seg(chip, Style::default().bg(if on { t.btn } else { t.card2 }).fg(t.strong))], rr.right());
-                    hit(app, Rect { x, y, width: w, height: 1 }, HyHit::InboxAnswer(*term, key));
-                    x += w + 1;
-                }
-            }
-            // What it said when it finished.
-            GoRow::Done(term) => {
-                let Some((p, _, s)) = find(&model, *term) else { continue };
-                let said = app.snap.terms.get(term).map(|i| i.said.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default().trim().to_string()).unwrap_or_default();
-                let left = vec![
-                    seg(format!("{} ", glyph(app, Status::Done)), st.fg(t.done).add_modifier(Modifier::BOLD)),
-                    seg(format!("{} ", s.name), st.fg(t.done).add_modifier(Modifier::BOLD)),
-                    seg(format!("{}  ", p.name), st.fg(t.muted)),
-                ];
-                let x = put(buf, rr.x + 3, y, &left, rr.right());
-                let room = rr.right().saturating_sub(x + 2) as usize;
-                put(buf, x, y, &[seg(truncate(if said.is_empty() { "finished" } else { &said }, room), st.fg(t.muted))], rr.right());
-            }
-            GoRow::Proj(pi) => {
-                let p = &model[*pi];
-                // Which section it's from, when it isn't agents (a repo can be in two).
-                let kind = match p.kind {
-                    super::Kind::Agents => String::new(),
-                    k => format!(" · {}", k.heading().to_lowercase()),
-                };
-                put(buf, rr.x + 3, y, &[seg("▌", st.fg(p.color)), seg(p.name.clone(), st.fg(t.strong).add_modifier(Modifier::BOLD)), seg(kind, st.fg(t.muted))], rr.right());
-                let meta: Vec<Seg> = counts(app, t, p.sessions(), None).into_iter().map(|(x, s)| (x, s.bg(bg))).collect();
-                let meta = if p.sessions().count() == 0 { vec![seg("empty", st.fg(t.muted))] } else { meta };
-                let mw = segs_width(&meta);
-                put(buf, rr.right().saturating_sub(mw + 2), y, &meta, rr.right());
-            }
-            GoRow::Sess(pi, term) => {
-                let Some((_, w, s)) = find(&model, *term) else { continue };
-                let icon = if s.is_agent { format!("{} ", kind_icon(app, &s.agent, true)) } else { "  ".into() };
-                let gl = if s.is_agent { glyph(app, s.status) } else { app.cfg.icons.shell.clone() };
-                let gc = if s.is_agent { t.status(s.status) } else { t.muted };
-                put(buf, rr.x + 6, y, &[seg(format!("{gl} "), st.fg(gc)), seg(icon, st.fg(t.muted)), seg(s.name.clone(), st.fg(if on { t.strong } else { t.text }))], rr.right());
-                let meta = if model[*pi].git && !w.branch.is_empty() { format!("{} · {}", w.branch, state_label(s.status)) } else { state_label(s.status).to_string() };
-                let col = if s.status == Status::Blocked { t.blocked } else { t.muted };
-                let mw = meta.width() as u16;
-                put(buf, rr.right().saturating_sub(mw + 2), y, &[seg(meta, st.fg(col))], rr.right());
-            }
-        }
-        hit(app, rr, HyHit::GoPick(i));
-    }
-    if rows.is_empty() {
-        let none = if query.trim().is_empty() { "nothing open yet" } else { "nothing matches" };
-        put(buf, list.x + 2, list.y, &[seg(none, c.fg(t.muted).add_modifier(Modifier::ITALIC))], list.right());
-    }
-    let keys: Vec<(&str, &str)> = if waiting && query.trim().is_empty() {
-        vec![("↑↓", "move"), ("1-4", "answer"), ("Enter", "go there"), ("Del", "seen"), ("type", "find"), ("Esc", "close")]
-    } else {
-        vec![("↑↓", "move"), ("Enter", "go"), ("type", "find"), ("Esc", "close")]
-    };
-    put(buf, r.x + 3, r.bottom() - 2, &hints(t, &keys), r.right());
-}
-
 
 pub(in crate::client) fn draw_history(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, sel: usize) {
     let items: Vec<(u64, Option<TermId>, char, String)> = app.history.iter().rev().cloned().collect();

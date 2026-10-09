@@ -839,24 +839,6 @@ fn row_name(t: &TermInfo, root: &Path, top: &Path, main: bool, git: bool) -> Str
     }
 }
 
-/// The icon for what runs in a pane.
-pub(super) fn kind_icon(app: &App, agent: &str, is_agent: bool) -> String {
-    if !is_agent {
-        return app.cfg.icons.shell.clone();
-    }
-    match agent {
-        "claude" => "✻",
-        "codex" => "◇",
-        "gemini" => "✦",
-        "opencode" => "◈",
-        "cursor" => "▲",
-        "copilot" => "◎",
-        "aider" => "◆",
-        "grok" => "✕",
-        _ => "◆",
-    }
-    .to_string()
-}
 
 fn session_title(t: &TermInfo, name: &str, top: &Path) -> String {
     if !t.label.trim().is_empty() {
@@ -923,6 +905,8 @@ pub(super) enum HyHit {
     SplashKey(char),
     /// A right-click menu item.
     MenuPick(usize),
+    /// The ✕ of a view in the sheet (Changes): it closes.
+    ViewClose,
     /// The sidebar's edge (drag to resize).
     SideEdge,
     /// The sidebar's empty space: the keys go to it.
@@ -982,9 +966,10 @@ mod dialogs;
 mod leader;
 mod popups;
 mod screen;
+mod sheet;
 mod splash;
 
-pub(in crate::client) use self::{card::*, dialogs::*, leader::*, popups::*, screen::*, splash::*};
+pub(in crate::client) use self::{card::*, dialogs::*, leader::*, popups::*, screen::*, splash::*, sheet::*};
 
 
 #[cfg(test)]
