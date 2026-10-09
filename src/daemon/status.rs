@@ -50,6 +50,9 @@ const HOOKS_END_ONLY: &[&str] = &["codex"];
 /// A turn starts from something you typed: only that long after it is the screen checked.
 const TURN_START_WITHIN: Duration = Duration::from_secs(30);
 const CANCELLED_AFTER: Duration = Duration::from_secs(2);
+/// An agent read from its screen (no hooks) is done only once its screen has been still this
+/// long: working ones redraw a timer every second.
+const SCREEN_DONE_QUIET: Duration = Duration::from_secs(5);
 
 impl Daemon {
     /// A status report whose sender checked out (`verdict`: did its process chain lead to
@@ -348,9 +351,13 @@ impl Daemon {
                         && t.last_output.saturating_duration_since(t.last_input) > grace
                 }
             };
+            // Its working line can leave the rows looked at while it still runs (a long block
+            // printed under it): working until the screen has also gone still, so it doesn't
+            // flip to done (and alert) and back on every check.
+            let still_going = t.status == Status::Working && t.last_output.elapsed() < SCREEN_DONE_QUIET;
             let new = if blocked {
                 Status::Blocked
-            } else if working {
+            } else if working || still_going {
                 Status::Working
             } else if Some(t.id) == focused {
                 Status::Idle

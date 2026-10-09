@@ -567,6 +567,30 @@ fn an_agent_stays_in_the_folder_it_started_in() {
 }
 
 #[test]
+fn an_agent_read_from_its_screen_isnt_done_while_its_screen_still_moves() {
+    let (mut d, _rx) = daemon();
+    let t = pane(&mut d);
+    {
+        // Codex with its notify pointed elsewhere: no hooks, only its screen.
+        let p = d.terms.get_mut(&t).unwrap();
+        (p.agent, p.hooked, p.status) = (Some("codex".into()), false, Status::Working);
+        p.parser.process(b"\xe2\x80\xa2 Working (3s \xe2\x80\xa2 esc to interrupt)\r\n");
+        // A long block printed under it pushes the working line out of the rows looked at.
+        for i in 0..40 {
+            p.parser.process(format!("+ added line {i}\r\n").as_bytes());
+        }
+        p.last_output = Instant::now();
+    }
+    d.update_statuses();
+    assert_eq!(d.terms[&t].status, Status::Working, "still printing: not done, and no alert");
+    // The screen goes still: now it's done.
+    d.terms.get_mut(&t).unwrap().last_output = Instant::now() - Duration::from_secs(10);
+    d.update_statuses();
+    assert_eq!(d.terms[&t].status, Status::Done);
+    close(&mut d, &[t]);
+}
+
+#[test]
 fn codex_shows_working_from_its_screen_after_a_turn() {
     let (mut d, _rx) = daemon();
     let t = pane(&mut d);
