@@ -188,8 +188,9 @@ mod hydra_tests {
         assert!(!text.contains("session"), "no 'session' wording on screen");
         assert!(!text.contains("● answer") && !text.contains(" Yes 1 "), "an agent's own question is answered in its own prompt: no answer bar");
         assert!(!text.contains("click or press T"), "no footer under the pane");
-        assert!(lines[0].contains("✻ claude  Fix flaky checkout test · shop-api · main") && lines[0].contains("● needs you"), "every pane has a title bar, at the top: {}", lines[0]);
-        assert!(lines[2].contains("> fix the flaky checkout test"), "a blank row under the bar, then the output");
+        assert!(lines[0].contains(" 1 claude") && lines[0].contains("+ tab"), "the tab rail along the top: {}", lines[0]);
+        assert!(lines[1].contains("✻ claude  Fix flaky checkout test · shop-api · main") && lines[1].contains("● needs you"), "every pane has a title bar, under the rail: {}", lines[1]);
+        assert!(lines[3].contains("> fix the flaky checkout test"), "a blank row under the bar, then the output");
         // Overlays are centred over a dimmed screen.
         for (mode, needle) in [
             (Mode::GoTo { query: String::new(), sel: 1 }, "NEEDS YOU"),
@@ -751,7 +752,8 @@ mod hydra_tests {
         app.hy.tabs.clear();
         app.hy_place(1, None);
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains("+ tab") && app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::TabNew)), "a + tab in the pane's bar while it has one tab");
+        assert!(o.contains(" 1 claude") && o.contains("+ tab") && app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::TabNew)), "the tab rail, with + tab, even with one tab");
+        assert!(!o.contains(" 1 claude ✕"), "and no ✕ on the only tab");
         // Ctrl+Space c in claude's session: the next session to show is a tab of claude's.
         app.act(Action::NewTab);
         assert!(matches!(app.hy.new_tab, Some((_, 1))), "a new tab for claude's session: {:?}", app.hy.new_tab);
@@ -762,12 +764,12 @@ mod hydra_tests {
         show(&o);
         assert_eq!(app.session_tabs().len(), 2);
         assert!(o.contains(" 1 claude") && o.contains(" 2 shell"), "claude's tab bar");
-        assert!(!o.contains("+ tab"), "the tab bar's + makes the next one");
-        // Another session: its own view, with no tab bar.
+        assert!(o.contains(" 1 claude ✕") || o.contains(" 2 shell ✕"), "the tab you're on can close now");
+        // Another session: its own view, with its own rail.
         app.hy_place(2, Some(3));
         let o = draw(&mut app, 160, 45);
         assert_eq!(app.session_tabs().len(), 1);
-        assert!(!o.contains(" 2 shell"), "codex has one tab: no bar");
+        assert!(o.contains(" 1 codex") && !o.contains(" 2 shell"), "codex has one tab");
         // Back to claude: the tab you were last on there (the shell).
         app.hy_place(1, Some(2));
         assert_eq!(app.hy.tabs[app.hy.tab].focus, 3, "back on the shell tab");
@@ -1186,7 +1188,7 @@ mod hydra_tests {
         app.hy_focus(agent);
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("claude 5h 82% (1h20m)") && o.contains("$4.20 today"), "the plan limit and spend in the footer");
+        assert!(o.contains("$4.20 today") && !o.contains("claude 5h"), "spend in the footer, not the plan limits");
         assert!(o.contains("ctx 76% · $1.20"), "context and cost on its bar");
         assert!(o.contains("76% "), "a filling context on its row");
         app.snap.terms.get_mut(&agent).unwrap().resume_at = Some(now + 600);
@@ -1660,7 +1662,8 @@ mod hydra_tests {
             app.on_key(lead);
             assert!(matches!(app.mode, Mode::Prefix { .. }), "leader waits");
             let o = draw(&mut app, 160, 45);
-            assert!(o.lines().last().unwrap_or("").contains("then:") && o.contains("g go to"), "the bottom bar shows leader mode");
+            let footer: Vec<&str> = o.lines().rev().take(3).collect();
+            assert!(footer[0].is_empty() && footer[1].contains("then:") && o.contains("g go to"), "the bottom bar shows leader mode, with a row of air under it");
             app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
             assert!(!matches!(app.mode, Mode::Normal | Mode::Prefix { .. }), "leader + {c} opens {what}: {:?}", std::mem::discriminant(&app.mode));
         }

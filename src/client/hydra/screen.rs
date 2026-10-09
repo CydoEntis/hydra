@@ -12,6 +12,10 @@ pub(in crate::client) fn side_w(width: u16) -> u16 {
     }
 }
 
+/// Rows of air above and below the footer's line, and its height with them.
+const FOOTER_PAD: u16 = 1;
+const FOOTER_H: u16 = 1 + 2 * FOOTER_PAD;
+
 /// Draw the main screen; returns the pane area.
 pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect {
     let model = app.hy_model();
@@ -27,7 +31,7 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
     let right_side = app.cfg.ui.sidebar_position == "right";
     // The panes get the full height; the sidebar sits under the logo.
     // No top bar: the sidebar and panes start at the top; a bottom bar for what needs you.
-    let mid = Rect { x: area.x, y: area.y, width: area.width, height: area.height.saturating_sub(1) };
+    let mid = Rect { x: area.x, y: area.y, width: area.width, height: area.height.saturating_sub(FOOTER_H) };
     let (side, panes) = if sw == 0 {
         (Rect { width: 0, ..mid }, mid)
     } else if right_side {
@@ -59,7 +63,7 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
     let panes = Rect { x: panes.x + 1, y: panes.y, width: panes.width.saturating_sub(2), height: panes.height };
     draw_main(app, f, panes, &model, t);
     app.hy.crumb_x = panes.x + 1;
-    draw_status(app, f.buffer_mut(), Rect { y: area.bottom().saturating_sub(1), height: 1, ..area }, &model, t);
+    draw_status(app, f.buffer_mut(), Rect { y: area.bottom().saturating_sub(FOOTER_H), height: FOOTER_H.min(area.height), ..area }, &model, t);
     // A popup (`hydra popup`) floats over everything, the rest dimmed.
     if let Some(term) = app.popup() {
         let whole = f.area();
@@ -68,7 +72,7 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
         let h = (whole.height * 3 / 4).max(12).min(whole.height);
         let r = Rect { x: whole.x + (whole.width - w) / 2, y: whole.y + (whole.height - h) / 2, width: w, height: h };
         fill(f.buffer_mut(), r, t.bg);
-        draw_session(app, f, r, term, true, false, &model, t);
+        draw_session(app, f, r, term, true, &model, t);
     }
     draw_toast(app, f.buffer_mut(), panes, t);
     // Files, diffs and pull requests open over everything in one tool-window size; Esc
@@ -598,13 +602,9 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
     if let Some(tab) = app.hy.tabs.get_mut(cur) {
         tab.used = tick;
     }
-    // A tab bar once the session you're on has more than one tab.
-    let area = if app.session_tabs().len() > 1 {
-        draw_tab_bar(app, f.buffer_mut(), Rect { height: 1, ..area }, model, t);
-        Rect { y: area.y + 1, height: area.height.saturating_sub(1), ..area }
-    } else {
-        area
-    };
+    // The tab rail, always: the session's tabs and a + tab for another.
+    draw_tab_bar(app, f.buffer_mut(), Rect { height: 1, ..area }, model, t);
+    let area = Rect { y: area.y + 1, height: area.height.saturating_sub(1), ..area };
     app.hy.dividers.clear();
     let layout = app
         .hy
@@ -614,7 +614,7 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         .filter(|l| l.contains(focus) && l.leaves().len() > 1 && app.hy.zoom != Some(focus));
     let Some(layout) = layout else {
         app.hy.leaf_rects = vec![(focus, area)];
-        draw_session(app, f, area, focus, true, false, model, t);
+        draw_session(app, f, area, focus, true, model, t);
         return;
     };
     let leaves = layout.leaves();
@@ -636,7 +636,7 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         }
         app.hy.leaf_rects = rects.clone();
         for (id, r) in rects {
-            draw_session(app, f, r, id, id == focus, true, model, t);
+            draw_session(app, f, r, id, id == focus, model, t);
         }
         return;
     }
@@ -651,7 +651,7 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         if r.bottom() < area.bottom() {
             r.height = r.height.saturating_sub(1);
         }
-        draw_session(app, f, r, id, id == focus, true, model, t);
+        draw_session(app, f, r, id, id == focus, model, t);
     }
     for (i, (sa, horizontal, path)) in layout.splits(area).into_iter().enumerate() {
         let ratio = layout.ratio_at(&path).unwrap_or(0.5);
@@ -687,12 +687,15 @@ pub(in crate::client) fn row_menu_button(app: &mut App, buf: &mut Buffer, r: Rec
     hit(app, r, h);
 }
 
-/// One chip per tab: what it shows; the one you're in is filled. A + makes another.
+/// One chip per tab: what it shows; the one you're in is filled (with a ✕ when there are
+/// others to go to). + tab makes another.
 pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
     fill(buf, r, t.bg);
     let mut x = r.x + 1;
     let mut shown = 0;
-    for i in app.session_tabs() {
+    let tabs = app.session_tabs();
+    let closable = tabs.len() > 1;
+    for i in tabs {
         let tab = &app.hy.tabs[i];
         shown += 1;
         let n = tab.layout.leaves().len();
@@ -721,7 +724,7 @@ pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, 
         put(buf, x, r.y, &[seg(label, st)], r.right());
         hit(app, cr, HyHit::TabPick(i));
         x += w;
-        if on {
+        if on && closable {
             let xr = Rect { x, y: r.y, width: 2, height: 1 };
             put(buf, x, r.y, &[seg("✕ ", st)], r.right());
             hit(app, xr, HyHit::TabClose(i));
@@ -729,13 +732,12 @@ pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, 
         }
         x += 1;
     }
-    let pr = Rect { x, y: r.y, width: 3, height: 1 };
-    put(buf, x, r.y, &[seg(" + ", if hovered(app, pr) { Style::default().bg(t.hov).fg(t.strong) } else { Style::default().bg(t.btn).fg(t.muted) })], r.right());
+    let pr = Rect { x, y: r.y, width: 7, height: 1 };
+    put(buf, x, r.y, &[seg(" + tab ", if hovered(app, pr) { Style::default().bg(t.hov).fg(t.strong) } else { Style::default().bg(t.btn).fg(t.muted) })], r.right());
     hit(app, pr, HyHit::TabNew);
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bool, split: bool, model: &[Proj], t: &Theme) {
+pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bool, model: &[Proj], t: &Theme) {
     let Some(info) = app.snap.terms.get(&term).cloned() else { return };
     let found = find(model, term);
     let (title, wt, agent) = found
@@ -787,15 +789,6 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
         let extra = if st == Status::Working { format!(" {}", age(info.since)) } else { String::new() };
         right.push(seg(format!("{} {}{extra}   ", glyph(app, st), state_label(st)), s));
     }
-    // A session shown on its own, with no tab bar yet: + tab opens a shell beside it, in its
-    // folder, as its second tab.
-    let tab_button = !split && app.session_tabs().len() < 2;
-    let tr = Rect { x: r.right().saturating_sub(10), y: r.y, width: 5, height: 1 };
-    if tab_button {
-        let st = if hovered(app, tr) { Style::default().fg(t.strong).bg(t.hov) } else { Style::default().fg(ink(t.muted)).bg(bg) };
-        right.push(seg("+ tab", st));
-        right.push(seg("   ", Style::default().bg(bg)));
-    }
     let xr = Rect { x: r.right().saturating_sub(2), y: r.y, width: 1, height: 1 };
     right.push(seg("✕", Style::default().fg(if hovered(app, xr) { t.err } else { ink(t.muted) }).bg(bg)));
     let rw = segs_width(&right);
@@ -827,9 +820,6 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
     put(f.buffer_mut(), r.right().saturating_sub(rw + 1), r.y, &right, r.right());
     app.pane_frames.push((term, r));
     hit(app, Rect { x: r.right().saturating_sub(3), y: r.y, width: 3, height: 1 }, HyHit::CloseSplit(term));
-    if tab_button {
-        hit(app, tr, HyHit::TabNew);
-    }
 
     // A blank row under the bar; output starts two cells in.
     // Answer buttons only for a question asked through hydra (ask-human), which has nowhere
@@ -979,23 +969,9 @@ fn context_tag(s: &Session, st: Style, ink: Option<Color>, t: &Theme) -> Vec<Seg
     }
 }
 
-/// The footer's plan limits and spend: "claude 5h 23% · week 41%   codex week 12%   $4.20 today".
-fn limits_line(app: &App, t: &Theme, s: Style) -> Vec<Seg> {
+/// The footer's right side: the queue and spend ("queue 1 running   $4.20 today").
+fn queue_and_spend(app: &App, t: &Theme, s: Style) -> Vec<Seg> {
     let mut out = Vec::new();
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    for (agent, limits) in &app.snap.limits {
-        let live: Vec<_> = limits.iter().filter(|l| l.resets_at > now).collect();
-        if live.is_empty() {
-            continue;
-        }
-        out.push(seg(format!("{agent} "), s.fg(t.muted)));
-        for (i, l) in live.iter().enumerate() {
-            let sep = if i == 0 { "" } else { " · " };
-            let soon = if l.used >= 70.0 { format!(" ({})", until(l.resets_at)) } else { String::new() };
-            out.push(seg(format!("{sep}{} {:.0}%{soon}", l.name, l.used), s.fg(fullness(t, l.used))));
-        }
-        out.push(seg("   ", s));
-    }
     // The queue at a glance: running, waiting, ready for review.
     let q = &app.snap.queue;
     let count = |f: fn(&crate::protocol::QueueState) -> bool| q.iter().filter(|x| f(&x.state)).count();
@@ -1020,12 +996,15 @@ fn limits_line(app: &App, t: &Theme, s: Style) -> Vec<Seg> {
 pub(in crate::client) fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
     let surf = t.sidebar_bg;
     fill(buf, r, surf);
+    let whole = r;
+    // Its line sits between rows of air.
+    let r = Rect { y: r.y + FOOTER_PAD.min(r.height.saturating_sub(1)), height: 1, ..r };
     let s = Style::default().bg(surf);
     // In the sidebar: its keys (the row's own, as its menu has them). Otherwise only what
     // needs you; where you are is on each pane's title bar, and notes pop up as toasts.
     // Leader pressed: the whole bar turns the accent and says what the next key can do.
     if matches!(app.mode, Mode::Prefix { .. }) {
-        fill(buf, r, t.accent);
+        fill(buf, whole, t.accent);
         let ink = Style::default().bg(t.accent).fg(t.acc_ink);
         let lead = app.keymap.prefix.to_string().replace("C-", "Ctrl+");
         let mut row = vec![seg(format!(" {lead} "), ink.add_modifier(Modifier::BOLD | Modifier::REVERSED)), seg("  then:  ", ink)];
@@ -1068,7 +1047,7 @@ pub(in crate::client) fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, m
             Vec::new()
         }
     };
-    let mut right = limits_line(app, t, s);
+    let mut right = queue_and_spend(app, t, s);
     if let Some(host) = crate::ipc::remote() {
         right.push(seg(format!(" ⇄ {host} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)));
         right.push(seg(" ", s));

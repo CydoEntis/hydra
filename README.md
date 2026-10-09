@@ -81,8 +81,8 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
   `<leader> ?` lists every key.
 - **Status at a glance.** Working (yellow, its name shimmering), needs you (red), done (green until
   you look), idle. An alert or a sound tells you when one needs you or finishes out of view.
-- **Usage and limits.** The footer shows your plan limits (Claude's 5-hour and weekly, Codex's)
-  and what sessions cost today; each agent's bar shows how full its context is and what its
+- **Usage and limits.** The footer shows what sessions cost today; each agent's bar shows how
+  full its context is and what its
   session has cost, and a row shows the context once it's past half. An agent stopped by a limit
   is told "continue" once the limit resets (Settings → Continue after a limit). Claude's numbers
   come from its status line: `hydra integrate claude` makes hydra's run first and then yours,
@@ -196,7 +196,7 @@ The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
 | `H J K L` | resize |
 | `=` | arrange this tab's panes: split (where you put them) → grid → main and stack → columns (a strip that slides to the pane you're on) |
 | `{` / `}` | jump to the previous / next command in the history (shells that mark their prompts: fish, PowerShell in hydra, others with OSC 133) |
-| `c` / `]` `[` / `1–9` / `X` | **tabs of the session you're on**: new tab (a shell where you are) / next, previous / go to tab / close the tab and what's in it (twice if an agent runs there). A session's tabs share its sidebar row; the tab bar shows once it has two |
+| `c` / `]` `[` / `1–9` / `X` | **tabs of the session you're on**: new tab (a shell where you are) / next, previous / go to tab / close the tab and what's in it (twice if an agent runs there). A session's tabs share its sidebar row; the tab rail along the top shows them, with **+ tab** for another |
 | `m` / `r` / `R` | message an agent / reply to the focused one / rename a session |
 | `f` / `F` / `/` | files / find a file / search the code |
 | `d` / `B` / `P` / `S` | changes / switch branch / pull request / ship |
