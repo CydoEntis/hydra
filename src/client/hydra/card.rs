@@ -113,6 +113,23 @@ pub(in crate::client) fn row_pill(look: Look, buf: &mut Buffer, x: u16, y: u16, 
     put(buf, x, y, &segs, x + w);
 }
 
+/// A row's highlight laid over what's already drawn there (a glide passing over rows): its
+/// ground becomes `bg`, its text stays, with the pill's ends.
+pub(in crate::client) fn tint_row(look: Look, buf: &mut Buffer, x: u16, y: u16, w: u16, bg: Color, outer: Color) {
+    let area = buf.area;
+    if w < 2 || y < area.y || y >= area.bottom() {
+        return;
+    }
+    let right = (x + w).min(area.right());
+    for xx in x.max(area.x)..right {
+        buf[(xx, y)].set_bg(bg);
+    }
+    if look.caps {
+        buf[(x, y)].set_symbol(CAP_L).set_fg(bg).set_bg(outer);
+        buf[(right - 1, y)].set_symbol(CAP_R).set_fg(bg).set_bg(outer);
+    }
+}
+
 /// A key as a little pill: the accent on a button, or ink on the accent when it's the one.
 pub(in crate::client) fn keycap_pill(look: Look, t: &Theme, key: &str, on: bool, outer: Color) -> Vec<Seg> {
     let (bg, fg) = if on { (t.accent, t.acc_ink) } else { (t.btn, t.accent) };

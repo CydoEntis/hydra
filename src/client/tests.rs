@@ -1592,6 +1592,28 @@ mod hydra_tests {
     }
 
     #[test]
+    fn the_sheet_and_sidebar_draw_at_every_width_a_slide_passes() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        app.act(Action::Jump);
+        let t = app.theme.clone();
+        let model = app.hy_model();
+        let col = Rect { x: 40, y: 4, width: 118, height: 40 };
+        for step in 0..=20 {
+            let frac = step as f32 / 20.0;
+            let (sheet, panes) = hydra::split_for_sheet(160, col, 2, frac);
+            assert!(panes.width + sheet.width <= col.width, "they share the column at {frac}");
+            let mut buf = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 160, 45));
+            if sheet.width >= hydra::SHEET_DRAWN_FROM {
+                hydra::draw_sheet(&mut app, &mut buf, sheet, hydra::SheetKind::Inbox, &t);
+            }
+        }
+        for w in 12..=40 {
+            let mut buf = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 160, 45));
+            hydra::draw_side(&mut app, &mut buf, Rect { x: 1, y: 1, width: w, height: 43 }, &model, &t);
+        }
+    }
+
+    #[test]
     fn a_card_is_filled_up_to_its_line() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         let mut term = Terminal::new(TestBackend::new(160, 45)).unwrap();

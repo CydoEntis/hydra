@@ -8,6 +8,10 @@ pub(in crate::client) fn side_w(width: u16) -> u16 {
     if width < NARROW { 26 } else { 34 }
 }
 
+/// The narrowest the sidebar (sliding) or the sheet is drawn; below it, it's only space.
+const SIDE_DRAWN_FROM: u16 = 12;
+pub(in crate::client) const SHEET_DRAWN_FROM: u16 = 24;
+
 /// The Nerd Font cog (nf-fa-cog) at the sidebar's foot.
 const SETTINGS_COG: &str = "\u{f013}";
 
@@ -33,11 +37,8 @@ pub(in crate::client) fn grid(app: &App, area: Rect) -> Grid {
     let look = Look::of(&app.cfg.ui);
     let (mx, my, gx) = if look.tiled { (0, 0, 0) } else { (1, 1, 1) };
     let inner = Rect { x: area.x + mx, y: area.y + my, width: area.width.saturating_sub(2 * mx), height: area.height.saturating_sub(2 * my) };
-    let sw = if app.sidebar {
-        app.hy.saved.side_w.unwrap_or_else(|| side_w(area.width)).clamp(SIDE_MIN, SIDE_MAX).min(inner.width / 2)
-    } else {
-        0
-    };
+    let full = app.hy.saved.side_w.unwrap_or_else(|| side_w(area.width)).clamp(SIDE_MIN, SIDE_MAX).min(inner.width / 2);
+    let sw = (full as f32 * app.side_frac).round() as u16;
     let right_side = app.cfg.ui.sidebar_position == "right";
     let gap = if sw > 0 { gx } else { 0 };
     let col_w = inner.width.saturating_sub(sw + gap);
@@ -53,18 +54,23 @@ pub(in crate::client) fn grid(app: &App, area: Rect) -> Grid {
     let tabs = Rect { y: col.y + tab_dy, height: 1, ..col };
     let top = tabs.y + 1 + air;
     let panes = Rect { y: top, height: col.bottom().saturating_sub(top), ..col };
-    let (sheet, panes) = if open_sheet(app).is_some() { split_for_sheet(area.width, panes, look.gap.max(1)) } else { (Rect::default(), panes) };
+    let (sheet, panes) = if open_sheet(app).is_some() { split_for_sheet(area.width, panes, look.gap.max(1), app.sheet_frac) } else { (Rect::default(), panes) };
     Grid { side, tabs, panes, edge, sheet }
 }
 
 /// Draw the main screen; returns the pane area.
 pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect {
+    // How far the sidebar and the sheet are in this frame (they slide when they change).
+    let on = app.motion_on();
+    app.side_frac = app.motion.side(app.sidebar, on);
+    app.sheet_frac = app.motion.sheet(open_sheet(app).is_some(), on);
     let model = app.hy_model();
     app.hy.wt_keys.clear();
     app.hy.branch_keys.clear();
     fill(f.buffer_mut(), area, t.bg);
     let g = grid(app, area);
-    if g.side.width > 0 {
+    // Too narrow mid-slide to draw anything sensible: just the room it takes.
+    if g.side.width >= SIDE_DRAWN_FROM {
         draw_side(app, f.buffer_mut(), g.side, &model, t);
         // The gap beside the sidebar: drag it. It lights up while you point at it.
         if app.hy.drag == Some(Drag::Side) || hovered(app, g.edge) {
@@ -81,7 +87,7 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
     if g.panes.width > 0 {
         draw_main(app, f, Rect { width: g.panes.width, ..col }, &model, t);
     }
-    if let Some(kind) = open_sheet(app) {
+    if let Some(kind) = open_sheet(app).filter(|_| g.sheet.width >= SHEET_DRAWN_FROM) {
         draw_sheet(app, f.buffer_mut(), g.sheet, kind, t);
     }
     app.hy.crumb_x = g.panes.x + 1;
@@ -277,9 +283,13 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
         // Only rows that light up count (not a heading or a question line).
         lines.get(scroll + (p.y - top) as usize).is_some_and(|l| matches!(l, Line::Proj(_) | Line::Sess(..)))
     });
-    let shade = |app: &App, term: TermId, row: Rect| -> Option<Color> {
+    // The keyboard's row (or the open session's) glides to the next one: until it gets there
+    // that row isn't lit, and a highlight passes over the rows between.
+    let on = app.motion_on();
+    let mut gliding: Option<(u16, Rect)> = None;
+    let shade = |app: &App, term: TermId, row: Rect, glide: bool| -> Option<Color> {
         let mine = if focused_side { app.hy.cursor == Some(term) } else { Some(term) == focus };
-        (hovered(app, row) || (!pointing && mine)).then_some(t.hov)
+        (hovered(app, row) || (!pointing && mine && !glide)).then_some(t.hov)
     };
     for (i, line) in lines.iter().enumerate().skip(scroll).take(list_h) {
         let y = top + (i - scroll) as u16;
@@ -327,7 +337,12 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
             Line::Sess(pi, wi, si) => {
                 let s = &model[*pi].wts[*wi].sessions[*si];
                 app.hy.row_y.insert(s.term, y);
-                let lit = shade(app, s.term, row);
+                let mine = if focused_side { app.hy.cursor == Some(s.term) } else { Some(s.term) == focus };
+                let glide = if mine && !pointing { app.motion.glide("side", u64::from(s.term), y, on) } else { None };
+                if let Some(gy) = glide {
+                    gliding = Some((gy, row));
+                }
+                let lit = shade(app, s.term, row, glide.is_some());
                 let bg = lit.unwrap_or(pb);
                 if lit.is_some() {
                     row_pill(look, buf, row.x, y, row.width, bg, pb);
@@ -463,6 +478,9 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     // update is ready).
     if r.height < 8 {
         return;
+    }
+    if let Some((gy, row)) = gliding.filter(|(gy, _)| (top..top + list_h as u16).contains(gy)) {
+        tint_row(look, buf, row.x, gy, row.width, t.hov, pb);
     }
     let ry = r.bottom() - 4;
     hline(buf, x0 + 3, ry, w.saturating_sub(6), t, pb);
@@ -929,13 +947,30 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
 
 /// A note (copied, saved, couldn't …) as a small pop-up just above the bottom bar, centred
 /// over the panes; it goes after a few seconds (errors stay a little longer).
+/// How long a toast stays: an error longer, one about a session (a click goes there) longest.
+pub(in crate::client) fn toast_hold(err: bool, about: bool) -> std::time::Duration {
+    std::time::Duration::from_millis(if err {
+        4500
+    } else if about {
+        6000
+    } else {
+        2500
+    })
+}
+
 pub(in crate::client) fn draw_toast(app: &mut App, buf: &mut Buffer, panes: Rect, t: &Theme) {
     let Some((msg, at, err)) = app.notice.clone() else { return };
-    // About a session: it stays a little longer, and a click goes there.
     let about = app.notice_term.filter(|t| app.snap.terms.contains_key(t));
-    if at.elapsed().as_millis() > if err { 4500 } else if about.is_some() { 6000 } else { 2500 } {
+    let hold = toast_hold(err, about.is_some());
+    let shown = at.elapsed();
+    if shown > hold {
         return;
     }
+    // It slides in from the right, and fades at the end of its time.
+    let on = app.motion_on();
+    let slide = if on { 1.0 - crate::client::motion::ease_out(shown.as_secs_f32() / crate::client::motion::TOAST_IN.as_secs_f32()) } else { 0.0 };
+    let left = hold.saturating_sub(shown);
+    let fade = if on && left < crate::client::motion::TOAST_FADE { 1.0 - left.as_secs_f32() / crate::client::motion::TOAST_FADE.as_secs_f32() } else { 0.0 };
     let hint = if about.is_some() { "   click to open" } else { "" };
     let text = truncate(&msg, (panes.width.saturating_sub(14) as usize).saturating_sub(hint.width()));
     // A pill inside the top right of the panes, a row below the card's border: away from
@@ -956,8 +991,25 @@ pub(in crate::client) fn draw_toast(app: &mut App, buf: &mut Buffer, panes: Rect
     if panes.height < 4 || panes.width < w + 6 {
         return;
     }
-    let r = Rect { x: panes.right().saturating_sub(w + 3), y: panes.y + 1, width: w, height: 1 };
-    put(buf, r.x, r.y, &segs, r.right());
+    let fx = panes.right().saturating_sub(w + 3);
+    let x = fx + ((panes.right().saturating_sub(fx)) as f32 * slide).round() as u16;
+    let segs: Vec<Seg> = if fade > 0.0 {
+        let ground = pane_bg(t);
+        segs.into_iter()
+            .map(|(s, st)| {
+                let st = match (st.fg, st.bg) {
+                    (Some(fg), Some(bg)) => st.fg(blend(fg, bg, fade)).bg(blend(bg, ground, fade)),
+                    (Some(fg), None) => st.fg(blend(fg, ground, fade)),
+                    _ => st,
+                };
+                (s, st)
+            })
+            .collect()
+    } else {
+        segs
+    };
+    let r = Rect { x, y: panes.y + 1, width: panes.right().saturating_sub(x).min(w), height: 1 };
+    put(buf, r.x, r.y, &segs, panes.right());
     if let Some(term) = about {
         hit(app, r, HyHit::Session(term));
     }

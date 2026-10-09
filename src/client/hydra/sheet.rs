@@ -30,14 +30,19 @@ pub(in crate::client) fn open_sheet(app: &App) -> Option<SheetKind> {
 }
 
 /// Where the sheet goes in the right-hand column `col` (pane rows only), and what's left for
-/// the panes. A whole screen narrower than `NARROW` gives it the column.
-pub(in crate::client) fn split_for_sheet(screen_w: u16, col: Rect, gap: u16) -> (Rect, Rect) {
-    if screen_w < NARROW || col.width <= SHEET_W + gap + 20 {
-        return (col, Rect { width: 0, ..col });
-    }
-    let w = if screen_w >= WIDE_AT { SHEET_W_WIDE } else { SHEET_W }.min(col.width);
+/// the panes, with `frac` of its width in (it slides in). A whole screen narrower than
+/// `NARROW` gives it the column.
+pub(in crate::client) fn split_for_sheet(screen_w: u16, col: Rect, gap: u16, frac: f32) -> (Rect, Rect) {
+    let full = if screen_w < NARROW || col.width <= SHEET_W + gap + 20 {
+        col.width
+    } else if screen_w >= WIDE_AT {
+        SHEET_W_WIDE.min(col.width)
+    } else {
+        SHEET_W.min(col.width)
+    };
+    let w = (full as f32 * frac.clamp(0.0, 1.0)).round() as u16;
     let sheet = Rect { x: col.right() - w, width: w, ..col };
-    (sheet, Rect { width: col.width - w - gap, ..col })
+    (sheet, Rect { width: col.width.saturating_sub(w + gap), ..col })
 }
 
 /// The same-file overlaps the Inbox lists, in a stable order: (repo, overlap).
@@ -127,6 +132,8 @@ fn draw_inbox(app: &mut App, buf: &mut Buffer, inside: Rect, t: &Theme) {
         _ => None,
     };
     let model = app.hy_model();
+    let motion = app.motion_on();
+    let mut gliding: Option<(u16, Rect)> = None;
     let heads = heads_up(app);
     let rows = goto_rows(&model, &query, heads.len());
     let look = Look::of(&app.cfg.ui);
@@ -165,8 +172,14 @@ fn draw_inbox(app: &mut App, buf: &mut Buffer, inside: Rect, t: &Theme) {
         if y + hgt > bottom + 1 {
             break;
         }
-        let on = i == sel && row.pickable();
         let head = Rect { x: x - 1, y, width: w + 2, height: 1 };
+        // The selected row's highlight glides there from the last one.
+        let selected = i == sel && row.pickable();
+        let glide = if selected { app.motion.glide("inbox", i as u64, y, motion) } else { None };
+        if let Some(gy) = glide {
+            gliding = Some((gy, head));
+        }
+        let on = selected && glide.is_none();
         let hov = hovered(app, head);
         let bg = if on || hov { t.hov } else { t.card };
         if on || hov {
@@ -278,6 +291,9 @@ fn draw_inbox(app: &mut App, buf: &mut Buffer, inside: Rect, t: &Theme) {
             hit(app, Rect { x: x - 1, y, width: w + 2, height: hgt.saturating_sub(1).max(1) }, HyHit::GoPick(i));
         }
         y += hgt;
+    }
+    if let Some((gy, head)) = gliding.filter(|(gy, _)| *gy < bottom) {
+        tint_row(look, buf, head.x, gy, head.width, t.hov, t.card);
     }
     let keys: &[(&str, &str)] = if query.is_empty() { &[("↑↓", "move"), ("1 2 3", "answer"), ("Enter", "go"), ("Del", "seen")] } else { &[("↑↓", "move"), ("Enter", "go to it"), ("Esc", "clear")] };
     let note = vec![seg("j", Style::default().fg(t.accent).add_modifier(Modifier::BOLD)), seg(" closes", Style::default().fg(t.muted))];

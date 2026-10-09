@@ -10,6 +10,7 @@ mod branch;
 mod hydra;
 mod menu;
 mod modal;
+mod motion;
 mod overlap;
 mod pick;
 mod recipes;
@@ -289,6 +290,10 @@ pub struct App {
     sizes: HashMap<TermId, (u16, u16)>,
     mode: Mode,
     sidebar: bool,
+    /// What's moving, and how far the sidebar and the sheet are in this frame (0 to 1).
+    motion: motion::Motion,
+    side_frac: f32,
+    sheet_frac: f32,
     hits: Vec<(Rect, Hit)>,
     /// Inner rects of the panes drawn last frame.
     panes: Vec<(TermId, Rect)>,
@@ -453,6 +458,9 @@ impl App {
             restart: None,
             theme: cfg.theme(),
             sidebar: cfg.ui.sidebar,
+            motion: motion::Motion::default(),
+            side_frac: 1.0,
+            sheet_frac: 1.0,
             keymap,
             cfg,
             notice: None,
@@ -596,6 +604,10 @@ impl App {
                 last_draw = Instant::now();
                 terminal.draw(|f| render::draw(self, f))?;
                 self.sync_sizes();
+                // Something's moving: the next frame too.
+                if self.motion.moving() || self.toast_moving() {
+                    self.dirty = true;
+                }
             }
         }
     }
@@ -694,6 +706,20 @@ impl App {
         self.send(ClientMsg::Command(c));
     }
 
+    /// Slides and glides: on in Settings, and not over SSH (every frame goes down the link).
+    /// Tests look at single frames, so there things are where they end.
+    fn motion_on(&self) -> bool {
+        self.cfg.ui.motion && crate::ipc::remote().is_none() && !cfg!(test)
+    }
+
+    /// The toast is sliding in or fading out.
+    fn toast_moving(&self) -> bool {
+        let Some((_, at, err)) = &self.notice else { return false };
+        let hold = hydra::toast_hold(*err, self.notice_term.is_some());
+        let e = at.elapsed();
+        self.motion_on() && (e < motion::TOAST_IN || (e + motion::TOAST_FADE >= hold && e < hold))
+    }
+
     fn spinner_frame(&self) -> u64 {
         (self.started.elapsed().as_millis() / 90) as u64
     }
@@ -732,6 +758,10 @@ impl App {
 
     /// Resize panes whose drawn size differs from what the daemon last heard.
     fn sync_sizes(&mut self) {
+        // Mid-slide the panes are only drawn at the passing sizes; they're resized once it stops.
+        if self.motion.layout_moving() {
+            return;
+        }
         let panes = self.panes.clone();
         let dragging = self.hy.drag.is_some();
         for (term, r) in panes {

@@ -80,6 +80,9 @@ pub struct Ui {
     pub splash: bool,
     /// Look for a newer seshi when the window opens (and every few hours) and say so.
     pub update_check: bool,
+    /// Short slides and glides (the sidebar, the sheet, the highlight, toasts). Always off
+    /// over SSH.
+    pub motion: bool,
     /// Alt+arrows move between panes without the leader (off: they go to the program, for
     /// shells that jump words with them).
     pub alt_arrows: bool,
@@ -460,6 +463,7 @@ impl Default for Ui {
                 .to_vec(),
             splash: true,
             update_check: true,
+            motion: true,
             alt_arrows: true,
             start_dir: String::new(),
             attention_sort: true,
