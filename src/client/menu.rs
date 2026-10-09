@@ -1,7 +1,7 @@
 //! Right-click menus for the seshi layout: a pane, an agent row, a project, a branch or a
 //! worktree. Short, hoverable, and every item does something.
 
-use super::design::{fill, put, seg};
+use super::design::{put, seg};
 use super::hydra::{HyHit, find, hit, hovered};
 use super::render::truncate;
 use super::{App, Mode};
@@ -527,16 +527,15 @@ pub(super) fn draw_menu(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, m: 
     let r = Rect { x, y, width: w, height: h + 1 };
     // Clicking anywhere else closes it.
     hit(app, area, HyHit::Close);
-    // The same look as the other panels (Go to, the palette): the card ground, an accent
-    // title bar with Esc on the right.
+    // The same card as every popup: its title lit in the border, a ✕ that closes it.
     let bgm = t.card;
-    fill(buf, r, bgm);
     hit(app, r, HyHit::Noop);
-    let bar = Rect { height: 1, ..r };
-    fill(buf, bar, t.accent);
-    let ink = Style::default().fg(t.acc_ink).bg(t.accent);
-    put(buf, r.x + 2, r.y, &[seg(truncate(&m.title, (w - 9) as usize), ink.add_modifier(Modifier::BOLD))], r.right().saturating_sub(6));
-    put(buf, r.right().saturating_sub(5), r.y, &[seg("Esc", ink.add_modifier(Modifier::BOLD))], r.right());
+    let title = truncate(&m.title, (w - 10) as usize);
+    let mut c = super::hydra::Card::new(t, &title).lit(t.accent);
+    c.bg = bgm;
+    c.close = Some(HyHit::Close);
+    super::hydra::card(app, buf, r, &c, t);
+    let look = super::hydra::Look::of(&app.cfg.ui);
     let mut yy = r.y + 2;
     for (i, (label, act)) in m.items.iter().enumerate() {
         if gap && danger(act) && i + 1 == m.items.len() {
@@ -545,7 +544,9 @@ pub(super) fn draw_menu(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, m: 
         let row = Rect { x: r.x + 1, y: yy, width: w - 2, height: 1 };
         let on = i == m.sel || hovered(app, row);
         let bg = if on { t.hov } else { bgm };
-        fill(f.buffer_mut(), row, bg);
+        if on {
+            super::hydra::row_pill(look, f.buffer_mut(), row.x, yy, row.width, bg, bgm);
+        }
         if i == m.sel {
             put(f.buffer_mut(), row.x + 1, yy, &[seg("›", Style::default().fg(t.accent).bg(bg).add_modifier(Modifier::BOLD))], row.right());
         }

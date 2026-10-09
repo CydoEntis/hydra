@@ -301,6 +301,8 @@ pub(super) enum Drag {
     /// A session's row (moved yet?): dragged onto another in its group it takes that place,
     /// released where it was it opens.
     Session(TermId, bool),
+    /// A tab's pill (its index now): dragged onto another tab it takes that place.
+    Tab(usize),
 }
 
 /// The sidebar's width limits.
@@ -980,6 +982,8 @@ pub(super) enum HyHit {
     ConfirmYes,
     ConfirmNo,
     TabPick(usize),
+    /// The ✕ on the current tab's pill.
+    TabClose(usize),
     TabNew,
     /// Outside an overlay: closes it.
     Close,
@@ -1022,6 +1026,8 @@ pub(super) enum HyHit {
     MenuPick(usize),
     /// The sidebar's edge (drag to resize).
     SideEdge,
+    /// The sidebar's empty space: the keys go to it.
+    SideFocus,
     /// Install the newer seshi (in Settings › General).
     Update,
     /// The sidebar's "a actions".

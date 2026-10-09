@@ -490,12 +490,22 @@ impl App {
                                 self.hy_fresh();
                             }
                         }
+                        hydra::Drag::Tab(i) => {
+                            let over = self.hits.iter().rev().find(|(r, h)| r.contains(pos) && matches!(h, Hit::Hy(hydra::HyHit::TabPick(_)))).map(|(_, h)| *h);
+                            if let Some(Hit::Hy(hydra::HyHit::TabPick(j))) = over
+                                && j != i
+                            {
+                                let now = self.move_tab(i, j);
+                                self.hy.drag = Some(hydra::Drag::Tab(now));
+                            }
+                        }
                         hydra::Drag::Divider(i) => {
                             if let Some((r, horizontal, path)) = self.hy.dividers.get(i).cloned() {
-                                // The line sits two columns in from the left part's edge (the
-                                // middle of the gutter): put it under the pointer.
+                                // The line sits in the gap after the left card (as wide as the
+                                // gap setting): put it under the pointer.
+                                let gap = hydra::Look::of(&self.cfg.ui).gap.max(1);
                                 let f = if horizontal {
-                                    (m.column + 2).saturating_sub(r.x) as f32 / r.width.max(1) as f32
+                                    (m.column + gap).saturating_sub(r.x) as f32 / r.width.max(1) as f32
                                 } else {
                                     (m.row + 1).saturating_sub(r.y) as f32 / r.height.max(1) as f32
                                 };
@@ -533,6 +543,14 @@ impl App {
                 }
                 _ => {}
             }
+        }
+        // A middle click on a tab closes it, as in a browser.
+        if m.kind == MouseEventKind::Down(MouseButton::Middle)
+            && let Some(Hit::Hy(hydra::HyHit::TabPick(i))) = self.hits.iter().rev().find(|(r, _)| r.contains(pos)).map(|(_, h)| *h)
+        {
+            self.close_tab(i);
+            self.dirty = true;
+            return;
         }
         // Some terminals only report the release of a right click: open on whichever comes
         // first.
@@ -592,6 +610,10 @@ impl App {
                 return;
             }
             if let Some(h @ Hit::Hy(hh)) = hit {
+                // A tab's pill may be dragged to another tab's place.
+                if let hydra::HyHit::TabPick(i) = hh {
+                    self.hy.drag = Some(hydra::Drag::Tab(i));
+                }
                 let double = self.last_click.is_some_and(|(prev, at)| prev == h && at.elapsed() < DOUBLE_CLICK);
                 self.last_click = Some((h, Instant::now()));
                 if matches!(self.mode, Mode::Prefix { .. } | Mode::Side) {

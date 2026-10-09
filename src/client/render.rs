@@ -9,7 +9,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget};
+use ratatui::widgets::{Paragraph, Widget};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// The smallest window seshi draws into (below it, a note to make it bigger).
@@ -23,6 +23,7 @@ pub fn draw(app: &mut App, f: &mut Frame) {
     let area = f.area();
     let t = app.theme.clone();
     set_palette(t.ansi, t.ansi.map(|_| t.card2));
+    super::hydra::set_round(app.cfg.ui.pill_caps);
     // The terminal's own background (its window padding) matches ours while we run.
     if let Color::Rgb(r, g, b) = t.bg
         && app.osc_bg != Some(t.bg)
@@ -391,15 +392,6 @@ pub(super) fn centered(area: Rect, w: u16, h: u16) -> Rect {
     Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h }
 }
 
-fn overlay_block<'a>(t: &crate::theme::Theme, title: &'a str) -> Block<'a> {
-    Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(t.accent))
-        .style(Style::default().bg(t.sidebar_bg).fg(t.fg))
-        .title(Span::styled(format!(" {title} "), Style::default().fg(t.accent).add_modifier(Modifier::BOLD)))
-}
-
 fn draw_picker(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme, query: &str, sel: usize, commands: bool) {
     if commands {
         let items = app.pick_items(query, true);
@@ -407,10 +399,10 @@ fn draw_picker(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::Theme
     }
     let items = app.pick_items(query, commands);
     let r = centered(area, 80, 22);
-    f.render_widget(Clear, r);
-    let block = overlay_block(t, if commands { "command palette" } else { "jump to" });
-    let inner = block.inner(r);
-    f.render_widget(block, r);
+    let mut c = super::hydra::Card::new(t, "jump to").lit(t.accent);
+    c.bg = t.card;
+    let inside = super::hydra::card(app, f.buffer_mut(), r, &c, t);
+    let inner = Rect { x: inside.x + 1, width: inside.width.saturating_sub(2), ..inside };
     let input = Line::from(vec![Span::styled("› ", Style::default().fg(t.accent)), Span::raw(query.to_string())]);
     f.render_widget(Paragraph::new(input), Rect { height: 1, ..inner });
     f.set_cursor_position(Position::new(inner.x + 2 + query.width() as u16, inner.y));

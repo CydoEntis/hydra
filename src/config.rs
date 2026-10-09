@@ -95,7 +95,7 @@ pub struct Ui {
     pub panes: String,
     /// Card corners: "rounded", or "square" for fonts that draw rounded corners badly.
     pub corners: String,
-    /// Space between floating cards: "0", "1" or "2" rows (twice as many columns side by side).
+    /// Space between floating cards: "0", "1" or "2" rows stacked (and columns side by side).
     pub gap: String,
     /// How far unfocused panes fade toward their background: "off", "subtle", "40%", "60%".
     pub dim: String,

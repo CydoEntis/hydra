@@ -79,7 +79,7 @@ pub(in crate::client) fn draw_new_pane(app: &mut App, f: &mut Frame, area: Rect,
             } else {
                 Style::default().bg(t.btn).fg(t.text)
             };
-            put(buf, x, y, &[seg(txt.clone(), st)], r.right());
+            put(buf, x, y, &chip(it, st), r.right());
             hit(app, cr, mk(i));
             x += txt.width() as u16 + 1;
         }

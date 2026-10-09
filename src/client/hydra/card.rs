@@ -7,6 +7,32 @@ use super::*;
 pub(in crate::client) const CAP_L: &str = "\u{e0b6}";
 pub(in crate::client) const CAP_R: &str = "\u{e0b4}";
 
+/// Round pill ends (the `ui.pill_caps` setting), for drawing that has no `Look` at hand.
+static ROUND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Set once a frame from the settings.
+pub(in crate::client) fn set_round(on: bool) {
+    ROUND.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A pill's two ends in `bg`: half-circles that keep the ground under them, or plain cells
+/// of `bg` (square ends) without a Nerd Font.
+pub(in crate::client) fn ends(bg: Color) -> (Seg, Seg) {
+    if ROUND.load(std::sync::atomic::Ordering::Relaxed) {
+        let st = Style::default().fg(bg);
+        (seg(CAP_L, st), seg(CAP_R, st))
+    } else {
+        let st = Style::default().bg(bg);
+        (seg(" ", st), seg(" ", st))
+    }
+}
+
+/// `text` on a pill in the style's background, as wide as `" text "` would be.
+pub(in crate::client) fn chip(text: &str, st: Style) -> Vec<Seg> {
+    let (l, r) = ends(st.bg.unwrap_or(Color::Reset));
+    vec![l, seg(text, st), r]
+}
+
 /// How far the inside of an unfocused card fades toward its background at "40%" (the design's 42).
 const DIM_DEFAULT: f32 = 0.42;
 const DIM_SUBTLE: f32 = 0.2;
@@ -31,7 +57,7 @@ pub(in crate::client) fn state_color(t: &Theme, st: Status) -> Color {
 pub(in crate::client) struct Look {
     pub tiled: bool,
     pub rounded: bool,
-    /// Rows between stacked cards (columns side by side are twice this).
+    /// Rows between stacked cards, and columns between cards side by side.
     pub gap: u16,
     pub dim: f32,
     pub caps: bool,
@@ -131,8 +157,8 @@ pub(in crate::client) fn card(app: &mut App, buf: &mut Buffer, r: Rect, c: &Card
     if r.width < 4 || r.height < 2 {
         return Rect { width: 0, height: 0, ..r };
     }
-    fill(buf, r, c.bg);
-    let mut b = Style::default().fg(c.border).bg(t.bg);
+    fill(buf, Rect { x: r.x + 1, y: r.y + 1, width: r.width - 2, height: r.height - 2 }, c.bg);
+    let mut b = Style::default().fg(c.border);
     if c.bold {
         b = b.add_modifier(Modifier::BOLD);
     }
@@ -152,7 +178,7 @@ pub(in crate::client) fn card(app: &mut App, buf: &mut Buffer, r: Rect, c: &Card
     buf[(right, bottom)].set_symbol(br).set_style(b);
 
     // The title border: " title ─ sub ───── ● needs you ─ ✕ ─".
-    let desk = Style::default().bg(t.bg);
+    let desk = Style::default();
     let (l_x, r_x) = (x + 3, r.right().saturating_sub(4));
     let span = r_x.saturating_sub(l_x);
     let tag = |short: bool| -> Vec<Seg> {

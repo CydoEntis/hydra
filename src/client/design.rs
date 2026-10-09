@@ -129,16 +129,22 @@ pub(super) fn button(t: &Theme, label: &str, key: &str, kind: BtnKind, hovered: 
     };
     let bg = if hovered && kind != BtnKind::Primary { t.hov } else { bg };
     let bold = if kind == BtnKind::Ghost { Modifier::empty() } else { Modifier::BOLD };
-    let mut v = vec![seg(format!(" {label} "), Style::default().bg(bg).fg(fg).add_modifier(bold))];
-    if !key.is_empty() {
-        v.push(seg(format!("{key} "), Style::default().bg(bg).fg(kfg).add_modifier(Modifier::BOLD)));
+    // A pill: the same width as " Label key " was.
+    let (l, r) = super::hydra::ends(bg);
+    let mut v = vec![l];
+    if key.is_empty() {
+        v.push(seg(label.to_string(), Style::default().bg(bg).fg(fg).add_modifier(bold)));
+    } else {
+        v.push(seg(format!("{label} "), Style::default().bg(bg).fg(fg).add_modifier(bold)));
+        v.push(seg(key.to_string(), Style::default().bg(bg).fg(kfg).add_modifier(Modifier::BOLD)));
     }
+    v.push(r);
     v
 }
 
 /// A key drawn as a little keycap: the key on a raised ground.
-pub(super) fn keycap(t: &Theme, key: &str) -> Seg {
-    seg(format!(" {key} "), Style::default().bg(t.btn).fg(t.strong).add_modifier(Modifier::BOLD))
+pub(super) fn keycap(t: &Theme, key: &str) -> Vec<Seg> {
+    super::hydra::chip(key, Style::default().bg(t.btn).fg(t.strong).add_modifier(Modifier::BOLD))
 }
 
 /// Keys as keycaps. Keys separated by two spaces are different sets; a set of four or more
@@ -156,7 +162,7 @@ pub(super) fn keycaps(t: &Theme, keys: &str, gap_bg: Color) -> Vec<Seg> {
             if gi > 0 || ci > 0 {
                 out.push(seg(" ", Style::default().bg(gap_bg)));
             }
-            out.push(keycap(t, c));
+            out.extend(keycap(t, c));
         }
     }
     out
@@ -169,7 +175,7 @@ pub(super) fn cap_hints(t: &Theme, bg: Color, pairs: &[(&str, &str)]) -> Vec<Seg
         if i > 0 {
             out.push(seg("   ", Style::default().bg(bg)));
         }
-        out.push(keycap(t, k));
+        out.extend(keycap(t, k));
         out.push(seg(format!(" {what}"), Style::default().bg(bg).fg(t.muted)));
     }
     out
@@ -205,22 +211,12 @@ pub(super) fn state_label(s: Status) -> &'static str {
 
 /// A title bar: name + location on the left, the given segments on the right.
 pub(super) fn title_bar(buf: &mut Buffer, r: Rect, t: &Theme, left: &[Seg], right: &[Seg], focus: bool) {
-    let bg = if focus { t.accent } else { t.sidebar_bg };
+    let bg = t.bg;
     fill(buf, Rect { height: 1, ..r }, bg);
-    let ink = |segs: &[Seg]| -> Vec<Seg> {
-        segs.iter()
-            .map(|(s, st)| {
-                let mut st = st.bg(bg);
-                if focus {
-                    st = st.fg(t.acc_ink);
-                }
-                (s.clone(), st)
-            })
-            .collect()
-    };
+    let ink = |segs: &[Seg], c: Color| -> Vec<Seg> { segs.iter().map(|(s, st)| (s.clone(), st.bg(bg).fg(c))).collect() };
     let rw = segs_width(right);
-    put(buf, r.x + 1, r.y, &ink(left), r.right().saturating_sub(rw + 2));
-    put(buf, r.right().saturating_sub(rw), r.y, &ink(right), r.right());
+    put(buf, r.x + 1, r.y, &ink(left, if focus { t.accent } else { t.strong }), r.right().saturating_sub(rw + 2));
+    put(buf, r.right().saturating_sub(rw), r.y, &ink(right, t.muted), r.right());
 }
 
 // ---- views that replace the pane area ------------------------------------------------------
@@ -809,8 +805,14 @@ pub(super) fn control(app: &App, t: &Theme, row: &SRow, v: &SettingsView, select
                 }
                 Kind::Key => {
                     let k = super::modal::display(cfg, s).replace("C-", "Ctrl+");
-                    let caps: Vec<Seg> = k.split('+').map(|p| keycap(t, p)).flat_map(|c| [c, seg("+", Style::default().fg(t.muted))]).collect();
-                    caps[..caps.len().saturating_sub(1)].to_vec()
+                    let mut caps: Vec<Seg> = Vec::new();
+                    for (i, p) in k.split('+').enumerate() {
+                        if i > 0 {
+                            caps.push(seg("+", Style::default().fg(t.muted)));
+                        }
+                        caps.extend(keycap(t, p));
+                    }
+                    caps
                 }
                 Kind::Text | Kind::Folder | Kind::Program(_) => {
                     if selected && let Some(e) = &v.editing {

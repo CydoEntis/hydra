@@ -21,12 +21,12 @@ pub(in crate::client) struct Grid {
     pub edge: Rect,
 }
 
-/// The floating grid: a margin of 2 columns and 1 row, the sidebar card the full height, a
-/// 2-column gap, then the tab row one row down and the pane cards below a row of air. Tiled
+/// The floating grid: a margin of a column and a row, the sidebar card the full height, a
+/// column of gap, then the tab row one row down and the pane cards below a row of air. Tiled
 /// packs it all edge to edge.
 pub(in crate::client) fn grid(app: &App, area: Rect) -> Grid {
     let look = Look::of(&app.cfg.ui);
-    let (mx, my, gx) = if look.tiled { (0, 0, 0) } else { (2, 1, 2) };
+    let (mx, my, gx) = if look.tiled { (0, 0, 0) } else { (1, 1, 1) };
     let inner = Rect { x: area.x + mx, y: area.y + my, width: area.width.saturating_sub(2 * mx), height: area.height.saturating_sub(2 * my) };
     let sw = if app.sidebar {
         app.hy.saved.side_w.unwrap_or_else(|| side_w(area.width)).clamp(SIDE_MIN, SIDE_MAX).min(inner.width / 2)
@@ -92,9 +92,13 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
     {
         let buf = f.buffer_mut();
         dim_all(buf, area, t);
-        let inner = tool_rect(area);
-        fill(buf, inner, t.bg);
+        let frame = tool_rect(area);
         hit(app, area, HyHit::Noop);
+        // A lit card around it; the tool draws inside with a cell of air.
+        let mut c = Card::new(t, "").lit(t.accent);
+        c.bg = t.bg;
+        let inside = card(app, buf, frame, &c, t);
+        let inner = Rect { x: inside.x + 1, width: inside.width.saturating_sub(2), ..inside };
         match view {
             crate::client::View::Files(v) => {
                 crate::client::design::draw_files(app, buf, inner, t, &v);
@@ -235,6 +239,7 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     }
     card(app, buf, r, &c, t);
     app.hy.side_rect = r;
+    hit(app, r, HyHit::SideFocus);
     let small = buf.area.width < NARROW;
     let lines = side_lines(app, model, t);
     let shown: Vec<TermId> = app.hy.tabs.get(app.hy.tab).map(|t| t.layout.leaves()).unwrap_or_default();
@@ -274,16 +279,12 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     app.hy.proj_keys = model.iter().map(|p| p.key.clone()).collect();
     let tk = k(app, &Action::Talk);
 
-    // The open session (or the keyboard's row) is a full-width pill; the mouse's a lighter one.
-    let hover = blend(pb, t.text, 0.08);
+    // One row lit at a time: the one under the mouse; with the mouse elsewhere, the keyboard's
+    // row or the session you're in (its bold name still says which while you point around).
+    let pointing = hovered(app, Rect { x: x0 + 2, y: top, width: w.saturating_sub(4), height: list_h as u16 });
     let shade = |app: &App, term: TermId, row: Rect| -> Option<Color> {
-        if Some(term) == focus || (focused_side && app.hy.cursor == Some(term)) {
-            Some(t.hov)
-        } else if hovered(app, row) {
-            Some(hover)
-        } else {
-            None
-        }
+        let mine = if focused_side { app.hy.cursor == Some(term) } else { Some(term) == focus };
+        (hovered(app, row) || (!pointing && mine)).then_some(t.hov)
     };
     for (i, line) in lines.iter().enumerate().skip(scroll).take(list_h) {
         let y = top + (i - scroll) as u16;
@@ -293,13 +294,14 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 let p = &model[*pi];
                 let open = !app.hy.saved.closed.contains(&format!("p:{}", p.key));
                 let on = focused_side && app.hy.cursor_proj.as_ref() == Some(&p.key);
-                let hov = hovered(app, row) || on;
-                let bg = if on { t.hov } else if hov { hover } else { pb };
+                let hov = hovered(app, row) || (on && !pointing);
+                let bg = if hov { t.hov } else { pb };
                 if bg != pb {
                     row_pill(look, buf, row.x, y, row.width, bg, pb);
                 }
                 let s = Style::default().bg(bg);
-                let mut left = vec![seg("● ", s.fg(p.color)), seg(p.name.clone(), s.fg(t.strong).add_modifier(Modifier::BOLD))];
+                // Its fold arrow, in the project's colour.
+                let mut left = vec![seg(if open { "▾ " } else { "▸ " }, s.fg(p.color).add_modifier(Modifier::BOLD)), seg(p.name.clone(), s.fg(t.strong).add_modifier(Modifier::BOLD))];
                 if p.fresh {
                     left.push(seg(" ", s));
                     left.push(seg(" NEW ", Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)));
@@ -407,7 +409,7 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                     vec![]
                 };
                 // The name comes first: when it doesn't fit, the branch gives way (the age stays).
-                let name_x = x0 + 5;
+                let name_x = x0 + 7;
                 let room = right.saturating_sub(name_x) as usize;
                 let tail = if s.is_agent && !sel && pr.is_none() && !s.asleep && s.resume_at.is_none() && !small && segs_width(&left) as usize + segs_width(&tail) as usize + 2 > room {
                     let col = if s.status == Status::Blocked { t.blocked } else { t.muted };
@@ -416,7 +418,7 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                     tail
                 };
                 let tw = segs_width(&tail);
-                put(buf, x0 + 3, y, &[seg(gl, gs)], name_x);
+                put(buf, x0 + 5, y, &[seg(gl, gs)], name_x);
                 put(buf, name_x, y, &left, right.saturating_sub(tw + 1));
                 put(buf, right.saturating_sub(tw), y, &tail, right);
                 hit(app, row, HyHit::Session(s.term));
@@ -431,12 +433,12 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 if small {
                     continue;
                 }
-                put(buf, x0 + 5, y, &[seg(truncate(text, w.saturating_sub(9) as usize), Style::default().bg(pb).fg(*c).add_modifier(Modifier::ITALIC))], right);
+                put(buf, x0 + 7, y, &[seg(truncate(text, w.saturating_sub(11) as usize), Style::default().bg(pb).fg(*c).add_modifier(Modifier::ITALIC))], right);
                 hit(app, row, HyHit::Session(*term));
             }
             Line::Race(id) => {
                 let Some(race) = app.hy.saved.races.iter().find(|r| r.id == *id).cloned() else { continue };
-                let bg = if hovered(app, row) { hover } else { pb };
+                let bg = if hovered(app, row) { t.hov } else { pb };
                 if bg != pb {
                     row_pill(look, buf, row.x, y, row.width, bg, pb);
                 }
@@ -456,7 +458,7 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
             }
             // Nothing running: one click starts a shell there.
             Line::Empty(pi) => {
-                let bg = if hovered(app, row) { hover } else { pb };
+                let bg = if hovered(app, row) { t.hov } else { pb };
                 if bg != pb {
                     row_pill(look, buf, row.x, y, row.width, bg, pb);
                 }
@@ -509,22 +511,35 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
         put(buf, x0 + 3, fy, &segs, bx);
         return;
     }
-    let lit = |app: &App, hr: Rect, segs: Vec<Seg>| -> Vec<Seg> { if hovered(app, hr) { segs.into_iter().map(|(x, st)| (x, st.bg(t.hov))).collect() } else { segs } };
-    let actions = vec![seg(k(app, &Action::Actions), hot), seg(" actions", plain.fg(t.text))];
-    let ar = Rect { x: x0 + 3, y: fy, width: segs_width(&actions), height: 1 };
-    let actions = lit(app, ar, actions);
-    put(buf, ar.x, fy, &actions, right);
-    hit(app, ar, HyHit::Actions);
-    let mut set = vec![seg(k(app, &Action::Settings), hot), seg(if w < 30 { " prefs" } else { " settings" }, plain.fg(t.text))];
+    // A key that's its word's first letter is lit in the word ("actions"), else in front.
+    let label = |key: String, word: &str| -> Vec<Seg> {
+        match word.strip_prefix(key.as_str()) {
+            Some(rest) => vec![seg(key.clone(), hot), seg(rest.to_string(), plain.fg(t.text))],
+            None => vec![seg(key, hot), seg(format!(" {word}"), plain.fg(t.text))],
+        }
+    };
+    // Pointed at: a pill a cell wider than the words on each side.
+    let show = |app: &mut App, buf: &mut Buffer, x: u16, segs: Vec<Seg>, h: HyHit| {
+        let w = segs_width(&segs);
+        let pad = Rect { x: x - 1, y: fy, width: w + 2, height: 1 };
+        if hovered(app, pad) {
+            put(buf, pad.x, fy, &pill(look, segs, t.hov, pb), pad.right());
+        } else {
+            put(buf, x, fy, &segs, x + w);
+        }
+        hit(app, pad, h);
+    };
+    let actions = label(k(app, &Action::Actions), "actions");
+    let aw = segs_width(&actions);
+    show(app, buf, x0 + 3, actions, HyHit::Actions);
+    let mut set = label(k(app, &Action::Settings), if w < 30 { "prefs" } else { "settings" });
     if app.update_available.is_some() {
         set.push(seg(" ●", hot));
     }
     let sw = segs_width(&set);
-    let sr = Rect { x: right.saturating_sub(sw), y: fy, width: sw, height: 1 };
-    if sr.x > ar.right() {
-        let set = lit(app, sr, set);
-        put(buf, sr.x, fy, &set, right);
-        hit(app, sr, HyHit::Settings);
+    let sx = right.saturating_sub(sw);
+    if sx > x0 + 3 + aw + 2 {
+        show(app, buf, sx, set, HyHit::Settings);
     }
 }
 
@@ -569,8 +584,8 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         draw_new_tab(app, f, area, t, &nt);
         return;
     }
-    // Between cards: `gap` rows stacked, twice that in columns side by side.
-    let (gap_x, gap_y) = (look.gap * 2, look.gap);
+    // Between cards: `gap` rows stacked, as many columns side by side.
+    let (gap_x, gap_y) = (look.gap, look.gap);
     let inset = |r: Rect| -> Rect {
         let mut r = r;
         if r.right() < area.right() {
@@ -616,14 +631,14 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         // column is hard to hit); it lights up while you point at it or drag.
         let grab = if horizontal {
             let g = gap_x.max(1);
-            Rect { x: div.x.saturating_sub(g), width: g + 1, ..div }
+            Rect { x: div.x.saturating_sub(g), width: g + 2, ..div }
         } else {
             let h = gap_y.max(1);
             Rect { y: div.y.saturating_sub(h), height: h, ..div }
         };
         if app.hy.drag == Some(Drag::Divider(i)) || hovered(app, grab) {
             let buf = f.buffer_mut();
-            let (lx, ly) = (grab.x + grab.width / 2, grab.y + grab.height / 2);
+            let (lx, ly) = (grab.x + 1, grab.y + grab.height / 2);
             for yy in grab.top()..grab.bottom() {
                 for xx in grab.left()..grab.right() {
                     let on = if horizontal { xx == lx } else { yy == ly };
@@ -746,6 +761,10 @@ pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, 
             }
             segs.push(seg(format!(" {}", glyph(app, st)), gs));
         }
+        let closable = on && tabs.len() > 1;
+        if closable {
+            segs.push(seg("  ✕", Style::default().fg(t.acc_ink)));
+        }
         segs.push(seg(" ", Style::default()));
         let bg = if on { t.accent } else { pb };
         let segs = pill(look, segs, bg, t.bg);
@@ -757,6 +776,10 @@ pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, 
         let segs = if !on && hovered(app, cr) { segs.into_iter().map(|(s, st)| (s, if st.bg == Some(pb) { st.bg(t.hov) } else if st.fg == Some(pb) { st.fg(t.hov) } else { st })).collect() } else { segs };
         put(buf, x, r.y, &segs, rx);
         hit(app, cr, HyHit::TabPick(i));
+        if closable {
+            // The ✕ sits before the pill's pad and end cap.
+            hit(app, Rect { x: x + w - 3, y: r.y, width: 1, height: 1 }, HyHit::TabClose(i));
+        }
         x += w + 1;
     }
     // A tab being added: lit, named as you type.

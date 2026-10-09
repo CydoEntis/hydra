@@ -56,9 +56,9 @@ pub(in crate::client) fn panel(app: &mut App, buf: &mut Buffer, area: Rect, w: u
 pub(in crate::client) fn sel_row(app: &App, buf: &mut Buffer, r: Rect, y: u16, sel: bool, t: &Theme) -> Color {
     let row = Rect { x: r.x + 1, y, width: r.width.saturating_sub(2), height: 1 };
     if sel || hovered(app, row) {
-        fill(buf, row, t.hov);
+        row_pill(Look::of(&app.cfg.ui), buf, row.x, y, row.width, t.hov, t.card);
         if sel {
-            put(buf, r.x + 1, y, &[seg(">", Style::default().fg(t.accent).bg(t.hov).add_modifier(Modifier::BOLD))], r.right());
+            put(buf, r.x + 2, y, &[seg("›", Style::default().fg(t.accent).bg(t.hov).add_modifier(Modifier::BOLD))], r.right());
         }
         t.hov
     } else {
@@ -340,7 +340,11 @@ pub(in crate::client) fn query_list(app: &mut App, buf: &mut Buffer, area: Rect,
 /// mouse) and the selection marker. Returns the style to draw its text with.
 pub(in crate::client) fn list_row(app: &App, buf: &mut Buffer, rr: Rect, on: bool, t: &Theme) -> Style {
     let bg = if on || hovered(app, rr) { t.hov } else { t.card };
-    fill(buf, rr, bg);
+    if bg == t.card {
+        fill(buf, rr, bg);
+    } else {
+        row_pill(Look::of(&app.cfg.ui), buf, rr.x, rr.y, rr.width, bg, t.card);
+    }
     let st = Style::default().bg(bg);
     if on {
         put(buf, rr.x + 1, rr.y, &[seg("›", st.fg(t.accent).add_modifier(Modifier::BOLD))], rr.right());

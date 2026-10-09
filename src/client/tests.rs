@@ -173,15 +173,15 @@ mod hydra_tests {
         // The floating grid: a row of margin, the sidebar card the full height two columns in,
         // tab pills one row down, the cards below a row of air.
         assert!(lines[0].trim().is_empty(), "a row of margin on top");
-        assert!(lines[1].starts_with("  ╭─"), "the sidebar card, two columns in: {}", lines[1]);
+        assert!(lines[1].starts_with(" ╭─"), "the sidebar card, a column in: {}", lines[1]);
         assert!(lines[2].contains(" 1 claude") && lines[2].contains(" + ") && lines[2].contains('▯'), "tab pills, + and the layout chip: {}", lines[2]);
         assert!(lines[4].contains("╭─ claude ─ Fix flaky checkout test · shop-api · main") && lines[4].contains("● needs you ─ ✕ ─"), "title, project · branch, state and ✕ set into the card's border: {}", lines[4]);
         assert!(lines[6].contains("> fix the flaky checkout test"), "the terminal a row below the border, inset");
         assert!(text.contains("shop-api · ⎇ main"), "folder and branch in the card's footer");
         assert!(!text.contains("needs you   a inbox"), "no app footer");
-        assert!(text.contains("a actions") && text.contains(", settings"), "the sidebar's foot: actions and settings");
+        assert!(text.contains("actions") && text.contains(", settings"), "the sidebar's foot: actions (its key lit in the word) and settings");
         // Projects and their sessions, nothing in between.
-        assert!(text.contains("● shop-api") && text.contains("● 1"), "a project: its dot and name, what needs you on the right");
+        assert!(text.contains("▾ shop-api") && text.contains("● 1"), "a project: its fold arrow and name, what needs you on the right");
         assert!(!text.contains("── Agents") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
         assert!(!text.contains("main folder"), "no 'main folder' wording");
         assert!(!text.contains("+ open a project"), "opening a project is in the header now");
@@ -1147,7 +1147,7 @@ mod hydra_tests {
     fn actions_list_every_command_with_its_key() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains("a actions"));
+        assert!(o.contains("actions"));
         let at = app.hits.iter().find_map(|(r, h)| (*h == Hit::Hy(hydra::HyHit::Actions)).then_some((r.x, r.y))).expect("a actions is clickable");
         app.on_mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: at.0, row: at.1, modifiers: KeyModifiers::NONE });
         assert!(matches!(app.mode, Mode::Actions { sel: 0 }));
@@ -1199,10 +1199,73 @@ mod hydra_tests {
         show(&o);
         let lines: Vec<&str> = o.lines().collect();
         // A 26-column sidebar card, no right-hand meta or question lines.
-        assert!(lines[1].starts_with("  ╭────────────────────────╮"), "a slim sidebar: {}", lines[1]);
+        assert!(lines[1].starts_with(" ╭────────────────────────╮"), "a slim sidebar: {}", lines[1]);
         let side: String = lines.iter().map(|l| l.chars().take(30).collect::<String>() + "\n").collect();
         assert!(!side.contains("main · 3m") && !side.contains("Run npm test"), "no meta or questions in the slim sidebar: {side}");
         assert!(o.contains(", prefs"), "settings says prefs when narrow");
+    }
+
+    #[test]
+    fn tabs_close_rename_and_reorder_with_the_mouse() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        app.out = tx;
+        app.hy.tabs.clear();
+        app.hy_place(1, None);
+        app.hy.new_tab = Some((Instant::now(), 1));
+        app.hy_place(3, Some(1));
+        app.hy.new_tab = Some((Instant::now(), 1));
+        app.hy_place(2, Some(3));
+        assert_eq!(app.session_tabs().len(), 3, "claude's session with three tabs");
+        draw(&mut app, 160, 45);
+        let pill = |app: &App, i: usize| app.hits.iter().find_map(|(r, h)| (*h == Hit::Hy(hydra::HyHit::TabPick(i))).then_some((r.x + 2, r.y))).unwrap();
+        let mouse = |app: &mut App, kind: MouseEventKind, (x, y): (u16, u16)| {
+            app.on_mouse(MouseEvent { kind, column: x, row: y, modifiers: KeyModifiers::NONE });
+            draw(app, 160, 45);
+        };
+        // The current tab carries a ✕.
+        assert!(app.hits.iter().any(|(_, h)| matches!(h, Hit::Hy(hydra::HyHit::TabClose(_)))), "a ✕ on the current tab");
+        // Double-click: rename it in its pill.
+        let first = app.session_tabs()[0];
+        let at = pill(&app, first);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), at);
+        let at = pill(&app, first);
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), at);
+        let at = pill(&app, first);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), at);
+        let at = pill(&app, first);
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), at);
+        assert!(matches!(&app.mode, Mode::NewTab(nt) if nt.tab == Some(first)), "renaming the first tab");
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        // Drag the first onto the third: it moves there, and stays the one you're on.
+        let (a, c) = (app.session_tabs()[0], app.session_tabs()[2]);
+        let moved = app.hy.tabs[a].focus;
+        let at = pill(&app, a);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), at);
+        let at = pill(&app, c);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), at);
+        let at = pill(&app, c);
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), at);
+        let order: Vec<TermId> = app.session_tabs().iter().map(|i| app.hy.tabs[*i].focus).collect();
+        assert_eq!(order.last(), Some(&moved), "dragged to the end: {order:?}");
+        assert_eq!(app.hy.tabs[app.hy.tab].focus, moved, "still the tab you're on");
+        // A middle click closes a tab (a shell: no second click needed).
+        let shell_tab = app.session_tabs().into_iter().find(|i| app.hy.tabs[*i].focus == 3).unwrap();
+        let at = pill(&app, shell_tab);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Middle), at);
+        let closed = std::iter::from_fn(|| rx.try_recv().ok()).any(|m| matches!(m, crate::protocol::ClientMsg::Command(crate::protocol::Command::ClosePane { term: 3 })));
+        assert!(closed, "the shell's pane is closed");
+    }
+
+    #[test]
+    fn clicking_the_sidebar_gives_it_the_keys() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        draw(&mut app, 160, 45);
+        let side = app.hy.side_rect;
+        // Empty space near the bottom of the sidebar card, above its foot.
+        let at = (side.x + 4, side.bottom() - 7);
+        app.on_mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: at.0, row: at.1, modifiers: KeyModifiers::NONE });
+        assert_eq!(app.mode, Mode::Side, "the sidebar has the keys");
     }
 
     #[test]
@@ -1528,7 +1591,7 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         let at = |s: &str| o.find(s).unwrap_or_else(|| panic!("{s} in the sidebar"));
-        assert!(at("● shop-api") < at("● notes") && at("● notes") < at("● build-box"), "agents, then terminals, then other machines");
+        assert!(at("▾ shop-api") < at("▾ notes") && at("▾ notes") < at("▾ build-box"), "agents, then terminals, then other machines");
         assert!(!o.contains("── Agents") && !o.contains("SESSIONS"), "no headings over them");
     }
 
@@ -1783,7 +1846,7 @@ mod hydra_tests {
             let buf = term.backend().buffer().clone();
             let y = (0..30).find(|&y| (0..120).any(|x| buf[(x, y)].symbol() == "✕")).unwrap();
             let x = (0..120).rev().find(|&x| buf[(x, y)].symbol() == "✕").unwrap();
-            let side = (1..29).filter(|&y| buf[(2u16, y)].fg == app.theme.accent).count();
+            let side = (1..29).filter(|&y| buf[(1u16, y)].fg == app.theme.accent).count();
             (buf[(x + 2, y)].fg, side)
         };
         let (pane, side) = borders(&mut app);

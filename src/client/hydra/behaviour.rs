@@ -137,6 +137,30 @@ impl App {
         }
     }
 
+    /// Move tab `from` to where tab `to` is (both of the same session); returns where it is
+    /// now. The tab you're on stays the one you're on.
+    pub(in crate::client) fn move_tab(&mut self, from: usize, to: usize) -> usize {
+        let n = self.hy.tabs.len();
+        if from >= n || to >= n || from == to || self.hy.tabs[from].owner != self.hy.tabs[to].owner {
+            return from;
+        }
+        let current = self.hy.tab;
+        let tab = self.hy.tabs.remove(from);
+        self.hy.tabs.insert(to, tab);
+        // Every index between the two shifted by one; the one you're on follows its tab.
+        self.hy.tab = if current == from {
+            to
+        } else if from < to && current > from && current <= to {
+            current - 1
+        } else if to < from && current >= to && current < from {
+            current + 1
+        } else {
+            current
+        };
+        self.hy.close_armed = None;
+        to
+    }
+
     /// Stop showing `t` beside the others (it keeps running). False when it's on its own.
     pub(in crate::client) fn hy_unshow(&mut self, t: TermId) -> bool {
         let Some(i) = self.hy.tabs.iter().position(|tab| tab.layout.contains(t)) else { return false };
@@ -1157,8 +1181,14 @@ impl App {
                     let to = tab.focus;
                     self.hy.tab = i;
                     self.cmd(Command::FocusPane { term: to });
+                    // Double-click: rename it in its pill.
+                    if double {
+                        self.rename_tab_start();
+                    }
                 }
             }
+            HyHit::TabClose(i) => self.close_tab(i),
+            HyHit::SideFocus => self.act(Action::BrowseTree),
             HyHit::TabNew => self.act(Action::NewTab),
             HyHit::Actions => self.act(Action::Actions),
             HyHit::ActionRow(i) => self.actions_run(i),
