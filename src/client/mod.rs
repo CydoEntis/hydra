@@ -430,6 +430,7 @@ async fn run_async(opts: Options) -> Result<Option<PathBuf>> {
         let _ = execute!(std::io::stdout(), event::EnableMouseCapture);
     }
     let _ = execute!(std::io::stdout(), event::EnableBracketedPaste, event::EnableFocusChange);
+    enhance_keyboard();
 
     let result = app.event_loop(&mut terminal, &mut reader, &mut bg_rx).await;
 
@@ -444,8 +445,24 @@ async fn run_async(opts: Options) -> Result<Option<PathBuf>> {
     Ok(None)
 }
 
-/// Undo everything seshi turned on in the terminal: mouse, paste and focus reporting, its
-/// cursor shape and background colour, the alternate screen and raw mode. Safe to run twice.
+/// Whether seshi asked the terminal for the kitty keyboard protocol (so it gives it back).
+static KEYBOARD_ENHANCED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Without the kitty keyboard protocol a terminal sends Shift+Enter as a plain Enter, which an
+/// agent reads as "send": ask for it where the terminal has it. (Windows reports modifiers
+/// on its own.)
+fn enhance_keyboard() {
+    #[cfg(not(windows))]
+    if crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false)
+        && execute!(std::io::stdout(), event::PushKeyboardEnhancementFlags(event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)).is_ok()
+    {
+        KEYBOARD_ENHANCED.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Undo everything seshi turned on in the terminal: mouse, paste and focus reporting, the
+/// keyboard protocol, its cursor shape and background colour, the alternate screen and raw
+/// mode. Safe to run twice.
 fn restore_terminal() {
     let _ = execute!(
         std::io::stdout(),
@@ -453,6 +470,9 @@ fn restore_terminal() {
         event::DisableBracketedPaste,
         event::DisableFocusChange
     );
+    if KEYBOARD_ENHANCED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        let _ = execute!(std::io::stdout(), event::PopKeyboardEnhancementFlags);
+    }
     // Give the terminal its own background, cursor and mouse pointer back.
     let _ = execute!(std::io::stdout(), crossterm::cursor::SetCursorStyle::DefaultUserShape);
     {

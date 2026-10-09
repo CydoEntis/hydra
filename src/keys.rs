@@ -865,6 +865,8 @@ mod tests {
         assert!(wants_win32(&k(KeyCode::Enter, KeyModifiers::CONTROL)));
         assert!(!wants_win32(&k(KeyCode::Char('c'), KeyModifiers::CONTROL)), "Ctrl+C stays ^C");
         assert!(!wants_win32(&k(KeyCode::Enter, KeyModifiers::SHIFT)), "Shift+Enter stays the agents' newline");
+        assert_eq!(encode(&k(KeyCode::Enter, KeyModifiers::SHIFT), false), b"\x1b\r".to_vec(), "Shift+Enter: a newline, not send");
+        assert_eq!(encode(&k(KeyCode::Enter, KeyModifiers::NONE), false), b"\r".to_vec());
         assert!(!wants_win32(&k(KeyCode::Char('@'), KeyModifiers::CONTROL | KeyModifiers::ALT)), "AltGr typing");
         assert_eq!(encode_win32(&k(KeyCode::Char('A'), cs)).unwrap(), b"\x1b[65;0;1;1;24;1_\x1b[65;0;1;0;24;1_".to_vec());
         assert_eq!(encode_win32(&k(KeyCode::Up, KeyModifiers::NONE)).unwrap(), b"\x1b[38;0;0;1;256;1_\x1b[38;0;0;0;256;1_".to_vec());
