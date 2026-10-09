@@ -153,10 +153,11 @@ Seshi is one binary that runs in two roles:
   on Windows, Unix socket elsewhere), receives snapshots and pane output, sends
   commands and keystrokes. Many clients can attach; any can detach.
 - **CLI subcommands** (`seshi send`, `seshi read`, `seshi wait`, `seshi worktree`,
-  `seshi doctor`, `seshi mcp`, …) talk to the same daemon.
+  `seshi doctor`, `seshi mcp`, `seshi proxy`, …) talk to the same daemon.
 
 External systems: the agent CLIs it runs (claude, codex, …) and their hook
-callbacks (`seshi hook`), `git` and `gh`, the OS
+callbacks (`seshi hook`), `git` and `gh`, `ssh`
+for remote machines (`--remote host` runs `ssh host seshi proxy`), the OS
 clipboard and notifications, and an MCP server (`seshi mcp`) agents use to talk to
 each other.
 

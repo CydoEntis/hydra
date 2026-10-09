@@ -236,7 +236,8 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     let look = Look::of(&app.cfg.ui);
     let pb = pane_bg(t);
     let focused_side = app.mode == Mode::Side;
-    let mut c = Card::new(t, "");
+    let host = crate::ipc::remote().map(|h| format!("⇄ {h}")).unwrap_or_default();
+    let mut c = Card::new(t, &host);
     if focused_side {
         c = c.lit(t.accent);
     }

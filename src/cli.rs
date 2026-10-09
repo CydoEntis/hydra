@@ -19,7 +19,7 @@ pub(crate) fn block_on<T>(f: impl std::future::Future<Output = Result<T>>) -> Re
 
 /// Send one message and wait for the reply.
 pub(crate) async fn request(msg: ClientMsg) -> Result<Reply> {
-    let (mut r, mut w) = ipc::open(false).await.context("couldn't reach the seshi server")?;
+    let (mut r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the seshi server" })?;
     ipc::send(&mut w, &msg).await?;
     loop {
         match ipc::recv_server(&mut r).await? {
@@ -285,7 +285,7 @@ fn wait_print(term: TermId, regex: Option<String>, timeout: u64, just_sent: bool
 pub fn send(pane: Option<TermId>, text: String, enter: bool) -> Result<()> {
     let term = resolve_pane(pane)?;
     block_on(async move {
-        let (_r, mut w) = ipc::open(false).await.context("couldn't reach the seshi server")?;
+        let (_r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the seshi server" })?;
         let data = if text.contains('\n') { format!("\x1b[200~{text}\x1b[201~") } else { text };
         ipc::send(&mut w, &ClientMsg::Input { term, data: data.into_bytes() }).await?;
         if enter {
@@ -308,7 +308,7 @@ pub fn send_keys(pane: Option<TermId>, keys: Vec<String>) -> Result<()> {
         chunks.push(crate::keys::encode(&ev, false));
     }
     block_on(async move {
-        let (_r, mut w) = ipc::open(false).await.context("couldn't reach the seshi server")?;
+        let (_r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the seshi server" })?;
         for data in chunks {
             ipc::send(&mut w, &ClientMsg::Input { term, data }).await?;
             // One key per beat, like a person typing; lets modes change between keys.
@@ -396,7 +396,7 @@ pub(crate) fn server_running() -> bool {
 }
 
 pub fn kill_server(forget: bool) -> Result<()> {
-    if !server_running() {
+    if ipc::remote().is_none() && !server_running() {
         if forget {
             crate::daemon::forget_session();
         }
@@ -655,7 +655,7 @@ pub fn move_to_worktree(branch: String) -> Result<()> {
         .ok_or_else(|| anyhow!("run this from inside a seshi pane (an agent running in seshi)"))?;
     let branch = Some(branch.trim().to_string()).filter(|b| !b.is_empty());
     block_on(async move {
-        let (mut r, mut w) = ipc::open(false).await.context("couldn't reach the seshi server")?;
+        let (mut r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the seshi server" })?;
         ipc::send(&mut w, &ClientMsg::Command(Command::MoveToWorktree { term, branch })).await?;
         loop {
             match ipc::recv_server(&mut r).await? {

@@ -451,6 +451,7 @@ seshi send -p 3 --wait "fix the bug"   # waits for the turn to end, prints the a
 seshi wait -p 3 [--regex "passed"]     # the turn ending, or text on the screen (exit 2: timeout)
 seshi worktree --move [name]           # run by an agent: move itself into a new worktree
 seshi doctor                           # check everything seshi relies on
+seshi --remote me@box                  # the UI here, agents on another machine (any command)
 ```
 
 `SESHI_SOCKET=name` runs a separate server, like `tmux -L`.
@@ -489,7 +490,15 @@ Hooks don't run until you allow them: run `seshi allow` in the repo (it shows th
 commands). If they change, they wait for `seshi allow` again, so a cloned repo can't run
 code on its own. A hook is stopped after 10 minutes.
 
+## Remote
+
+`seshi --remote me@box` runs the UI here and everything else there, over ssh (seshi must be
+installed on both; `SESHI_REMOTE_CMD` if it isn't on the far side's PATH, `SESHI_SSH="ssh -p
+2222"` for options). Panes, agents, worktrees and statuses work; views that read files (Files,
+Changes, find, branches) don't yet.
+
 ## Roadmap ideas
 
 - Restore scrollback contents after a restart, not just the layout
+- Files, Changes and find over `--remote`
 - Workspace templates

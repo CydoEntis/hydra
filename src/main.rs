@@ -26,6 +26,10 @@ use std::path::PathBuf;
 struct Args {
     /// Directory to open as a workspace (switches to it if already open).
     path: Option<PathBuf>,
+    /// Work on another machine over SSH (user@host): the UI here, agents there. Needs
+    /// seshi installed there too.
+    #[arg(long, global = true)]
+    remote: Option<String>,
     #[command(subcommand)]
     cmd: Option<Cmd>,
 }
@@ -196,6 +200,9 @@ enum Cmd {
     /// status line you had before.
     #[command(hide = true)]
     Statusline,
+    /// (Run by `--remote` over ssh) connect stdin/stdout to this machine's server.
+    #[command(hide = true)]
+    Proxy,
     /// (Run by a pane's shell before an agent starts) print the folder it should start in:
     /// a new worktree when it's started in a repo's main checkout, else nothing.
     #[command(hide = true)]
@@ -226,6 +233,10 @@ enum ConfigCmd {
 
 fn main() {
     let args = Args::parse();
+    if let Some(r) = &args.remote {
+        // SAFETY: set once at startup, before any thread is started.
+        unsafe { std::env::set_var("SESHI_REMOTE", r) };
+    }
     config::migrate_old_names();
     update::tidy();
     // `seshi <dir>` opens a directory; a typo'd subcommand shouldn't silently attach.
@@ -289,6 +300,7 @@ fn main() {
         Some(Cmd::Doctor) => cli::doctor(),
         Some(Cmd::Update { check, force }) => update::run(check, force),
         Some(Cmd::Allow { dir }) => cli::allow(dir),
+        Some(Cmd::Proxy) => cli::block_on(ipc::proxy()),
         Some(Cmd::DebugColors { pane }) => cli::debug_colors(pane),
         Some(Cmd::Sync { action, name }) => sync::command(action.as_deref(), name.as_deref()),
         Some(Cmd::TestAlert) => {

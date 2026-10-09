@@ -68,7 +68,7 @@ On hold (2026-10-05, the user's call): #31 package managers (AUR name and accoun
 Chosen 2026-10-09. Designs first: `docs/design-brief-v4.md` goes to the designer; nothing here is
 built before its design is in. Coming back (cut the same day, wanted after all): quick follow-up,
 tickets (GitHub, Linear, Plane), the queue, pull requests and Ship, dev server per worktree,
-checkpoints (off by default), SSH remotes, config sync. New, in this order: two agents touching
+checkpoints (off by default); SSH remotes and config sync are back already, as they were. New, in this order: two agents touching
 the same files, review and merge from the Inbox, why this status, today on the splash, alerts on
 your phone (ntfy, off by default).
 
@@ -80,6 +80,7 @@ Everything below is shipped on `dev` unless marked.
 - Daemon owns sessions; detach / reattach; many clients — shipped — `src/daemon/mod.rs`, ADR-0001
 - Sessions survive a daemon restart (agents resumed, commands re-run) — shipped — `src/daemon/persist.rs`, `restore` in `src/daemon/mod.rs`
 - Windows (ConPTY, named pipes, PowerShell folder tracking), macOS, Linux — shipped — `src/daemon/term.rs`, `src/ipc.rs`
+- SSH remotes (`--remote host`) — shipped — `src/ipc.rs` `connect_remote`
 
 **Agents**
 - Status detection: working / needs you / done (until seen) / idle, from screen patterns, OSC progress and agent hooks — shipped — `src/daemon/scan.rs`, `seshi hook` in `src/cli.rs`
@@ -121,6 +122,7 @@ Everything below is shipped on `dev` unless marked.
 - Releases and installers (Windows, macOS, Linux; checksums), `seshi update` and a daily update check — shipped — `.github/workflows/release.yml`, `install.sh`, `install.ps1`, `src/update.rs`
 - CI: test and clippy on Linux and Windows, a macOS check — shipped — `.github/workflows/ci.yml`
 - Config sync across machines (local file never synced) — shipped — `src/sync.rs`
+- SSH remotes (`--remote host`) — shipped — `src/ipc.rs` `connect_remote`
 - `seshi doctor` — shipped — `src/cli.rs`
 
 ## Out
