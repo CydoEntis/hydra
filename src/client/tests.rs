@@ -199,7 +199,7 @@ mod hydra_tests {
             (Mode::GoTo { query: String::new(), sel: 1 }, "NEEDS YOU"),
             (Mode::HyPane(hydra::NewPaneHy::new(0, false)), "claude gets its own new worktree in shop-api"),
             (Mode::HyPane(hydra::NewPaneHy { place: Some(1), ..hydra::NewPaneHy::new(0, false) }), "Switches shop-api to a new branch"),
-            (Mode::KeyMap(Box::new(hydra::KeyMap { query: String::new(), searching: false, step: None, sel: 0 })), "jump to waiting"),
+            (Mode::KeyMap(Box::new(hydra::KeyMap { query: String::new(), searching: false, step: None, sel: 0 })), "inbox ● 1"),
             (Mode::Talk { term: 1, input: String::new() }, "Write to claude…"),
         ] {
             app.mode = mode;
@@ -1112,7 +1112,7 @@ mod hydra_tests {
         for g in ["AGENTS", "PANES", "TABS", "PROJECT", "SESHI"] {
             assert!(o.contains(g), "the key map has {g}");
         }
-        assert!(o.contains("jump to waiting ● 1") && o.contains("worktrees  ›") && o.contains("1 2 3"), "counts on their keys, steps marked");
+        assert!(o.contains("inbox ● 1") && o.contains("worktrees  ›") && o.contains("1 2 3"), "counts on their keys, steps marked");
         // Tab, then words: a search over every leader key.
         key(&mut app, KeyCode::Tab);
         for c in "zoom".chars() {
@@ -1144,10 +1144,11 @@ mod hydra_tests {
         assert!(matches!(app.mode, Mode::Actions { sel: 0 }));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("╭─ Actions") && o.contains("New shell here") && o.contains("Jump to what needs you ● 1") && o.contains("+ key, anywhere"));
-        // Its key runs it: o opens a project.
-        app.on_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE));
-        assert!(matches!(app.mode, Mode::Finder(_)), "o: open project");
+        assert!(o.contains("╭─ Actions") && o.contains("New shell here") && o.contains("Inbox ● 1") && !o.contains("Open project") && o.contains("+ key, anywhere"));
+        // Its key runs it: b hides the sidebar.
+        assert!(app.sidebar);
+        app.on_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+        assert!(!app.sidebar && app.mode == Mode::Normal, "b: the sidebar hides");
     }
 
     #[test]
@@ -1720,9 +1721,9 @@ mod hydra_tests {
         app.mode = Mode::KeyMap(Box::new(hydra::KeyMap { query: String::new(), searching: false, step: None, sel: 0 }));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        let a = o.lines().find(|l| l.contains("jump to waiting")).unwrap();
+        let a = o.lines().find(|l| l.contains("inbox ● 1")).unwrap();
         let b = o.lines().find(|l| l.contains("talk to an agent")).unwrap();
-        assert_eq!(a.find("jump to waiting"), b.find("talk to an agent"), "labels line up");
+        assert_eq!(a.find("inbox ● 1"), b.find("talk to an agent"), "labels line up");
     }
 
     #[test]

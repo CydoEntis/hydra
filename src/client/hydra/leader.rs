@@ -12,7 +12,7 @@ const MATCHES_SHOWN: usize = 12;
 /// The key map's groups: what each key does, in the design's words.
 fn groups() -> Vec<(&'static str, Vec<(Action, &'static str)>)> {
     vec![
-        ("AGENTS", vec![(Action::Jump, "jump to waiting"), (Action::Talk, "talk to an agent"), (Action::Answer('1'), "answer"), (Action::ShellHere, "new shell here")]),
+        ("AGENTS", vec![(Action::Jump, "inbox"), (Action::Talk, "talk to an agent"), (Action::Answer('1'), "answer"), (Action::ShellHere, "new shell here")]),
         ("PANES", vec![(Action::SplitRight, "new pane beside"), (Action::Zoom, "zoom"), (Action::ClosePane, "close"), (Action::Focus(Dir::Left), "move focus")]),
         ("TABS", vec![(Action::NewTab, "new tab"), (Action::SelectTab(1), "go to tab"), (Action::RenameTab, "rename")]),
         ("PROJECT", vec![(Action::OpenProject, "open project"), (Action::Worktrees, "worktrees  ›"), (Action::Files, "files"), (Action::Changes, "changes")]),
@@ -26,10 +26,9 @@ pub(in crate::client) fn action_items() -> Vec<(&'static str, Action)> {
         ("New shell here", Action::ShellHere),
         ("New pane beside this", Action::SplitRight),
         ("New tab", Action::NewTab),
-        ("Jump to what needs you", Action::Jump),
-        ("Open project", Action::OpenProject),
+        ("Inbox", Action::Jump),
         ("Talk to an agent", Action::Talk),
-        ("Zoom pane", Action::Zoom),
+        ("Hide sidebar", Action::ToggleSidebar),
         ("All keys", Action::Help),
     ]
 }
