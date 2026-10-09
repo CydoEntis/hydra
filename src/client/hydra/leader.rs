@@ -43,7 +43,7 @@ fn step_items(app: &App, step: Step) -> Vec<(char, &'static str, String, Action)
             vec![
                 ('n', "new worktree", "own branch, new folder, new agent".into(), Action::NewWorktree(None)),
                 ('s', "switch to…", format!("{n} worktree{}", if n == 1 { "" } else { "s" }), Action::Jump),
-                ('m', "merge into main", branch, Action::Ship),
+                ('m', "merge into main", branch, Action::Changes),
                 ('d', "delete worktree", "keeps the branch".into(), Action::RemoveWorktree),
             ]
         }

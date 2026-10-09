@@ -91,19 +91,6 @@ pub(in crate::client) fn jump_list(model: &[Proj]) -> Vec<(Session, String, Stri
     out
 }
 
-/// Your pull requests with failing checks or changes requested: (folder, PR, project, colour).
-pub(in crate::client) fn jump_prs(model: &[Proj]) -> Vec<(PathBuf, crate::client::pr::PrBrief, String, Color)> {
-    model
-        .iter()
-        .flat_map(|p| {
-            p.prs.iter().filter(|pr| pr.needs_you()).map(move |pr| {
-                let dir = p.wts.iter().find(|w| w.branch == pr.branch).map(|w| w.path.clone()).unwrap_or_else(|| p.path.clone());
-                (dir, pr.clone(), p.name.clone(), p.color)
-            })
-        })
-        .collect()
-}
-
 // Open a folder ------------------------------------------------------------------------------
 
 impl Finder {
@@ -408,8 +395,6 @@ pub(in crate::client) enum GoRow {
     Ask(TermId),
     /// One that finished and you haven't looked at: what it said.
     Done(TermId),
-    /// A pull request that needs you (index into `jump_prs`).
-    Pr(usize),
     Proj(usize),
     Sess(usize, TermId),
 }
@@ -436,11 +421,6 @@ pub(in crate::client) fn goto_rows(model: &[Proj], q: &str) -> Vec<GoRow> {
                 listed.extend(these);
             }
         }
-        let prs = jump_prs(model);
-        if !prs.is_empty() {
-            out.push(GoRow::Head("PULL REQUESTS"));
-            out.extend((0..prs.len()).map(GoRow::Pr));
-        }
         if !out.is_empty() {
             out.push(GoRow::Head("EVERYTHING"));
         }
@@ -464,7 +444,6 @@ pub(in crate::client) fn goto_rows(model: &[Proj], q: &str) -> Vec<GoRow> {
 pub(in crate::client) fn draw_goto(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, query: &str, sel: usize) {
     let model = app.hy_model();
     let rows = goto_rows(&model, query);
-    let prs = jump_prs(&model);
     let waiting = rows.iter().any(|r| matches!(r, GoRow::Ask(_) | GoRow::Done(_)));
     let title = if waiting { "Inbox" } else { "Go to" };
     let buf = f.buffer_mut();
@@ -522,16 +501,6 @@ pub(in crate::client) fn draw_goto(app: &mut App, f: &mut Frame, area: Rect, t: 
                 let x = put(buf, rr.x + 3, y, &left, rr.right());
                 let room = rr.right().saturating_sub(x + 2) as usize;
                 put(buf, x, y, &[seg(truncate(if said.is_empty() { "finished" } else { &said }, room), st.fg(t.muted))], rr.right());
-            }
-            GoRow::Pr(k) => {
-                let Some((_, pr, pname, pc)) = prs.get(*k) else { continue };
-                let mut row: Vec<Seg> = pr_tag(t, pr).into_iter().map(|(x, s2)| (x, s2.bg(bg))).collect();
-                row.push(seg(format!("  {}", pr.title), st.fg(t.strong)));
-                put(buf, rr.x + 3, y, &row, rr.right());
-                let col = if pr.checks == crate::client::pr::Checks::Fail { t.err } else { t.blocked };
-                let rseg = vec![seg("▌", st.fg(*pc)), seg(pname.clone(), st.fg(t.text)), seg(format!("  {}", pr.state_text()), st.fg(col))];
-                let rw = segs_width(&rseg);
-                put(buf, rr.right().saturating_sub(rw + 2), y, &rseg, rr.right());
             }
             GoRow::Proj(pi) => {
                 let p = &model[*pi];

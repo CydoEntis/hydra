@@ -168,14 +168,6 @@ impl App {
                 }
                 _ => self.mode = Mode::Confirm(c),
             },
-            Mode::Ship(ask) => {
-                self.mode = Mode::Normal;
-                if k.code == KeyCode::Enter {
-                    let task = ask.task.clone();
-                    self.notify(format!("shipping {}…", task.branch), false);
-                    self.spawn_bg(move || Bg::Done(tasks::ship(&task), false));
-                }
-            }
             Mode::Prefix { since } => {
                 self.mode = Mode::Normal;
                 if k.code == KeyCode::Esc {
@@ -894,7 +886,6 @@ impl App {
                             self.on_view_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                         }
                     }
-                    Some(View::Pr(_)) => {}
                     None => {}
                 },
             },

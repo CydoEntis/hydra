@@ -206,20 +206,6 @@ impl App {
     pub(super) fn on_bg(&mut self, b: Bg) {
         self.hy_fresh();
         let b = match b {
-            Bg::Prs(key, list) => {
-                self.hy.prs.insert(key, list);
-                self.dirty = true;
-                return;
-            }
-            Bg::Pr(which, info) => {
-                if let Some(View::Pr(v)) = &mut self.view
-                    && v.which == which
-                {
-                    v.info = Some(info);
-                }
-                self.dirty = true;
-                return;
-            }
             Bg::Branches(dir, current, list, dirty) => {
                 if let Mode::Branch(v) = &mut self.mode
                     && v.dir == dir
@@ -262,15 +248,6 @@ impl App {
                 self.dirty = true;
                 return;
             }
-            Bg::PrDiff(which, d) => {
-                if let Some(View::Pr(v)) = &mut self.view
-                    && v.which == which
-                {
-                    v.diff = Some(d);
-                }
-                self.dirty = true;
-                return;
-            }
             b => b,
         };
         match (b, &mut self.mode) {
@@ -309,13 +286,6 @@ impl App {
                 }
             }
             (Bg::Then(finish), _) => finish(self),
-            (Bg::Checks(dir, c), _) => {
-                if let Some(View::Changes(v)) = &mut self.view
-                    && v.dir == dir
-                {
-                    v.checks = c;
-                }
-            }
             (Bg::Tree(root, nodes, git), _) => {
                 let working = self
                     .snap

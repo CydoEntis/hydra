@@ -92,10 +92,6 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::The
             let m = (**m).clone();
             super::menu::draw_menu(app, f, area, &t, &m);
         }
-        Mode::Ship(ask) => {
-            let ask = (**ask).clone();
-            super::hydra::draw_ship(app, f, area, &t, &ask);
-        }
         Mode::Finder(fd) => {
             let fd = (**fd).clone();
             super::hydra::draw_finder(app, f, area, &t, &fd);

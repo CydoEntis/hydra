@@ -215,10 +215,6 @@ pub enum Action {
     NewSession,
     /// Close the split (both sessions keep running).
     CloseSplit,
-    /// The pull request of this branch: checks, reviews, comments, diff.
-    PullRequest,
-    /// Commit, push and open (or update) the pull request, after one confirm.
-    Ship,
     /// Save the clipboard's image to a file and paste its path (agents attach it).
     PasteImage,
     /// Find a file (0) or search the code (1).
@@ -305,8 +301,6 @@ impl Action {
             Action::Jump => "Inbox: what needs you".into(),
             Action::NewSession => "+ new, beside this one".into(),
             Action::CloseSplit => "close the split".into(),
-            Action::PullRequest => "Pull request (checks, reviews, diff)".into(),
-            Action::Ship => "Ship: commit, push, open the PR".into(),
             Action::PasteImage => "Paste the clipboard image".into(),
             Action::Branches => "Switch branch".into(),
             Action::ShellHere => "New session (a shell here)".into(),
@@ -379,8 +373,6 @@ impl Action {
             Action::Jump => "jump".into(),
             Action::NewSession => "new-beside".into(),
             Action::CloseSplit => "close-split".into(),
-            Action::PullRequest => "pr".into(),
-            Action::Ship => "ship".into(),
             Action::PasteImage => "paste-image".into(),
             Action::Branches => "switch-branch".into(),
             Action::ShellHere => "shell-here".into(),
@@ -468,8 +460,6 @@ impl FromStr for Action {
             "jump" => Action::Jump,
             "new-session" | "new-beside" => Action::NewSession,
             "close-split" => Action::CloseSplit,
-            "pr" | "pull-request" => Action::PullRequest,
-            "ship" => Action::Ship,
             "paste-image" => Action::PasteImage,
             "switch-branch" => Action::Branches,
             "shell-here" => Action::ShellHere,
@@ -536,8 +526,6 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("F", "find-file"),
     ("/", "search-code"),
     ("B", "switch-branch"),
-    ("P", "pr"),
-    ("S", "ship"),
     ("W", "new-worktree"),
     // Getting around
     ("e", "browse-tree"),

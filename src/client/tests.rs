@@ -226,37 +226,6 @@ mod hydra_tests {
         assert!(!o.contains("⣿") && o.contains("New shell here"));
     }
 
-    #[test]
-    fn pull_request_view() {
-        let (_, mut app) = super::design_tests::render_with(160, 45);
-        let info = pr::parse_info(
-            r#"{"number":412,"title":"Rate limit /login","url":"u","state":"OPEN","author":{"login":"cody"},"headRefName":"rate-limit","baseRefName":"main",
-            "body":"Token bucket, 5 a minute.","additions":42,"deletions":7,"changedFiles":3,
-            "statusCheckRollup":[{"conclusion":"SUCCESS","name":"lint"},{"conclusion":"FAILURE","name":"test"}],
-            "reviews":[{"author":{"login":"sam"},"state":"CHANGES_REQUESTED","body":"use X-Forwarded-For"}],"comments":[]}"#,
-        )
-        .unwrap();
-        app.view = Some(View::Pr(Box::new(pr::PrView { dir: PathBuf::from("."), which: "412".into(), info: Some(Ok(info)), diff: None, tab: 0, scroll: 0 })));
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains("#412  Rate limit /login") && o.contains("rate-limit → main") && o.contains("+42 −7"));
-        assert!(o.contains("CHECKS  1 failing") && o.contains("✕ test") && o.contains("sam asked for changes"));
-        assert!(o.contains("Ask the agent to fix it f") && o.contains("Open in browser o"));
-        // It opens as a tool window.
-        assert!(o.contains("Esc"));
-        // And a PR tag on the branch that has one.
-        app.view = None;
-        app.hy.prs.insert(
-            app.hy_model()[0].key.clone(),
-            vec![pr::PrBrief { number: 412, title: "Rate limit".into(), branch: "rate-limit".into(), checks: pr::Checks::Fail, review: pr::Review::Changes, url: String::new() }],
-        );
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains("#412 ✕±"), "PR tag on the worktree's session");
-        app.act(Action::Jump);
-        let o = draw(&mut app, 160, 45);
-        assert!(o.contains("PULL REQUESTS") && o.contains("checks failing"), "failing PRs in the Inbox");
-    }
 
     #[test]
     fn no_answer_buttons_without_a_question_on_screen() {
@@ -298,31 +267,6 @@ mod hydra_tests {
         assert!(matches!(&app.mode, Mode::GoTo { query, .. } if query.is_empty()));
     }
 
-    #[test]
-    fn ship_confirm_says_what_happens() {
-        let (_, mut app) = super::design_tests::render_with(160, 45);
-        let task = tasks::TaskRow {
-            ws: 10,
-            name: "rate-limit".into(),
-            branch: "rate-limit".into(),
-            base: "main".into(),
-            stage: tasks::Stage::Ready,
-            summary: "Rate limit /login".into(),
-            dirty: 0,
-            ahead: 0,
-            agent: Some(2),
-            dir: PathBuf::from("."),
-            root: PathBuf::from("."),
-        };
-        app.mode = Mode::Ship(Box::new(ShipAsk { task: task.clone(), changed: 3, pr: None }));
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains("Ship rate-limit") && o.contains("commit 3 changed files as \"Rate limit /login\""));
-        assert!(o.contains("push rate-limit") && o.contains("open a pull request into main") && o.contains("Ship Enter"));
-        app.mode = Mode::Ship(Box::new(ShipAsk { task, changed: 0, pr: Some("412".into()) }));
-        let o = draw(&mut app, 160, 45);
-        assert!(o.contains("nothing new to commit") && o.contains("update pull request #412"));
-    }
 
 
     #[test]

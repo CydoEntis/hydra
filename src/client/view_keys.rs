@@ -17,66 +17,9 @@ impl App {
                     self.view = Some(View::Files(v));
                 }
             }
-            View::Pr(mut v) => {
-                if self.on_pr_key(&mut v, k) {
-                    self.view = Some(View::Pr(v));
-                }
-            }
         }
     }
 
-    /// Returns false when the view closes.
-    pub(super) fn on_pr_key(&mut self, v: &mut pr::PrView, k: &KeyEvent) -> bool {
-        match k.code {
-            KeyCode::Esc => return false,
-            KeyCode::Tab | KeyCode::BackTab => {
-                v.tab = 1 - v.tab;
-                v.scroll = 0;
-                if v.tab == 1 && v.diff.is_none() {
-                    let (dir, which) = (v.dir.clone(), v.which.clone());
-                    self.spawn_bg(move || Bg::PrDiff(which.clone(), pr::diff(&dir, &which)));
-                }
-            }
-            KeyCode::Down | KeyCode::Char('j') => v.scroll = v.scroll.saturating_add(1),
-            KeyCode::Up | KeyCode::Char('k') => v.scroll = v.scroll.saturating_sub(1),
-            KeyCode::PageDown | KeyCode::Char(' ') => v.scroll = v.scroll.saturating_add(15),
-            KeyCode::PageUp => v.scroll = v.scroll.saturating_sub(15),
-            KeyCode::Char('o') => {
-                if let Some(Ok(i)) = &v.info {
-                    files::open_url(&i.url);
-                }
-            }
-            KeyCode::Char('r') => {
-                v.info = None;
-                v.diff = None;
-                let (dir, which) = (v.dir.clone(), v.which.clone());
-                self.spawn_bg(move || Bg::Pr(which.clone(), pr::load(&dir, &which)));
-            }
-            KeyCode::Char('f') => {
-                let Some(Ok(info)) = &v.info else { return true };
-                // The agent working in this branch's folder.
-                let key = design::path_key(&v.dir);
-                let term = self
-                    .snap
-                    .terms
-                    .values()
-                    .filter(|t| t.agent.is_some() && t.top.as_ref().is_some_and(|p| design::path_key(p) == key))
-                    .map(|t| t.id)
-                    .next();
-                match term {
-                    // Typed into its prompt, not sent: you read it, change it, press Enter.
-                    Some(term) => {
-                        self.cmd(Command::FocusPane { term });
-                        self.send(ClientMsg::Input { term, data: info.fix_prompt().into_bytes() });
-                        return false;
-                    }
-                    None => self.notify("no agent is working in this branch; start one with + New".into(), true),
-                }
-            }
-            _ => {}
-        }
-        true
-    }
 
     /// Returns false when the view closes.
     pub(super) fn on_changes_key(&mut self, v: &mut views::ChangesView, k: &KeyEvent) -> bool {
@@ -164,11 +107,6 @@ impl App {
                     let p = v.dir.join(&f.path);
                     self.open_in_editor(&p);
                 }
-            }
-            KeyCode::Char('v') => {
-                let (dir, branch) = (v.dir.clone(), r.task.branch.clone());
-                self.open_pr(dir, branch);
-                return true_and_replace();
             }
             KeyCode::Char('m') if v.linked => v.confirm = Some((format!("Merge {} into {}, then close it and remove its worktree and branch?", r.task.branch, r.task.base), 'm')),
             KeyCode::Char('p') => v.confirm = Some((format!("Push {} and open a pull request?", r.task.branch), 'p')),

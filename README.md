@@ -69,7 +69,7 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
 - **Git without leaving.** New agents get their own worktree, including `claude` or `codex`
   typed into a shell in a repo's main folder (turn it off with *Own worktree per agent* in
   Settings; `--continue`/`--resume` stay put). Changes (`d`) shows the diff with
-  review marks, then commit, ship, or open a pull request. Files (`f`), find (`F`), search the
+  review marks, then commit, merge, or open a pull request. Files (`f`), find (`F`), search the
   code (`/`), switch branch (`B`).
 - **Everything is configurable.** The leader, every binding, commands bound to keys, themes and
   per-colour overrides, icons, the sidebar side, detection patterns and your own agents. Settings
@@ -111,7 +111,7 @@ if agents used hydra's MCP tools, then uninstall hydra when you're happy.
 
 Then run `seshi doctor` to check your setup. For the best look: a terminal with true colour and a
 [Nerd Font](https://www.nerdfonts.com) (Windows Terminal, Ghostty, Alacritty, WezTerm, iTerm2).
-Optional: `git` (worktrees, changes), `gh` (pull requests, issues).
+Optional: `git` (worktrees, changes), `gh` (opening a pull request from Changes).
 
 From source (any platform with Rust): `cargo install --git https://github.com/CydoEntis/seshi`.
 
@@ -152,7 +152,6 @@ split beside a session stays with it.
 - Under it, its sessions: state, name, `branch · age` on the right. A session that needs you has
   its question under it. Every new claude / codex gets its own worktree (named for you), so agents
   never edit the same files.
-- `#412 ✓` / `#412 ✕±`: the branch's pull request, its checks, and review state. Click it.
 - Things that need you sort to the top. Agents asleep (see Settings) show `☾ asleep`.
 - Drag a group's name, or a session, up or down to reorder (what needs you still comes first);
   drop a session on another group (its name or one of its sessions) to move it there, within its
@@ -175,16 +174,15 @@ second step (`w` worktrees: new, switch, merge, delete; Backspace goes back).
 | `t` / `r` / `]` `[` / `X` | **tabs**: new tab (a shell where you are) / rename it in its pill (or double-click it) / next, previous / close it. `Alt+1`–`9` (no leader) goes to a tab |
 | `w` / `f` / `d` | worktrees › / files / changes |
 | `e` / `Space` / `a` | focus the sidebar / command palette / actions |
-| `F` / `/` / `B` / `P` / `S` | find a file / search the code / switch branch / pull request / ship |
+| `F` / `/` / `B` | find a file / search the code / switch branch |
 | `R` / `V` | rename a session / paste the clipboard's image |
 | `y` / `{` `}` / `b` | select text with keys / previous, next command in the history / sidebar on or off |
 | `,` / `?` / `N` / `q` | settings / key map / history / quit (agents keep running) |
 
 In **Files**: Enter puts the path in the agent's prompt, `e` opens it in your editor (`editor`
 in config; nvim, helix … open inside seshi), `y` copies the path. In **Changes**: `c` commit,
-`p` open a PR, `v` the PR, `e` editor, `x` mark the file reviewed (it sinks; the mark clears
-if the file changes again), `r` goes to its agent. In a **pull request**: Tab for the
-diff, `f` hands failing checks and review comments to the branch's agent, `o` opens it on GitHub.
+`p` push and open a PR, `e` editor, `x` mark the file reviewed (it sinks; the mark clears
+if the file changes again), `r` goes to its agent.
 
 Everything also works with the mouse. Hold Shift to select text with your terminal.
 

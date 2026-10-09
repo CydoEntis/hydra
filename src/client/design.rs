@@ -296,9 +296,6 @@ pub(super) fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Them
             left.push(seg(format!(" · {} of {} reviewed", v.reviewed.len(), r.files.len()), Style::default().fg(if all { t.done } else { t.muted })));
         }
     }
-    if let Some(c) = &v.checks {
-        right.push(seg(format!("{c}  "), Style::default().fg(if c.starts_with('✓') { t.done } else { t.err })));
-    }
     right.push(seg("✕ ", Style::default().fg(t.muted)));
     title_bar(buf, area, t, &left, &right, true);
     app.hits.push((Rect { x: area.right().saturating_sub(2), y: area.y, width: 2, height: 1 }, Hit::Button(super::Btn::CloseView)));
@@ -416,7 +413,6 @@ pub(super) fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Them
                 ("Commit", "c", BtnKind::Primary, Hit::Button(super::Btn::ViewKey('c'))),
                 (&merge, "m", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('m'))),
                 ("Open PR", "p", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('p'))),
-                ("PR", "v", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('v'))),
                 ("Editor", "e", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('e'))),
                 ("Reviewed", "x", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('x'))),
                 (&reply, "r", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('r'))),
@@ -433,7 +429,6 @@ pub(super) fn draw_changes(app: &mut App, buf: &mut Buffer, area: Rect, t: &Them
             &[
                 ("Commit", "c", BtnKind::Primary, Hit::Button(super::Btn::ViewKey('c'))),
                 ("Open PR", "p", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('p'))),
-                ("PR", "v", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('v'))),
                 ("Editor", "e", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('e'))),
                 ("Reviewed", "x", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('x'))),
                 (&reply, "r", BtnKind::Normal, Hit::Button(super::Btn::ViewKey('r'))),
@@ -655,8 +650,6 @@ pub(super) fn key_rows() -> Vec<(&'static str, Vec<(&'static str, Vec<crate::key
                 ("Search the code", vec![A::Find(1)]),
                 ("Changes", vec![A::Changes]),
                 ("Switch branch", vec![A::Branches]),
-                ("Pull request", vec![A::PullRequest]),
-                ("Ship", vec![A::Ship]),
             ],
         ),
         (

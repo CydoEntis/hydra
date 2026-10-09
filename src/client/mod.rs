@@ -12,7 +12,6 @@ mod menu;
 mod modal;
 mod pick;
 mod recipes;
-mod pr;
 mod render;
 mod tasks;
 mod views;
@@ -72,8 +71,6 @@ enum Mode {
     HySettings(Box<design::SettingsView>),
     /// Seshi layout: keyboard cursor in the sidebar; bare keys act like leader keys.
     Side,
-    /// Ship this branch? (what will happen, then Enter)
-    Ship(Box<ShipAsk>),
     /// A right-click menu (seshi layout).
     HyMenu(Box<menu::HyMenu>),
     /// Find a file / search the code.
@@ -94,19 +91,11 @@ enum Mode {
     RenameTab(Box<hydra::TabName>),
 }
 
-/// The ship confirm: the branch and what shipping it will do.
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct ShipAsk {
-    pub task: tasks::TaskRow,
-    pub changed: usize,
-    pub pr: Option<String>,
-}
 
 /// A view that replaces the pane area.
 pub(super) enum View {
     Changes(Box<views::ChangesView>),
     Files(Box<views::FilesTree>),
-    Pr(Box<pr::PrView>),
 }
 
 /// Clickable chips and buttons.
@@ -122,18 +111,12 @@ pub(super) enum Btn {
 
 pub(super) enum Bg {
     Changes(PathBuf, Result<Box<tasks::Review>, String>),
-    Checks(PathBuf, Option<String>),
     Tree(PathBuf, Vec<views::FileNode>, std::collections::HashMap<String, char>),
     TreeRecent(PathBuf, Vec<files::FileEntry>),
     /// A finished action: its message, and whether the open review should reload.
     Done(Result<String, String>, bool),
     /// A worktree's branch merged (or not): then the worktree and its branch go.
     Merged(Result<String, String>, PathBuf),
-    /// Your open pull requests in a project (by key).
-    Prs(String, Vec<pr::PrBrief>),
-    /// One pull request (by number or branch), and its diff.
-    Pr(String, Result<pr::PrInfo, String>),
-    PrDiff(String, Result<String, String>),
     /// Every file under a folder (Find).
     FindFiles(PathBuf, Vec<String>),
     /// A checkout's branches: (folder, current, branches, files with changes).
@@ -148,31 +131,6 @@ pub(super) enum Bg {
     Then(Box<dyn FnOnce(&mut App) + Send>),
 }
 
-/// The pull request checks for a branch, if it has a pull request: "✓ checks 14/14" or
-/// "✕ 2 of 14 checks failing".
-fn pr_checks(dir: &std::path::Path, branch: &str) -> Option<String> {
-    let mut cmd = std::process::Command::new("gh");
-    cmd.current_dir(dir).args(["pr", "view", branch, "--json", "statusCheckRollup"]);
-    crate::proc::quiet(&mut cmd);
-    let out = cmd.output().ok().filter(|o| o.status.success())?;
-    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-    let checks = v.get("statusCheckRollup")?.as_array()?;
-    if checks.is_empty() {
-        return None;
-    }
-    let verdict = |c: &serde_json::Value| {
-        c.get("conclusion").and_then(|x| x.as_str()).filter(|x| !x.is_empty()).or_else(|| c.get("state").and_then(|x| x.as_str())).unwrap_or("PENDING").to_string()
-    };
-    let bad = checks.iter().filter(|c| matches!(verdict(c).as_str(), "FAILURE" | "ERROR" | "CANCELLED" | "TIMED_OUT")).count();
-    let ok = checks.iter().filter(|c| matches!(verdict(c).as_str(), "SUCCESS" | "NEUTRAL" | "SKIPPED")).count();
-    Some(if bad > 0 {
-        format!("✕ {bad} of {} checks failing", checks.len())
-    } else if ok == checks.len() {
-        format!("✓ checks {ok}/{}", checks.len())
-    } else {
-        format!("⠹ checks {ok}/{}", checks.len())
-    })
-}
 
 /// Save the clipboard image as a PNG under the data folder; old pastes (a week) are
 /// cleared out. Returns (path, width, height).

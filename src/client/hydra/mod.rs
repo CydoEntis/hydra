@@ -114,11 +114,6 @@ pub(super) struct Hy {
     pub proj_keys: Vec<String>,
     pub wt_keys: Vec<(String, PathBuf)>,
     pub branch_keys: Vec<(PathBuf, String)>,
-    /// Your open pull requests per project (by key), refreshed every couple of minutes.
-    pub prs: std::collections::HashMap<String, Vec<super::pr::PrBrief>>,
-    pub pr_at: std::collections::HashMap<String, Instant>,
-    /// Pull request tags and rows drawn this frame: (folder, number).
-    pub pr_keys: Vec<(PathBuf, String)>,
     /// The sidebar model, built once per event / frame (see `hy_fresh`).
     pub model_cache: std::cell::RefCell<Option<Vec<Proj>>>,
     /// A recipe's worktree being made: (branch, the commands to start there, since).
@@ -347,8 +342,6 @@ pub(super) struct Proj {
     pub git: bool,
     /// Recent local branches not checked out anywhere.
     pub branches: Vec<String>,
-    /// Your open pull requests here.
-    pub prs: Vec<super::pr::PrBrief>,
     /// The sidebar section it's in.
     pub kind: Kind,
 }
@@ -565,7 +558,6 @@ impl App {
                 fresh: self.hy.fresh.contains(&key),
                 git,
                 branches: Vec::new(),
-                prs: Vec::new(),
                 kind,
             });
             projs.len() - 1
@@ -619,7 +611,6 @@ impl App {
                                     fresh: false,
                                     git: false,
                                     branches: Vec::new(),
-                                    prs: Vec::new(),
                                     kind,
                                 });
                                 projs.len() - 1
@@ -685,7 +676,6 @@ impl App {
                 let worst = w.sessions.iter().map(|s| rank(s.status)).min().unwrap_or(4);
                 (!w.main, if sort { worst } else { 0 }, w.name.clone())
             });
-            p.prs = self.hy.prs.get(&p.key).cloned().unwrap_or_default();
         }
         projs.sort_by_key(|p| order.iter().position(|k| *k == p.key).unwrap_or(usize::MAX));
         // Attention first: a project with something that needs you goes to the top.
@@ -783,21 +773,6 @@ impl App {
             self.hy.proj = focus.and_then(proj_of).or_else(|| model.first().map(|p| p.key.clone()));
         }
         self.recipe_followup();
-        // Your pull requests, every two minutes per repo.
-        if !cfg!(test) {
-            for p in model.iter().filter(|p| p.git) {
-                if self.hy.pr_at.get(&p.key).is_some_and(|t| t.elapsed().as_secs() < 120) {
-                    continue;
-                }
-                self.hy.pr_at.insert(p.key.clone(), Instant::now());
-                let (tx, key, dir) = (self.bg.clone(), p.key.clone(), p.path.clone());
-                std::thread::spawn(move || {
-                    if let Ok(list) = super::pr::list_mine(&dir) {
-                        let _ = tx.send(super::Bg::Prs(key, list));
-                    }
-                });
-            }
-        }
     }
 }
 
@@ -910,12 +885,6 @@ pub(super) enum HyHit {
     SetVal(usize, usize),
     /// A button on the splash screen.
     SplashKey(char),
-    /// A pull request tag or row (index into `pr_keys`).
-    Pr(usize),
-    /// A key for the view in the main area (Files, Changes, PR).
-    ViewKey(char),
-    /// The Ship button.
-    ShipGo,
     /// A right-click menu item.
     MenuPick(usize),
     /// The sidebar's edge (drag to resize).
@@ -978,9 +947,8 @@ mod leader;
 mod popups;
 mod screen;
 mod splash;
-mod pr_map;
 
-pub(in crate::client) use self::{card::*, dialogs::*, leader::*, popups::*, screen::*, splash::*, pr_map::*};
+pub(in crate::client) use self::{card::*, dialogs::*, leader::*, popups::*, screen::*, splash::*};
 
 
 #[cfg(test)]

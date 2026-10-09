@@ -486,22 +486,14 @@ impl App {
                 }
                 self.hy.save();
             }
-            Action::Ship => {
-                let dir = self.hy_target_dir();
-                self.hy.cursor = None;
-                self.ask_ship(dir);
-            }
-            Action::Files | Action::Changes | Action::PullRequest => {
+            Action::Files | Action::Changes => {
                 let dir = self.hy_target_dir();
                 self.hy.cursor = None;
                 self.mode = Mode::Normal;
-                match a {
-                    Action::Files => self.open_files(dir),
-                    Action::Changes => self.open_changes(dir),
-                    _ => match crate::gitfs::head(&dir) {
-                        Some(h) => self.open_pr(h.top, h.branch),
-                        None => self.notify("not a git repo".into(), true),
-                    },
+                if *a == Action::Files {
+                    self.open_files(dir);
+                } else {
+                    self.open_changes(dir);
                 }
             }
             Action::BrowseTree => self.hy_side_move(0),
@@ -840,11 +832,6 @@ impl App {
                 self.mode = Mode::Normal;
                 match sel_row.as_ref() {
                     Some(GoRow::Ask(t) | GoRow::Done(t)) => self.hy_focus(*t),
-                    Some(GoRow::Pr(k)) => {
-                        if let Some((dir, pr, ..)) = jump_prs(&model).get(*k) {
-                            self.open_pr(dir.clone(), pr.number.to_string());
-                        }
-                    }
                     Some(GoRow::Head(_)) => {}
                     Some(GoRow::Sess(_, t)) => self.hy_focus(*t),
                     // A project: its most urgent session, or a shell there.
@@ -1225,27 +1212,6 @@ impl App {
                     let from_bottom = r.bottom().saturating_sub(pos.y + 1) as usize;
                     self.scroll_to(term, (from_bottom * total / r.height.max(1) as usize).min(total));
                 }
-            }
-            HyHit::ShipGo => {
-                if let Mode::Ship(ask) = std::mem::replace(&mut self.mode, Mode::Normal) {
-                    let task = ask.task.clone();
-                    self.notify(format!("shipping {}…", task.branch), false);
-                    self.spawn_bg(move || crate::client::Bg::Done(crate::client::tasks::ship(&task), false));
-                }
-            }
-            HyHit::Pr(i) => {
-                if let Some((dir, n)) = self.hy.pr_keys.get(i).cloned() {
-                    self.mode = Mode::Normal;
-                    self.open_pr(dir, n);
-                }
-            }
-            HyHit::ViewKey(c) => {
-                let code = match c {
-                    '\x1b' => KeyCode::Esc,
-                    '\n' => KeyCode::Enter,
-                    c => KeyCode::Char(c),
-                };
-                self.on_view_key(&KeyEvent::new(code, KeyModifiers::NONE));
             }
         }
     }

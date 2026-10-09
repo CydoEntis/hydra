@@ -48,7 +48,7 @@ script it.
 
 Rust stable (edition 2024, so 1.85+) with `cargo`; for the cross-checks, the
 `x86_64-unknown-linux-gnu` and `aarch64-apple-darwin` targets
-(`rustup target add …`). Optional at runtime: `git`, `gh` (PRs, issues), the
+(`rustup target add …`). Optional at runtime: `git`, `gh` (opening a PR from Changes), the
 agent CLIs you want to run, a Nerd Font for icons.
 
 ## Project-specific: setup
@@ -77,7 +77,6 @@ it reads:
 | `SESHI_SSH`, `SESHI_REMOTE_CMD` | replace `ssh` / the remote `seshi` command | user |
 | `SESHI_TERM_ID`, `SESHI_PANE_TOKEN` | the pane's id and secret, set inside every pane | daemon |
 | `SESHI_SHOW` | tests print rendered frames | developer |
-| `SESHI_PR`, `SESHI_PR_DIR` | the live pull-request test (`cargo test pr_live -- --ignored`) | developer |
 | `EDITOR`, `VISUAL`, `SHELL`, `COMSPEC` | editor and shell defaults | OS / user |
 
 ## Project-specific: environments

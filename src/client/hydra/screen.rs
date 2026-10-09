@@ -59,7 +59,6 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
     let model = app.hy_model();
     app.hy.wt_keys.clear();
     app.hy.branch_keys.clear();
-    app.hy.pr_keys.clear();
     fill(f.buffer_mut(), area, t.bg);
     let g = grid(app, area);
     if g.side.width > 0 {
@@ -88,11 +87,8 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
         draw_session(app, f, r, term, true, &model, t);
     }
     draw_toast(app, f.buffer_mut(), g.panes, t);
-    // Files, diffs and pull requests open over everything in one tool-window size; Esc
-    // closes.
-    if matches!(app.view, Some(crate::client::View::Changes(_) | crate::client::View::Pr(_) | crate::client::View::Files(_)))
-        && let Some(view) = app.view.take()
-    {
+    // Files and diffs open over everything in one tool-window size; Esc closes.
+    if let Some(view) = app.view.take() {
         let buf = f.buffer_mut();
         dim_all(buf, area, t);
         let frame = tool_rect(area);
@@ -110,10 +106,6 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
             crate::client::View::Changes(v) => {
                 crate::client::design::draw_changes(app, buf, inner, t, &v);
                 app.view = Some(crate::client::View::Changes(v));
-            }
-            crate::client::View::Pr(v) => {
-                draw_pr(app, buf, inner, t, &v);
-                app.view = Some(crate::client::View::Pr(v));
             }
         }
     }
@@ -381,17 +373,9 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 } else {
                     left.push(seg(s.name.clone(), ns));
                 }
-                // Right: branch · age (amber when it needs you); a pull request, a limit, asleep.
-                let pr = (*si == 0).then(|| model[*pi].prs.iter().find(|p| p.branch == wt.branch)).flatten();
+                // Right: branch · age (amber when it needs you); a limit, asleep.
                 let tail: Vec<Seg> = if small {
                     vec![]
-                } else if let Some(p) = pr {
-                    let k2 = app.hy.pr_keys.len();
-                    app.hy.pr_keys.push((wt.path.clone(), p.number.to_string()));
-                    let tg: Vec<Seg> = pr_tag(t, p).into_iter().map(|(x, s2)| (x, s2.bg(bg))).collect();
-                    let tw = segs_width(&tg);
-                    hit(app, Rect { x: right.saturating_sub(tw), y, width: tw, height: 1 }, HyHit::Pr(k2));
-                    tg
                 } else if s.asleep {
                     vec![seg("asleep", st.fg(t.muted))]
                 } else if let Some(at) = s.resume_at {
@@ -408,7 +392,7 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 // The name comes first: when it doesn't fit, the branch gives way (the age stays).
                 let name_x = x0 + 7;
                 let room = right.saturating_sub(name_x) as usize;
-                let tail = if s.is_agent && !sel && pr.is_none() && !s.asleep && s.resume_at.is_none() && !small && segs_width(&left) as usize + segs_width(&tail) as usize + 2 > room {
+                let tail = if s.is_agent && !sel && !s.asleep && s.resume_at.is_none() && !small && segs_width(&left) as usize + segs_width(&tail) as usize + 2 > room {
                     let col = if s.status == Status::Blocked { t.blocked } else { t.muted };
                     vec![seg(age(s.since), st.fg(col))]
                 } else {
@@ -531,20 +515,6 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
 }
 
 pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, model: &[Proj], t: &Theme) {
-    // Files, Changes or a pull request replace the sessions until closed.
-    if let Some(view) = app.view.take() {
-        let buf = f.buffer_mut();
-        match view {
-            // Drawn on top of everything (see draw).
-            v @ (crate::client::View::Changes(_) | crate::client::View::Pr(_) | crate::client::View::Files(_)) => {
-                app.view = Some(v);
-                let _ = buf;
-            }
-        }
-        if app.view.as_ref().is_some_and(|v| !matches!(v, crate::client::View::Changes(_) | crate::client::View::Pr(_) | crate::client::View::Files(_))) {
-            return;
-        }
-    }
     let Some(focus) = app.focused() else {
         let nk = k(app, &Action::ShellHere);
         put(f.buffer_mut(), area.x + 4, area.y + 3, &[seg(format!("Nothing open. Press {} {nk} for a new session.", app.keymap.prefix.to_string().replace("C-", "Ctrl+")), Style::default().fg(t.muted))], area.right());

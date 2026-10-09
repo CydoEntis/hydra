@@ -6,7 +6,7 @@ impl App {
     pub(super) fn act(&mut self, a: Action) {
         // These read files on this machine; over ssh the files are on the other one.
         if crate::ipc::remote().is_some()
-            && matches!(a, Action::Files | Action::Changes | Action::Find(_) | Action::Branches | Action::PasteImage | Action::Ship)
+            && matches!(a, Action::Files | Action::Changes | Action::Find(_) | Action::Branches | Action::PasteImage)
         {
             self.notify(format!("{} isn't available over ssh yet (agents, panes and worktrees are)", a.describe()), true);
             return;
@@ -184,8 +184,6 @@ impl App {
             Action::Find(1),
             Action::Changes,
             Action::Branches,
-            Action::PullRequest,
-            Action::Ship,
             Action::CopyMode,
             Action::PasteImage,
             Action::History,
@@ -209,51 +207,6 @@ impl App {
     }
 
 
-    /// The ship confirm for the branch at `dir`.
-    pub(super) fn ask_ship(&mut self, dir: PathBuf) {
-        let Some(head) = crate::gitfs::head(&dir) else {
-            self.notify("not a git repo".into(), true);
-            return;
-        };
-        let base = if head.linked { crate::gitfs::main_branch(&head.main_root).unwrap_or_else(|| "main".into()) } else { String::new() };
-        if !head.linked && crate::gitfs::main_branch(&head.main_root).is_some_and(|m| m == head.branch) {
-            self.notify(format!("you're on {}: ship works from a branch (start an agent with + New to get one)", head.branch), true);
-            return;
-        }
-        let term = self
-            .snap
-            .terms
-            .values()
-            .filter(|t| t.agent.is_some() && t.top.as_ref().is_some_and(|p| design::path_key(p) == design::path_key(&head.top)))
-            .map(|t| (t.id, t.summary.clone()))
-            .next();
-        let task = tasks::TaskRow {
-            ws: self.snap.active_ws.unwrap_or(0),
-            name: head.branch.clone(),
-            branch: head.branch.clone(),
-            base: if base.is_empty() { "main".into() } else { base },
-            stage: tasks::Stage::Ready,
-            summary: term.as_ref().map(|(_, s)| s.clone()).unwrap_or_default(),
-            dirty: 0,
-            ahead: 0,
-            agent: term.map(|(id, _)| id),
-            dir: head.top.clone(),
-            root: head.main_root.clone(),
-        };
-        let key = design::path_key(&head.main_root);
-        let pr = self.hy.prs.get(&key).and_then(|l| l.iter().find(|p| p.branch == head.branch)).map(|p| p.number.to_string());
-        let top = head.top.clone();
-        self.spawn_bg(move || {
-            let changed = std::process::Command::new("git")
-                .arg("-C")
-                .arg(&top)
-                .args(["status", "--porcelain"])
-                .output()
-                .map(|o| String::from_utf8_lossy(&o.stdout).lines().count())
-                .unwrap_or(0);
-            Bg::Then(Box::new(move |app: &mut App| app.mode = Mode::Ship(Box::new(ShipAsk { task, changed, pr }))))
-        });
-    }
 
     pub(super) fn open_changes(&mut self, dir: PathBuf) {
         let head = crate::gitfs::head(&dir);
@@ -314,17 +267,13 @@ impl App {
             term,
             ws,
             reviewed: Default::default(),
-            checks: None,
             linked,
             confirm: None,
         })));
         if head.is_none() {
             return;
         }
-        let d = top.clone();
-        self.spawn_bg(move || Bg::Changes(d, tasks::load_review(task).map(Box::new)));
-        let (d, b) = (top, branch);
-        self.spawn_bg(move || Bg::Checks(d.clone(), pr_checks(&d, &b)));
+        self.spawn_bg(move || Bg::Changes(top, tasks::load_review(task).map(Box::new)));
     }
 
     /// A path an agent printed (Ctrl+click): relative to where it runs. Text opens in the file
@@ -364,11 +313,6 @@ impl App {
         self.spawn_bg(move || Bg::Tree(root.clone(), views::scan_tree(&root), views::git_marks(&root)));
     }
 
-    /// The pull request of a branch (or a number), in the main area.
-    pub(super) fn open_pr(&mut self, dir: PathBuf, which: String) {
-        self.view = Some(View::Pr(Box::new(pr::PrView { dir: dir.clone(), which: which.clone(), info: None, diff: None, tab: 0, scroll: 0 })));
-        self.spawn_bg(move || Bg::Pr(which.clone(), pr::load(&dir, &which)));
-    }
 
     /// Open a file in your editor: terminal editors inside seshi beside what you're on,
     /// others (VS Code, …) as their own window.

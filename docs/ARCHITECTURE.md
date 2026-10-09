@@ -80,10 +80,9 @@ src/
     hydra/       the layout: mod.rs (state, model, click targets), screen.rs (grid, sidebar
                  card, tab row, pane cards), card.rs (cards, pills, fading; the Look from
                  settings), leader.rs (key map, actions list, new tab), popups.rs,
-                 dialogs.rs, splash.rs, behaviour.rs (its keys and clicks), pr_map.rs
-                 (pull request, ship views)
+                 dialogs.rs, splash.rs, behaviour.rs (its keys and clicks)
     render.rs, design.rs  drawing entry point and shared helpers
-    menu.rs, views.rs, files.rs, find.rs, branch.rs, recipes.rs, pr.rs, …
+    menu.rs, views.rs, files.rs, find.rs, branch.rs, recipes.rs, …
     tests.rs     rendering and behaviour tests
   mcp.rs, project.rs, gitfs.rs, alert.rs, reveal.rs, update.rs
 docs/            these docs, the roadmap, design briefs
@@ -188,7 +187,7 @@ Rules for the language live in `docs/stack/rust.md`.
   output out) and `client/mod.rs` (the client loop: events in, commands out).
 - **Presentation:** `client/hydra/` (the layout and its popups),
   `client/design.rs` (shared drawing helpers), `client/render.rs`, and the
-  feature views in `client/` (files, changes, branches, PRs, …).
+  feature views in `client/` (files, changes, branches, …).
 
 The client never touches a PTY; the daemon never draws. They meet only through
 `protocol.rs` messages.

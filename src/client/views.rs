@@ -21,8 +21,6 @@ pub struct ChangesView {
     pub said: String,
     pub term: Option<TermId>,
     pub ws: Option<WsId>,
-    /// "✓ checks 14/14" / "✕ 2 checks failing", from the branch's pull request.
-    pub checks: Option<String>,
     /// A linked worktree (can be merged or discarded), not the main checkout.
     pub linked: bool,
     pub confirm: Option<(String, char)>,
@@ -654,7 +652,6 @@ mod tests {
             said: String::new(),
             term: None,
             ws: None,
-            checks: None,
             linked: true,
             confirm: None,
             reviewed: HashSet::new(),
