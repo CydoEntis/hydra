@@ -177,13 +177,17 @@ pub(in crate::client) fn card(app: &mut App, buf: &mut Buffer, r: Rect, c: &Card
     }
     let (tl, tr, bl, br) = if look.rounded { ("╭", "╮", "╰", "╯") } else { ("┌", "┐", "└", "┘") };
     let (x, y, right, bottom) = (r.x, r.y, r.right() - 1, r.bottom() - 1);
+    // The line runs through the middle of its cells: those cells take the card's ground, so
+    // the fill reaches the line instead of stopping half a cell short of it. The corners keep
+    // the desk's, so a rounded corner still looks round.
+    let edge = b.bg(c.bg);
     for xx in x + 1..right {
-        buf[(xx, y)].set_symbol("─").set_style(b);
-        buf[(xx, bottom)].set_symbol("─").set_style(b);
+        buf[(xx, y)].set_symbol("─").set_style(edge);
+        buf[(xx, bottom)].set_symbol("─").set_style(edge);
     }
     for yy in y + 1..bottom {
-        buf[(x, yy)].set_symbol("│").set_style(b);
-        buf[(right, yy)].set_symbol("│").set_style(b);
+        buf[(x, yy)].set_symbol("│").set_style(edge);
+        buf[(right, yy)].set_symbol("│").set_style(edge);
     }
     buf[(x, y)].set_symbol(tl).set_style(b);
     buf[(right, y)].set_symbol(tr).set_style(b);

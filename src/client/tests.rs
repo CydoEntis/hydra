@@ -1592,6 +1592,21 @@ mod hydra_tests {
     }
 
     #[test]
+    fn a_card_is_filled_up_to_its_line() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let mut term = Terminal::new(TestBackend::new(160, 45)).unwrap();
+        term.draw(|f| render::draw(&mut app, f)).unwrap();
+        let buf = term.backend().buffer().clone();
+        // The sidebar card's left edge, halfway down: the line sits on the card's own ground,
+        // the same as the cell inside it (no strip of desk between line and fill).
+        let side = app.hy.side_rect;
+        let y = side.y + side.height / 2;
+        assert_eq!(buf[(side.x, y)].symbol(), "│");
+        assert_eq!(buf[(side.x, y)].bg, buf[(side.x + 1, y)].bg, "the border cell takes the card's ground");
+        assert_ne!(buf[(side.x, side.y)].bg, buf[(side.x + 1, y)].bg, "the corner keeps the desk's, so it reads round");
+    }
+
+    #[test]
     fn agent_names_wear_their_state() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         // Nothing lit by the keyboard, and the window on neither of them.
