@@ -170,7 +170,7 @@ impl Daemon {
             }
             Command::MarkSeen { term } => {
                 if self.terms.get(&term).is_some_and(|t| t.status == Status::Done) {
-                    self.set_status(term, Status::Idle);
+                    self.set_status(term, Status::Idle, "you looked at it");
                 }
                 if let Some(t) = self.terms.get_mut(&term) {
                     t.bell = false;
@@ -196,7 +196,7 @@ impl Daemon {
                 }
                 self.active_ws = Some(ws);
                 if self.terms.get(&term).is_some_and(|t| t.status == Status::Done) {
-                    self.set_status(term, Status::Idle);
+                    self.set_status(term, Status::Idle, "you looked at it");
                 }
             }
             Command::ResizePane { term, dir, delta } => {
@@ -400,7 +400,7 @@ impl Daemon {
                 let before = self.terms.get(&term).map(|t| t.status).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?;
                 self.questions.push((HumanQuestion { id, term, text, options }, client, before));
                 // It needs you: the sidebar, a notification, the Inbox.
-                self.set_status(term, Status::Blocked);
+                self.set_status(term, Status::Blocked, "it asked you (seshi ask)");
                 self.dirty = true;
                 return Ok(false);
             }
@@ -410,7 +410,7 @@ impl Daemon {
                 let answer = q.options.get(choice).cloned().ok_or_else(|| anyhow::anyhow!("no answer {choice}"))?;
                 self.send(asker, ServerMsg::Reply(Reply::Text(answer)));
                 // Back to work with the answer.
-                self.set_status(q.term, Status::Working);
+                self.set_status(q.term, Status::Working, "you answered it");
                 self.dirty = true;
             }
             Command::Grant { term, grants } => {

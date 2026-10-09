@@ -71,6 +71,7 @@ fn status_reports_need_the_pane_secret() {
     d.message(0, report(t, &secret, 0, HookStatus::Blocked, "PreToolUse"));
     assert_eq!(settle(&mut d, &mut rx, 1), 1);
     assert_eq!(d.terms[&t].status, Status::Blocked, "with the secret it counts");
+    assert_eq!(d.terms[&t].status_why, "hook: PreToolUse", "and it says what set it");
     close(&mut d, &[t]);
 }
 

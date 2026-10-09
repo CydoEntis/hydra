@@ -91,6 +91,8 @@ pub struct Term {
     pub status: Status,
     /// When the status last changed (unix seconds), for "working 3m".
     pub status_since: u64,
+    /// What set the status: a hook's event, a pattern on screen, you.
+    pub status_why: String,
     /// Hooks reported for this agent session: trust them over heuristics.
     pub hooked: bool,
     pub last_output: Instant,
@@ -501,6 +503,7 @@ impl Term {
             agent: None,
             status: Status::None,
             status_since: unix_now(),
+            status_why: String::new(),
             hooked: false,
             last_output: now,
             last_input: now,

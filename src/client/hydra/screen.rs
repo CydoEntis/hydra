@@ -467,9 +467,13 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
         let bx = right.saturating_sub(segs_width(&back));
         put(buf, bx, fy, &back, right);
         let mut segs: Vec<Seg> = Vec::new();
-        let pairs = items.iter().zip(keys).filter_map(|((label, _), k)| {
-            k.map(|k| (k.to_string(), label.trim_start_matches('▶').trim().trim_end_matches('…').split_whitespace().next().unwrap_or("").to_lowercase()))
-        });
+        let mut pairs: Vec<(String, String)> = items
+            .iter()
+            .zip(keys)
+            .filter_map(|((label, _), k)| k.map(|k| (k.to_string(), label.trim_start_matches('▶').trim().trim_end_matches('…').split_whitespace().next().unwrap_or("").to_lowercase())))
+            .collect();
+        // Closing first: when they don't all fit, it's the one to keep.
+        pairs.sort_by_key(|(k, _)| k != "x");
         for (key, word) in pairs {
             let pair = [seg(key, hot), seg(format!(" {word}  "), plain.fg(t.text))];
             if x0 + 3 + segs_width(&segs) + segs_width(&pair) <= bx {

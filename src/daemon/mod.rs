@@ -580,7 +580,7 @@ impl Daemon {
                 if !gone.is_empty() {
                     self.questions.retain(|(_, c, _)| *c != id);
                     for (term, before) in gone {
-                        self.set_status(term, before);
+                        self.set_status(term, before, "its question was withdrawn");
                     }
                     self.dirty = true;
                 }
@@ -664,6 +664,7 @@ impl Daemon {
                         }
                         t.status = if f.agent.is_some() { Status::Idle } else { Status::None };
                         t.status_since = term::unix_now();
+                        t.status_why = if f.agent.is_some() { "process: an agent started".into() } else { String::new() };
                         if f.agent.is_none() {
                             t.session = None;
                             t.summary.clear();
@@ -954,6 +955,7 @@ impl Daemon {
                     root: t.head.as_ref().map(|h| h.main_root.clone()),
                     top: t.head.as_ref().map(|h| h.top.clone()),
                     since: t.status_since,
+                    status_why: t.status_why.clone(),
                     asleep: t.asleep,
                     win32_input: t.win32_input,
                     usage: t.usage.clone(),

@@ -143,7 +143,7 @@ impl Daemon {
                 // A subagent finished: if the turn was waiting on it, it's done now.
                 if t.subagents.is_empty() && t.done_held.take().is_some() {
                     let s = if focused { Status::Idle } else { Status::Done };
-                    self.set_status(term, s);
+                    self.set_status(term, s, "hook: its last subagent finished");
                 }
                 self.dirty = true;
                 return;
@@ -191,15 +191,16 @@ impl Daemon {
         if new != Status::Working {
             t.progress_off = None;
         }
-        self.set_status(term, new);
+        self.set_status(term, new, &format!("hook: {}", if event.is_empty() { "status report" } else { event }));
         self.dirty = true;
     }
 
-    pub(super) fn set_status(&mut self, term: TermId, new: Status) {
+    pub(super) fn set_status(&mut self, term: TermId, new: Status, why: &str) {
         let Some(t) = self.terms.get_mut(&term) else { return };
         if t.status == new {
             return;
         }
+        t.status_why = why.to_string();
         t.blocked_at = (new == Status::Blocked).then(Instant::now);
         t.status = new;
         t.status_since = term::unix_now();
@@ -249,14 +250,14 @@ impl Daemon {
             let Some(name) = &t.agent else { continue };
             if t.hooked {
                 if t.status == Status::Done && Some(t.id) == focused {
-                    changes.push((t.id, Status::Idle));
+                    changes.push((t.id, Status::Idle, "you're looking at it".to_string()));
                 }
                 // Subagents went quiet for good (one died without reporting): don't hold "done"
                 // forever.
                 if t.done_held.is_some_and(|h| h.elapsed() > SUBAGENTS_QUIET_AT_MOST)
                     && t.subagent_seen.is_none_or(|s| s.elapsed() > SUBAGENTS_QUIET_AT_MOST)
                 {
-                    changes.push((t.id, if Some(t.id) == focused { Status::Idle } else { Status::Done }));
+                    changes.push((t.id, if Some(t.id) == focused { Status::Idle } else { Status::Done }, "subagents went quiet".to_string()));
                 }
                 // A question dismissed with Esc sends no hook at all. Once you've typed since
                 // it was asked, the pane has gone quiet, and no question shows on screen, it's
@@ -269,7 +270,7 @@ impl Daemon {
                     let text = t.tail_text(rows);
                     let asking = self.agents.iter().find(|a| &a.name == name).is_some_and(|d| d.blocked.iter().any(|r| r.is_match(&text)));
                     if !asking {
-                        changes.push((t.id, Status::Idle));
+                        changes.push((t.id, Status::Idle, "screen: you typed and the question went away".to_string()));
                     }
                 }
                 // A permission ask that auto mode (or the agent) settled by itself also sends
@@ -281,12 +282,12 @@ impl Daemon {
                     let text = t.tail_text(rows);
                     let asking = CHOICES.is_match(&text) || self.agents.iter().find(|a| &a.name == name).is_some_and(|d| d.blocked.iter().any(|r| r.is_match(&text)));
                     if !asking {
-                        changes.push((t.id, if Some(t.id) == focused { Status::Idle } else { Status::Done }));
+                        changes.push((t.id, if Some(t.id) == focused { Status::Idle } else { Status::Done }, "screen: the question settled itself".to_string()));
                     }
                 }
                 // The progress indicator went away and no turn-end came: cancelled (Esc).
                 if t.status == Status::Working && t.done_held.is_none() && t.progress_off.is_some_and(|p| p.elapsed() > CANCELLED_AFTER) {
-                    changes.push((t.id, Status::Idle));
+                    changes.push((t.id, Status::Idle, "progress bar gone, no turn end: cancelled".to_string()));
                 }
                 // Agents whose hooks only say a turn ended (Codex's notify): the start of the
                 // next turn shows on screen only.
@@ -296,42 +297,42 @@ impl Daemon {
                     // Typed since it finished: not the last turn's line still on screen.
                     && t.last_input.elapsed().as_secs() < term::unix_now().saturating_sub(t.status_since)
                     && let Some(d) = self.agents.iter().find(|a| &a.name == name)
-                    && d.working.iter().any(|r| r.is_match(&t.tail_text(rows)))
+                    && let Some(r) = d.working.iter().find(|r| r.is_match(&t.tail_text(rows)))
                 {
-                    changes.push((t.id, Status::Working));
+                    changes.push((t.id, Status::Working, format!("screen: matched `{}`", r.as_str())));
                 }
                 continue;
             }
             let def = self.agents.iter().find(|a| &a.name == name);
             let text = t.tail_text(rows);
-            let blocked = def.is_some_and(|d| d.blocked.iter().any(|r| r.is_match(&text)));
-            let working = match def {
-                Some(d) if !d.working.is_empty() => d.working.iter().any(|r| r.is_match(&text)),
-                _ => {
-                    t.last_output.elapsed() < window
-                        && t.last_output.saturating_duration_since(t.last_input) > grace
-                }
+            let blocked = def.and_then(|d| d.blocked.iter().find(|r| r.is_match(&text)));
+            let working: Option<String> = match def {
+                Some(d) if !d.working.is_empty() => d.working.iter().find(|r| r.is_match(&text)).map(|r| format!("screen: matched `{}`", r.as_str())),
+                _ => (t.last_output.elapsed() < window && t.last_output.saturating_duration_since(t.last_input) > grace)
+                    .then(|| "screen: it's printing".to_string()),
             };
             // Its working line can leave the rows looked at while it still runs (a long block
             // printed under it): working until the screen has also gone still, so it doesn't
             // flip to done (and alert) and back on every check.
             let still_going = t.status == Status::Working && t.last_output.elapsed() < SCREEN_DONE_QUIET;
-            let new = if blocked {
-                Status::Blocked
-            } else if working || still_going {
-                Status::Working
+            let (new, why) = if let Some(r) = blocked {
+                (Status::Blocked, format!("screen: matched `{}`", r.as_str()))
+            } else if let Some(why) = working {
+                (Status::Working, why)
+            } else if still_going {
+                (Status::Working, "screen: still printing".to_string())
             } else if Some(t.id) == focused {
-                Status::Idle
+                (Status::Idle, "screen: quiet, and you're on it".to_string())
             } else if matches!(t.status, Status::Working | Status::Done) {
-                Status::Done
+                (Status::Done, "screen: went quiet after working".to_string())
             } else {
-                Status::Idle
+                (Status::Idle, "screen: quiet".to_string())
             };
             if new != t.status {
-                changes.push((t.id, new));
+                changes.push((t.id, new, why));
             }
         }
-        for (id, s) in changes {
+        for (id, s, why) in changes {
             if s != Status::Working
                 && let Some(t) = self.terms.get_mut(&id)
             {
@@ -340,7 +341,7 @@ impl Daemon {
                 }
                 t.progress_off = None;
             }
-            self.set_status(id, s);
+            self.set_status(id, s, &why);
         }
     }
 }

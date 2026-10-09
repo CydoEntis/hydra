@@ -27,6 +27,7 @@ mod design_tests {
 
     fn term(id: TermId, agent: Option<&str>, status: Status, cwd: &str) -> TermInfo {
         TermInfo {
+            status_why: String::new(),
             name: String::new(),
             label: String::new(),
             model: String::new(),
