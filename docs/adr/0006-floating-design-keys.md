@@ -1,6 +1,6 @@
 # 0006. Leader keys follow the floating design's key map
 
-- **Status:** Accepted
+- **Status:** Superseded by 0009
 - **Date:** 2026-10-09
 
 ## Context

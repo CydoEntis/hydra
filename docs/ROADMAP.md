@@ -88,7 +88,7 @@ Everything below is shipped on `dev` unless marked.
 - Right-click menus, confirm before closing, toasts — shipped — `src/client/menu.rs`
 - Splash: Resume / New shell here — shipped — `draw_splash`
 - Settings popup grouped by section, key rebinding, themes with contrast audit — shipped — `draw_settings`, `src/theme.rs`
-- Leader keys from the floating design's key map, armed pill in sky — done, unreleased — `src/keys.rs` `DEFAULT_PREFIX_KEYS`, ADR-0006
+- Leader keys (a shell is `n`, only kept features have keys), Alt+arrows without the leader, armed pill in sky — done, unreleased — `src/keys.rs` `DEFAULT_PREFIX_KEYS`, ADR-0009
 - Copy on select with toast, copy mode, Ctrl+click paths, paste images — shipped — `src/client/copy.rs`, `src/client/pick.rs`
 
 **Code and git**
@@ -127,7 +127,7 @@ Everything below is shipped on `dev` unless marked.
 - [ADR-0001](docs/adr/0001-daemon-owns-sessions.md) — A daemon owns every session; clients only draw. Rules out: sessions inside the UI process.
 - [ADR-0002](docs/adr/0002-portable-pty-and-vt100.md) — portable-pty (ConPTY) and vt100 for terminals. Rules out: a home-grown PTY layer.
 - [ADR-0003](docs/adr/0003-msgpack-over-local-sockets.md) — msgpack frames over local sockets, versioned. Rules out: unversioned message changes; network listeners.
-- [ADR-0006](docs/adr/0006-floating-design-keys.md) — Leader keys follow the floating design's key map (supersedes ADR-0005). Rules out: defaults that differ from the key map shown in the app.
+- [ADR-0009](docs/adr/0009-leader-keys-after-the-cut.md) — Leader keys: a shell is one key, and only kept features have keys (supersedes ADR-0006). Rules out: keys for features that don't exist; defaults that differ from the key map shown in the app.
 - [ADR-0008](docs/adr/0008-rename-to-seshi.md) — The app is called Seshi; an old hydra install is brought over once. Rules out: new code or paths under the old name.
 - [ADR-0007](docs/adr/0007-floating-and-tiled-styles.md) — One layout, drawn floating or tiled (supersedes ADR-0004). Rules out: other layouts, styles that move or hide parts of the UI.
 
