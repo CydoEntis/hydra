@@ -652,6 +652,23 @@ pub fn doctor() -> Result<()> {
             (true, Some(other)) => line(Some(false), "claude status hooks", format!("they run another seshi ({other}); `seshi integrate claude` (or restart the server) fixes it")),
             (true, None) => line(Some(true), "claude status hooks", "installed".into()),
         }
+        // Any hook whose program is gone (often an old hydra's): Claude shows "hook error" on
+        // every turn it runs in, and only removing or repointing it stops that.
+        let mut broken = Vec::new();
+        for file in claude_settings_files() {
+            let Some(root) = std::fs::read_to_string(&file).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok()) else { continue };
+            for cmd in broken_hooks_in(&root, |p| p.exists(), |n| on_path(n).is_some()) {
+                broken.push(format!("{} in {}", program_of(&cmd), file.display()));
+            }
+        }
+        match broken.first() {
+            None => line(Some(true), "claude hooks run", "every hook's program is there".into()),
+            Some(first) => line(
+                Some(false),
+                "claude hooks run",
+                format!("{} missing ({first}{}); `seshi integrate claude` fixes seshi's own, remove the rest", broken.len(), if broken.len() > 1 { ", …" } else { "" }),
+            ),
+        }
         let home = directories::BaseDirs::new().map(|d| d.home_dir().join(".claude.json"));
         let mcp = home.and_then(|p| std::fs::read_to_string(p).ok()).is_some_and(|s| s.contains("\"seshi\"") && s.contains("\"mcp\""));
         line(if mcp { Some(true) } else { None }, "seshi MCP for claude", if mcp { "registered".into() } else { "not set up: `seshi integrate mcp` lets agents see each other (optional)".into() });
@@ -1032,8 +1049,76 @@ const CLAUDE_EVENTS: &[(&str, Option<&str>)] = &[
     ("SessionEnd", None),
 ];
 
+/// A hook group seshi put there: tagged, or (from installs before the tag) one that runs
+/// `seshi hook …` under any of the app's names.
 fn is_ours(group: &Value) -> bool {
     ["_seshi", "_hydra", "_drover"].iter().any(|tag| group.get(*tag).and_then(Value::as_bool) == Some(true))
+        || group.get("hooks").and_then(Value::as_array).into_iter().flatten().filter_map(|h| h.get("command").and_then(Value::as_str)).any(runs_our_hook)
+}
+
+/// A hook command split into the program it starts (its first word, or the quoted path)
+/// and its arguments.
+fn split_command(cmd: &str) -> (&str, &str) {
+    let c = cmd.trim_start();
+    let (prog, args) = match c.strip_prefix('"') {
+        Some(rest) => rest.split_once('"').unwrap_or((rest, "")),
+        None => c.split_once(char::is_whitespace).unwrap_or((c, "")),
+    };
+    (prog, args.trim_start())
+}
+
+fn program_of(cmd: &str) -> &str {
+    split_command(cmd).0
+}
+
+/// `"<…/seshi>" hook claude`, or the same from a hydra or drover install.
+fn runs_our_hook(cmd: &str) -> bool {
+    let (prog, args) = split_command(cmd);
+    let stem = std::path::Path::new(prog).file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    matches!(stem.as_str(), "seshi" | "hydra" | "drover") && args.starts_with("hook ")
+}
+
+/// Hook commands in Claude settings `root` whose program isn't there (a removed install, a
+/// moved file): Claude reports "hook error" on every turn they run in. Paths are checked
+/// with `exists`; a bare name only when it's one of the app's old names (`on_path`).
+fn broken_hooks_in(root: &Value, exists: impl Fn(&std::path::Path) -> bool, on_path: impl Fn(&str) -> bool) -> Vec<String> {
+    let mut out: Vec<String> = root
+        .get("hooks")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|h| h.values())
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(|g| g.get("hooks").and_then(Value::as_array))
+        .flatten()
+        .filter_map(|h| h.get("command").and_then(Value::as_str))
+        .filter(|cmd| {
+            let prog = program_of(cmd);
+            if prog.contains('$') || prog.starts_with('~') {
+                return false;
+            }
+            if prog.contains('/') || prog.contains('\\') {
+                !exists(std::path::Path::new(prog))
+            } else {
+                matches!(prog, "seshi" | "hydra" | "drover") && !on_path(prog)
+            }
+        })
+        .map(String::from)
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// The Claude settings files whose hooks run here: yours, and this folder's project ones.
+fn claude_settings_files() -> Vec<PathBuf> {
+    let user = claude_settings();
+    let mut files = vec![user.with_file_name("settings.local.json"), user];
+    if let Ok(here) = std::env::current_dir() {
+        files.push(here.join(".claude").join("settings.json"));
+        files.push(here.join(".claude").join("settings.local.json"));
+    }
+    files
 }
 
 /// Claude Code's settings file, where its hooks live.
@@ -1557,6 +1642,26 @@ mod tests {
         assert!(super::stale_in(&settings(want), want).is_empty(), "this seshi's hooks are fine; others' aren't ours to judge");
         let old = "\"/home/me/.cargo/bin/seshi\" hook claude";
         assert_eq!(super::stale_in(&settings(old), want), vec![old.to_string()]);
+        // An old install's hook without the tag is still ours (so it gets repointed).
+        let untagged = serde_json::json!({ "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "/home/me/.local/bin/hydra hook claude" }] }] } });
+        assert_eq!(super::stale_in(&untagged, want), vec!["/home/me/.local/bin/hydra hook claude".to_string()]);
+        assert!(!super::runs_our_hook("hydra-lint check"), "only the app's own hook");
+    }
+
+    #[test]
+    fn hooks_whose_program_is_gone_are_found() {
+        let root = serde_json::json!({ "hooks": {
+            "Stop": [{ "hooks": [
+                { "type": "command", "command": "\"/home/me/.local/bin/hydra\" hook claude" },
+                { "type": "command", "command": "/usr/bin/notify-send done" },
+                { "type": "command", "command": "hydra hook claude" },
+                { "type": "command", "command": "npx something" },
+                { "type": "command", "command": "$HOME/bin/x" },
+            ] }],
+        }});
+        let exists = |p: &std::path::Path| p == std::path::Path::new("/usr/bin/notify-send");
+        let broken = super::broken_hooks_in(&root, exists, |_| false);
+        assert_eq!(broken, vec!["\"/home/me/.local/bin/hydra\" hook claude".to_string(), "hydra hook claude".to_string()]);
     }
 
     #[test]
