@@ -93,7 +93,8 @@ pub struct Ui {
     pub attention_sort: bool,
     /// Panes as cards with gaps between them ("floating"), or packed edge to edge ("tiled").
     pub panes: String,
-    /// Card corners: "rounded", or "square" for fonts that draw rounded corners badly.
+    /// Card edges: "flush" (lines on the card's edge, its colour right up to them) or "rounded"
+    /// (a centred line with rounded corners, a thin strip of desk inside it).
     pub corners: String,
     /// Space between floating cards: "0", "1" or "2" rows stacked (and columns side by side).
     pub gap: String,
@@ -468,7 +469,7 @@ impl Default for Ui {
             start_dir: String::new(),
             attention_sort: true,
             panes: "floating".into(),
-            corners: "rounded".into(),
+            corners: "flush".into(),
             gap: "1".into(),
             dim: "40%".into(),
             focus_border: "accent".into(),

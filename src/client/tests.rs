@@ -178,9 +178,9 @@ mod hydra_tests {
         // The floating grid: a row of margin, the sidebar card the full height two columns in,
         // tab pills one row down, the cards below a row of air.
         assert!(lines[0].trim().is_empty(), "a row of margin on top");
-        assert!(lines[1].starts_with(" ╭─"), "the sidebar card, a column in: {}", lines[1]);
+        assert!(lines[1].starts_with("  ▁▁"), "the sidebar card, a column in: {}", lines[1]);
         assert!(lines[2].contains(" 1 ") && !lines[2].contains("claude") && lines[2].contains(" + ") && !lines[2].contains('▯'), "an unnamed tab is its number; +; no layout switch: {}", lines[2]);
-        assert!(lines[4].contains("╭─ claude ─ Fix flaky checkout test · shop-api · main") && lines[4].contains("● needs you ─ ✕ ─"), "title, project · branch, state and ✕ set into the card's border: {}", lines[4]);
+        assert!(lines[4].contains("▁ claude ▁ Fix flaky checkout test · shop-api · main") && lines[4].contains("● needs you ▁ ✕ ▁"), "title, project · branch, state and ✕ set into the card's border: {}", lines[4]);
         assert!(lines[6].contains("> fix the flaky checkout test"), "the terminal a row below the border, inset");
         assert!(text.contains("shop-api · ⎇ main"), "folder and branch in the card's footer");
         assert!(!text.contains("needs you   a inbox"), "no app footer");
@@ -219,7 +219,7 @@ mod hydra_tests {
         app.mode = Mode::HySettings(Box::new(design::SettingsView { cat: 2, sel: 0, editing: None, capturing: false, scroll: 0 }));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("Corners") && o.contains("PREVIEW") && o.contains("focused") && o.contains("dimmed"), "the pane settings, with a preview");
+        assert!(o.contains("Card edges") && o.contains("PREVIEW") && o.contains("focused") && o.contains("dimmed"), "the pane settings, with a preview");
         // The splash: the SESHI wordmark, its tagline, what happened, buttons.
         app.mode = Mode::Normal;
         app.splash = true;
@@ -254,12 +254,12 @@ mod hydra_tests {
         app.act(Action::Jump);
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("╭─ Inbox") && o.contains("NEEDS YOU 1 ─") && o.contains("JUST FINISHED 1 ─") && !o.contains("EVERYTHING"), "the Inbox sheet: what needs you, what finished");
+        assert!(o.contains("▁ Inbox") && o.contains("NEEDS YOU 1 ─") && o.contains("JUST FINISHED 1 ─") && !o.contains("EVERYTHING"), "the Inbox sheet: what needs you, what finished");
         assert!(o.contains("Run npm test -- checkout?") && o.contains("Yes 1") && o.contains("Always 2") && o.contains("No 3"), "the question and its answers");
         assert!(o.contains("“All 14 tests pass now.”"), "what the finished one said, quoted");
         assert!(o.contains(" move") && o.contains(" closes"), "the sheet's status bar");
         // It's docked beside the panes, not over them: the session's card is still there.
-        assert!(o.contains("╭─ claude"), "the panes reflow beside it");
+        assert!(o.contains("▁ claude"), "the panes reflow beside it");
         // 2 answers the selected question without going there.
         app.on_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
         assert!(matches!(app.mode, Mode::GoTo { .. }), "still in the Inbox");
@@ -809,7 +809,7 @@ mod hydra_tests {
         app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("PANES") && o.contains("Corners") && o.contains("PREVIEW"), "the pane settings first, with their preview");
+        assert!(o.contains("PANES") && o.contains("Card edges") && o.contains("PREVIEW"), "the pane settings first, with their preview");
         for _ in 0..13 {
             app.on_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         }
@@ -976,7 +976,7 @@ mod hydra_tests {
         assert!(matches!(app.mode, Mode::Actions { sel: 0 }));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("╭─ Actions") && o.contains("New shell here") && o.contains("Inbox ● 1") && !o.contains("Open project") && o.contains("+ key, anywhere"));
+        assert!(o.contains("▁ Actions") && o.contains("New shell here") && o.contains("Inbox ● 1") && !o.contains("Open project") && o.contains("+ key, anywhere"));
         // Its key runs it: b hides the sidebar.
         assert!(app.sidebar);
         app.on_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
@@ -1010,10 +1010,10 @@ mod hydra_tests {
         assert_ne!(fg_at(focus), fg_at(other), "the unfocused pane's text is faded");
         // Tiled: no margin, cards edge to edge; square corners when asked.
         app.cfg.ui.panes = "tiled".into();
-        app.cfg.ui.corners = "square".into();
+        app.cfg.ui.corners = "flush".into();
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.lines().next().unwrap().starts_with('┌'), "tiled starts at the very corner, square: {}", o.lines().next().unwrap());
+        assert!(o.lines().next().unwrap().starts_with(" ▁"), "tiled starts at the very corner, flush: {}", o.lines().next().unwrap());
         assert!(!o.contains('╭'), "no rounded corners");
     }
 
@@ -1023,7 +1023,7 @@ mod hydra_tests {
         show(&o);
         let lines: Vec<&str> = o.lines().collect();
         // A 26-column sidebar card, no right-hand meta or question lines.
-        assert!(lines[1].starts_with(" ╭────────────────────────╮"), "a slim sidebar: {}", lines[1]);
+        assert!(lines[1].starts_with("  ▁") && lines[1].trim().chars().filter(|c| *c == '▁').count() == 24, "a slim sidebar: {}", lines[1]);
         let side: String = lines.iter().map(|l| l.chars().take(30).collect::<String>() + "\n").collect();
         assert!(!side.contains("main · 3m") && !side.contains("Run npm test"), "no meta or questions in the slim sidebar: {side}");
         assert!(o.contains("actions") && o.contains('\u{f013}'), "actions and the cog fit a slim sidebar");
@@ -1448,7 +1448,7 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         // claude needs you in the fixture: the Inbox, and a search for any session.
-        assert!(o.contains("╭─ Inbox") && o.contains("type to find any session"));
+        assert!(o.contains("▁ Inbox") && o.contains("type to find any session"));
         for c in "rate".chars() {
             app.on_key(key(KeyCode::Char(c)));
         }
@@ -1536,7 +1536,7 @@ mod hydra_tests {
         app.act(Action::Jump);
         let o = draw(&mut app, 100, 30);
         show(&o);
-        assert!(o.contains("╭─ Inbox") && !o.contains("╭─ claude"), "narrow: the sheet covers the pane column");
+        assert!(o.contains("▁ Inbox") && !o.contains("▁ claude"), "narrow: the sheet covers the pane column");
         app.mode = Mode::Normal;
         // Changes of a real repo.
         let repo = std::env::temp_dir().join(format!("seshi-sheet-{}", std::process::id()));
@@ -1546,7 +1546,7 @@ mod hydra_tests {
         app.open_changes(repo.clone());
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("╭─ Changes") && o.contains("╭─ claude"), "Changes docks beside the panes");
+        assert!(o.contains("▁ Changes") && o.contains("▁ claude"), "Changes docks beside the panes");
         let _ = std::fs::remove_dir_all(&repo);
     }
 
@@ -1586,7 +1586,7 @@ mod hydra_tests {
         key(&mut app, KeyCode::Char('m'), KeyModifiers::NONE);
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(matches!(&app.mode, Mode::Compose(c) if c.inbox.is_some()) && o.contains("╭─ Inbox") && o.contains("Next prompt for claude"), "the box in the Inbox row");
+        assert!(matches!(&app.mode, Mode::Compose(c) if c.inbox.is_some()) && o.contains("▁ Inbox") && o.contains("Next prompt for claude"), "the box in the Inbox row");
         key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
         assert!(matches!(app.mode, Mode::GoTo { .. }), "Esc: back in the Inbox");
     }
@@ -1618,7 +1618,7 @@ mod hydra_tests {
         key(&mut app, 'd');
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(matches!(app.view, Some(View::Both(_))) && o.contains("╭─ Changes") && o.contains("reading both diffs"), "both diffs, docked");
+        assert!(matches!(app.view, Some(View::Both(_))) && o.contains("▁ Changes") && o.contains("reading both diffs"), "both diffs, docked");
         app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(app.view.is_none());
         // k: dismissed (and the tag goes with it).
@@ -1674,13 +1674,20 @@ mod hydra_tests {
         let mut term = Terminal::new(TestBackend::new(160, 45)).unwrap();
         term.draw(|f| render::draw(&mut app, f)).unwrap();
         let buf = term.backend().buffer().clone();
-        // The sidebar card's left edge, halfway down: the line sits on the card's own ground,
-        // the same as the cell inside it (no strip of desk between line and fill).
+        // Flush edges: the sidebar card's left edge is a line on the cell's inner side, on the
+        // desk's ground; the card's colour starts in the very next cell (no strip, no spill).
         let side = app.hy.side_rect;
         let y = side.y + side.height / 2;
+        assert_eq!(buf[(side.x, y)].symbol(), "▕", "the line hugs the card");
+        assert_ne!(buf[(side.x, y)].bg, buf[(side.x + 1, y)].bg, "outside the line: the desk; inside: the card");
+        assert_eq!(buf[(side.x, side.y)].symbol(), " ", "the corner is where the two lines meet");
+        // Rounded keeps the centred line.
+        app.cfg.ui.corners = "rounded".into();
+        let mut term = Terminal::new(TestBackend::new(160, 45)).unwrap();
+        term.draw(|f| render::draw(&mut app, f)).unwrap();
+        let buf = term.backend().buffer().clone();
         assert_eq!(buf[(side.x, y)].symbol(), "│");
-        assert_eq!(buf[(side.x, y)].bg, buf[(side.x + 1, y)].bg, "the border cell takes the card's ground");
-        assert_ne!(buf[(side.x, side.y)].bg, buf[(side.x + 1, y)].bg, "the corner keeps the desk's, so it reads round");
+        assert_eq!(buf[(side.x, side.y)].symbol(), "╭");
     }
 
     #[test]
@@ -1841,7 +1848,7 @@ mod hydra_tests {
             app.act(a);
             let o = draw(&mut app, 120, 34);
             show(&o);
-            assert!(o.contains("╭─ ") && o.contains(" ✕ ─"), "{title}: a seshi card (title in its border, ✕ to close)");
+            assert!(o.contains("▁ ") && o.contains(" ✕ ▁"), "{title}: a seshi card (title in its border, ✕ to close)");
         }
     }
 

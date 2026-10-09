@@ -81,7 +81,7 @@ impl Look {
         let tiled = ui.panes == "tiled";
         Look {
             tiled,
-            rounded: ui.corners != "square",
+            rounded: ui.corners == "rounded",
             gap: if tiled { 0 } else { ui.gap.parse().unwrap_or(1).min(2) },
             dim: match ui.dim.as_str() {
                 "off" => 0.0,
@@ -111,6 +111,27 @@ pub(in crate::client) fn row_pill(look: Look, buf: &mut Buffer, x: u16, y: u16, 
     }
     let segs = pill(look, vec![seg(" ".repeat((w - 2) as usize), Style::default())], bg, outer);
     put(buf, x, y, &segs, x + w);
+}
+
+/// The glyphs a card's border is drawn with.
+pub(in crate::client) struct Edges {
+    pub top: &'static str,
+    pub bottom: &'static str,
+    pub left: &'static str,
+    pub right: &'static str,
+    /// Top left, top right, bottom left, bottom right.
+    pub corners: [&'static str; 4],
+}
+
+impl Edges {
+    pub fn of(look: Look) -> Edges {
+        if look.rounded {
+            Edges { top: "─", bottom: "─", left: "│", right: "│", corners: ["╭", "╮", "╰", "╯"] }
+        } else {
+            // Each on the side of its cell that faces the card.
+            Edges { top: "▁", bottom: "▔", left: "▕", right: "▏", corners: [" ", " ", " ", " "] }
+        }
+    }
 }
 
 /// A row's highlight laid over what's already drawn there (a glide passing over rows): its
@@ -179,8 +200,14 @@ impl<'a> Card<'a> {
     }
 }
 
-/// Draw a card: rounded border on the desk, title in the top border with a break around it,
+/// Draw a card: its border on the desk, title in the top border with a break around it,
 /// state and ✕ on the right of it, a footer row inside. Returns the inside (within the border).
+///
+/// A cell has one ground, and a box-drawing line runs through its middle, so a filled card
+/// with a centred line either shows a strip of desk inside the line or spills its fill past it.
+/// Flush edges (the default) draw the border with eighth blocks that sit on the cell's inner
+/// edge instead, so the fill meets the line exactly; the corner cells stay empty, where the
+/// two lines meet at a point. Rounded keeps the centred line and its strip.
 pub(in crate::client) fn card(app: &mut App, buf: &mut Buffer, r: Rect, c: &Card, t: &Theme) -> Rect {
     let look = Look::of(&app.cfg.ui);
     let r = r.intersection(buf.area);
@@ -192,20 +219,17 @@ pub(in crate::client) fn card(app: &mut App, buf: &mut Buffer, r: Rect, c: &Card
     if c.bold {
         b = b.add_modifier(Modifier::BOLD);
     }
-    let (tl, tr, bl, br) = if look.rounded { ("╭", "╮", "╰", "╯") } else { ("┌", "┐", "└", "┘") };
+    let edges = Edges::of(look);
     let (x, y, right, bottom) = (r.x, r.y, r.right() - 1, r.bottom() - 1);
-    // The line runs through the middle of its cells: those cells take the card's ground, so
-    // the fill reaches the line instead of stopping half a cell short of it. The corners keep
-    // the desk's, so a rounded corner still looks round.
-    let edge = b.bg(c.bg);
     for xx in x + 1..right {
-        buf[(xx, y)].set_symbol("─").set_style(edge);
-        buf[(xx, bottom)].set_symbol("─").set_style(edge);
+        buf[(xx, y)].set_symbol(edges.top).set_style(b);
+        buf[(xx, bottom)].set_symbol(edges.bottom).set_style(b);
     }
     for yy in y + 1..bottom {
-        buf[(x, yy)].set_symbol("│").set_style(edge);
-        buf[(right, yy)].set_symbol("│").set_style(edge);
+        buf[(x, yy)].set_symbol(edges.left).set_style(b);
+        buf[(right, yy)].set_symbol(edges.right).set_style(b);
     }
+    let [tl, tr, bl, br] = edges.corners;
     buf[(x, y)].set_symbol(tl).set_style(b);
     buf[(right, y)].set_symbol(tr).set_style(b);
     buf[(x, bottom)].set_symbol(bl).set_style(b);
@@ -226,7 +250,7 @@ pub(in crate::client) fn card(app: &mut App, buf: &mut Buffer, r: Rect, c: &Card
             out.push(seg(format!(" {}{label} ", glyph(app, st)), s));
         }
         if c.state.is_some() && c.close.is_some() {
-            out.push(seg("─", b));
+            out.push(seg(edges.top, b));
         }
         if c.close.is_some() {
             out.push(seg(" ✕ ", desk.fg(if c.bold { t.text } else { t.muted })));
@@ -255,7 +279,7 @@ pub(in crate::client) fn card(app: &mut App, buf: &mut Buffer, r: Rect, c: &Card
         }
         let mut segs = vec![seg(format!(" {title} "), ts)];
         if !c.sub.is_empty() && (title.width() + c.sub.width() + 8) < span.saturating_sub(rw) as usize {
-            segs.push(seg("─", b));
+            segs.push(seg(edges.top, b));
             segs.push(seg(format!(" {} ", c.sub), desk.fg(t.muted)));
         }
         put(buf, l_x - 1, y, &segs, r_x.saturating_sub(rw));

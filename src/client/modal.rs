@@ -114,7 +114,7 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "scrollback", label: "Scrollback lines", kind: Kind::Int { step: 1000, min: 1000, max: 100_000 }, cat: Cat::Sessions, help: "How much history each session keeps for scrolling and search." },
     // Appearance
     Setting { path: "ui.panes", label: "Layout", kind: Kind::Choice(&["floating", "tiled"]), cat: Cat::Appearance, help: "Gaps and rounded borders between panes. Tiled packs them edge to edge." },
-    Setting { path: "ui.corners", label: "Corners", kind: Kind::Choice(&["rounded", "square"]), cat: Cat::Appearance, help: "Use square corners if your font draws rounded ones badly." },
+    Setting { path: "ui.corners", label: "Card edges", kind: Kind::Choice(&["flush", "rounded"]), cat: Cat::Appearance, help: "Flush: the line sits on the card's edge, its colour right up to it. Rounded: a centred line with round corners (a thin strip of background shows inside it)." },
     Setting { path: "ui.gap", label: "Gap", kind: Kind::Choice(&["0", "1", "2"]), cat: Cat::Appearance, help: "Space between floating panes, in rows stacked and columns side by side." },
     Setting { path: "ui.dim", label: "Dim unfocused", kind: Kind::Choice(&["off", "subtle", "40%", "60%"]), cat: Cat::Appearance, help: "How far the panes you're not in fade. Their colours stay recognisable." },
     Setting { path: "ui.focus_border", label: "Focus border", kind: Kind::Choice(&["accent", "bright", "none"]), cat: Cat::Appearance, help: "How the pane you're in is outlined." },
