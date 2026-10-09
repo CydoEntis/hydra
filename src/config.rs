@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub const EXAMPLE: &str = include_str!("../config.example.toml");
 
@@ -16,11 +16,11 @@ pub const EXAMPLE: &str = include_str!("../config.example.toml");
 pub struct Config {
     /// Key that arms command mode, tmux style.
     pub prefix: String,
-    /// Teach Claude (when hydra starts it) to move itself into a worktree when asked.
+    /// Teach Claude (when seshi starts it) to move itself into a worktree when asked.
     pub teach_agents: bool,
     /// Where tickets come from (Ctrl+Space i).
     pub tickets: Tickets,
-    /// What agents may do through `hydra mcp`.
+    /// What agents may do through `seshi mcp`.
     pub mcp: Mcp,
     /// Named setups for + New: e.g. a worktree with claude, a dev server and lazygit.
     pub recipes: Vec<Recipe>,
@@ -30,7 +30,7 @@ pub struct Config {
     /// "never"); they resume where they were when you open them.
     pub sleep_after: String,
     /// Editor for "open in editor" (Files, Changes). Empty: $VISUAL, $EDITOR, then `code`.
-    /// Terminal editors (nvim, vim, hx, nano, micro, …) open inside hydra beside the agent.
+    /// Terminal editors (nvim, vim, hx, nano, micro, …) open inside seshi beside the agent.
     pub editor: String,
     pub theme: String,
     pub theme_overrides: ThemeOverrides,
@@ -82,12 +82,12 @@ pub struct Ui {
     pub spinner: Vec<String>,
     /// One colour per workspace, assigned in order and kept across restarts.
     pub workspace_colors: Vec<String>,
-    /// The welcome screen when hydra starts.
+    /// The welcome screen when seshi starts.
     pub splash: bool,
-    /// Look for a newer hydra when the window opens (and every few hours) and say so.
+    /// Look for a newer seshi when the window opens (and every few hours) and say so.
     pub update_check: bool,
-    /// Where plain `hydra` opens its first shell (and the one after you close everything).
-    /// Empty: wherever you run hydra. `~` is your home folder.
+    /// Where plain `seshi` opens its first shell (and the one after you close everything).
+    /// Empty: wherever you run seshi. `~` is your home folder.
     pub start_dir: String,
     /// Sidebar sessions (and worktrees) sorted needs → done → working → idle.
     pub attention_sort: bool,
@@ -112,7 +112,7 @@ pub struct Restore {
     pub enabled: bool,
     /// Relaunch agents with their resume command (`claude --resume <id>`, ...).
     pub agents: bool,
-    /// Re-run commands panes were started with (`spawn-right:lazygit`, `hydra split -- x`).
+    /// Re-run commands panes were started with (`spawn-right:lazygit`, `seshi split -- x`).
     pub commands: bool,
 }
 
@@ -126,7 +126,7 @@ pub struct Worktree {
     /// New agents (+ New, the quick prompt, or a quick-prompt agent typed into a pane's
     /// PowerShell, bash or fish) get their own worktree when started in a repo's main checkout.
     pub per_agent: bool,
-    /// Closing the last thing running in a worktree hydra made removes its folder (the
+    /// Closing the last thing running in a worktree seshi made removes its folder (the
     /// branch is kept; a worktree with uncommitted changes is left alone).
     pub delete_with_last: bool,
     /// Keep this agent (e.g. "claude") booted in a spare worktree of the repo you last
@@ -175,7 +175,7 @@ pub struct Mcp {
     pub safe: Vec<String>,
     /// project: only sessions in the calling agent's repo; all: every session.
     pub scope: String,
-    /// What an agent's pane may do through hydra by default (`hydra grant` changes one
+    /// What an agent's pane may do through seshi by default (`seshi grant` changes one
     /// pane): read (other panes' screens), write (type into them), start (new sessions),
     /// respond (answer another agent's prompt or question), admin (close other panes, stop
     /// the server).
@@ -322,7 +322,7 @@ pub struct Notify {
     /// Ring the terminal bell when an agent becomes blocked or finishes out of view.
     pub bell: bool,
     /// A desktop notification when an agent you're not looking at needs you or finishes
-    /// (also when no hydra window is open).
+    /// (also when no seshi window is open).
     pub desktop: bool,
     /// Sounds: glass, ping, chime, pop, off, or a path to a sound file.
     pub sound_needs: String,
@@ -352,7 +352,7 @@ pub struct AgentDef {
 /// Programs that run an agent's script rather than being the agent: they can't name it.
 const INTERPRETERS: &[&str] = &["node", "nodejs", "bun", "deno", "python", "python3", "py", "ruby", "java", "uv", "uvx", "npx", "pnpm", "tsx", "ts-node"];
 
-/// What hydra learns from a program you say is an agent: matched by its name, or (run by
+/// What seshi learns from a program you say is an agent: matched by its name, or (run by
 /// node, python, …) by its package or script. The usual screen signs of a working agent;
 /// None when there's nothing to go on (a shell, no script).
 pub fn agent_from_command(program: &str, args: &[String]) -> Option<AgentDef> {
@@ -446,7 +446,7 @@ impl Default for Config {
             mcp: Mcp::default(),
             recipes: Vec::new(),
             presets: Vec::new(),
-            theme: "hydra".into(),
+            theme: crate::theme::DEFAULT.into(),
             theme_overrides: ThemeOverrides::default(),
             shell: None,
             shell_args: Vec::new(),
@@ -630,19 +630,19 @@ pub fn builtin_agents() -> Vec<AgentDef> {
 }
 
 pub fn config_path() -> PathBuf {
-    if let Ok(p) = std::env::var("HYDRA_CONFIG") {
+    if let Ok(p) = std::env::var("SESHI_CONFIG") {
         return PathBuf::from(p);
     }
     if cfg!(windows)
         && let Some(d) = directories::BaseDirs::new() {
-            return d.config_dir().join("hydra").join("config.toml");
+            return d.config_dir().join("seshi").join("config.toml");
         }
     // XDG-style on macOS too: that's where terminal people look.
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().join(".config")))
         .unwrap_or_else(|| PathBuf::from("."));
-    base.join("hydra").join("config.toml")
+    base.join("seshi").join("config.toml")
 }
 
 /// Write a file so a reader (or a crash) never sees half of it: write a temporary file
@@ -652,7 +652,7 @@ pub fn write_atomic(path: &std::path::Path, data: impl AsRef<[u8]>) -> std::io::
         std::fs::create_dir_all(dir)?;
     }
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let tmp = path.with_file_name(format!(".{name}.hydra-tmp"));
+    let tmp = path.with_file_name(format!(".{name}.seshi-tmp"));
     std::fs::write(&tmp, data)?;
     std::fs::rename(&tmp, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
@@ -676,7 +676,7 @@ pub fn read_state<T: serde::de::DeserializeOwned + Default>(path: &std::path::Pa
 }
 
 pub fn data_dir() -> PathBuf {
-    directories::ProjectDirs::from("", "", "hydra")
+    directories::ProjectDirs::from("", "", "seshi")
         .map(|d| d.data_local_dir().to_path_buf())
         .unwrap_or_else(std::env::temp_dir)
 }
@@ -693,37 +693,83 @@ fn merge(base: &mut toml::Table, over: toml::Table) {
     }
 }
 
-/// The app used to be called drover: bring its config and saved sessions over once,
-/// the first time hydra runs without its own. The old files are left in place.
-pub fn migrate_from_drover() {
-    if std::env::var_os("HYDRA_CONFIG").is_some() {
+/// The names the app had before: its config and data are brought over once, the first
+/// time seshi runs without its own. Newest first.
+const OLD_NAMES: [&str; 2] = ["hydra", "drover"];
+/// Left in the data folder once the move is done, so it happens only once.
+const MIGRATED: &str = "migrated-from";
+
+/// The app used to be called hydra (and before that, drover): bring its config (with the old
+/// default theme moved to the new one) and its data (saved sessions, pane history, UI state)
+/// over once. The old folders are left in place.
+pub fn migrate_old_names() {
+    if std::env::var_os("SESHI_CONFIG").is_some() {
         return;
     }
     let new_cfg = config_path();
-    let old_cfg = new_cfg.parent().and_then(|d| d.parent()).map(|d| d.join("drover").join("config.toml"));
-    if let Some(old) = old_cfg
-        && !new_cfg.exists()
-        && old.exists()
-    {
-        if let Some(dir) = new_cfg.parent() {
-            let _ = std::fs::create_dir_all(dir);
+    let new_dir = new_cfg.parent().map(Path::to_path_buf);
+    let new_data = data_dir();
+    if new_data.join(MIGRATED).exists() {
+        return;
+    }
+    for old in OLD_NAMES {
+        let old_cfg_dir = new_dir.as_ref().and_then(|d| d.parent()).map(|d| d.join(old));
+        let old_data = directories::ProjectDirs::from("", "", old).map(|d| d.data_local_dir().to_path_buf());
+        let has_cfg = old_cfg_dir.as_ref().is_some_and(|d| d.join("config.toml").exists());
+        let has_data = old_data.as_ref().is_some_and(|d| d.is_dir());
+        if !has_cfg && !has_data {
+            continue;
         }
-        if let Ok(text) = std::fs::read_to_string(&old) {
-            let _ = std::fs::write(&new_cfg, text.replace("theme = \"drover\"", "theme = \"hydra\""));
+        let cfg = old_cfg_dir.filter(|_| !new_cfg.exists()).zip(new_dir.clone());
+        bring_over(old, cfg, old_data.as_deref(), &new_data);
+        tracing::info!("brought {old}'s config and data over");
+        return;
+    }
+}
+
+/// Copy an old install's config folder (`cfg`: from, to) and data folder over, the old
+/// default theme moved to the new one, and leave the marker.
+fn bring_over(old: &str, cfg: Option<(PathBuf, PathBuf)>, old_data: Option<&Path>, new_data: &Path) {
+    if let Some((from, to)) = cfg {
+        copy_renamed(&from, &to, old);
+        for name in ["config.toml", "config.local.toml"] {
+            let f = to.join(name);
+            if let Ok(text) = std::fs::read_to_string(&f) {
+                let moved = text
+                    .replace("theme = \"hydra\"", &format!("theme = \"{}\"", crate::theme::DEFAULT))
+                    .replace("theme = \"drover\"", &format!("theme = \"{}\"", crate::theme::DEFAULT));
+                let _ = std::fs::write(&f, moved);
+            }
         }
     }
-    let new_data = data_dir();
-    let old_data = directories::ProjectDirs::from("", "", "drover").map(|d| d.data_local_dir().to_path_buf());
-    if let Some(old) = old_data
-        && let Ok(entries) = std::fs::read_dir(&old)
-    {
-        let _ = std::fs::create_dir_all(&new_data);
-        for e in entries.flatten() {
-            let name = e.file_name();
-            let to = new_data.join(&name);
-            if name.to_string_lossy().starts_with("session-") && !to.exists() {
-                let _ = std::fs::copy(e.path(), to);
-            }
+    if let Some(from) = old_data {
+        copy_renamed(from, new_data, old);
+    }
+    let _ = std::fs::create_dir_all(new_data);
+    let _ = std::fs::write(new_data.join(MIGRATED), old);
+}
+
+/// Copy a folder's contents into `to`, files named after the old app (`hydra-ui.json`) taking
+/// the new name. What's already there is kept; a running server's pid and socket files aren't
+/// copied (they belong to the old one).
+fn copy_renamed(from: &Path, to: &Path, old: &str) {
+    let Ok(entries) = std::fs::read_dir(from) else { return };
+    let _ = std::fs::create_dir_all(to);
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.ends_with(".pid") || name.ends_with(".sock") || name == "daemon.log" {
+            continue;
+        }
+        let renamed = match name.strip_prefix(&format!("{old}-")) {
+            Some(rest) => format!("seshi-{rest}"),
+            None => name,
+        };
+        let dest = to.join(renamed);
+        let path = e.path();
+        if path.is_dir() {
+            copy_renamed(&path, &dest, old);
+        } else if !dest.exists() {
+            let _ = std::fs::copy(&path, &dest);
         }
     }
 }
@@ -752,7 +798,7 @@ impl Config {
         };
         // This machine's own settings (never synced) win over the shared ones.
         let local = path.with_file_name("config.local.toml");
-        if std::env::var_os("HYDRA_CONFIG").is_none()
+        if std::env::var_os("SESHI_CONFIG").is_none()
             && let Ok(s) = std::fs::read_to_string(&local)
         {
             let over: toml::Table = toml::from_str(&s).with_context(|| format!("parsing {}", local.display()))?;
@@ -957,7 +1003,7 @@ mod tests {
 
     #[test]
     fn adding_an_agent_keeps_the_rest_of_the_config() {
-        let file = std::env::temp_dir().join(format!("hydra-agents-{}.toml", std::process::id()));
+        let file = std::env::temp_dir().join(format!("seshi-agents-{}.toml", std::process::id()));
         std::fs::write(&file, "# mine\ntheme = \"default\"\n\n[ui]\nsplash = true\n\n[notify]\ndesktop = true\n").unwrap();
         let def = super::agent_from_command("dst", &["dst".to_string()]).unwrap();
         super::add_agent_to(&file, &def).unwrap();
@@ -967,14 +1013,14 @@ mod tests {
         assert_eq!(text.matches("[[agents]]").count(), 1, "the same name once: {text}");
         assert!(text.find("[[agents]]") > text.find("[notify]"), "added at the end: {text}");
         let cfg: super::Config = toml::from_str(&text).unwrap();
-        assert!(cfg.agent_defs().iter().any(|a| a.name == "dst"), "and hydra reads it back");
+        assert!(cfg.agent_defs().iter().any(|a| a.name == "dst"), "and seshi reads it back");
         let _ = std::fs::remove_file(&file);
     }
 
     #[test]
     fn the_start_folder() {
         let mut cfg = super::Config::default();
-        assert_eq!(cfg.start_dir(), None, "empty: wherever you run hydra");
+        assert_eq!(cfg.start_dir(), None, "empty: wherever you run seshi");
         cfg.ui.start_dir = "~".into();
         let home = directories::BaseDirs::new().unwrap().home_dir().to_path_buf();
         assert_eq!(cfg.start_dir(), Some(home), "~ is home");
@@ -987,12 +1033,12 @@ mod tests {
 
     #[test]
     fn state_files_swap_in_and_keep_a_bad_copy() {
-        let dir = std::env::temp_dir().join(format!("hydra-state-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("seshi-state-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("s.json");
         super::write_atomic(&f, "[1,2]").unwrap();
         assert_eq!(std::fs::read_to_string(&f).unwrap(), "[1,2]");
-        assert!(!dir.join(".s.json.hydra-tmp").exists(), "no temporary file left behind");
+        assert!(!dir.join(".s.json.seshi-tmp").exists(), "no temporary file left behind");
         let v: Vec<u32> = super::read_state(&f);
         assert_eq!(v, vec![1, 2]);
         std::fs::write(&f, "[1,2").unwrap();
@@ -1005,14 +1051,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn an_old_install_is_brought_over_once() {
+        let base = std::env::temp_dir().join(format!("seshi-migrate-{}", std::process::id()));
+        let (old_cfg, new_cfg, old_data, new_data) = (base.join("cfg-hydra"), base.join("cfg-seshi"), base.join("data-hydra"), base.join("data-seshi"));
+        std::fs::create_dir_all(old_cfg.join("ext")).unwrap();
+        std::fs::create_dir_all(old_data.join("output-default")).unwrap();
+        std::fs::write(old_cfg.join("config.toml"), "theme = \"hydra\"
+shell = \"pwsh\"
+").unwrap();
+        std::fs::write(old_cfg.join("ext").join("x.toml"), "").unwrap();
+        std::fs::write(old_data.join("hydra-ui.json"), "{}").unwrap();
+        std::fs::write(old_data.join("session-default.json"), "[]").unwrap();
+        std::fs::write(old_data.join("output-default").join("1.log"), "hi").unwrap();
+        std::fs::write(old_data.join("hydra-me-default.sock.pid"), "123").unwrap();
+        bring_over("hydra", Some((old_cfg.clone(), new_cfg.clone())), Some(&old_data), &new_data);
+        let cfg = std::fs::read_to_string(new_cfg.join("config.toml")).unwrap();
+        assert!(cfg.contains(&format!("theme = \"{}\"", crate::theme::DEFAULT)) && cfg.contains("shell = \"pwsh\""), "settings kept, the old default theme moved: {cfg}");
+        assert!(new_cfg.join("ext").join("x.toml").exists(), "folders inside come too");
+        assert!(new_data.join("seshi-ui.json").exists() && !new_data.join("hydra-ui.json").exists(), "files named after the old app take the new name");
+        assert!(new_data.join("session-default.json").exists() && new_data.join("output-default").join("1.log").exists(), "saved sessions and pane history");
+        assert!(!new_data.join("seshi-me-default.sock.pid").exists(), "not the old server's pid");
+        assert!(new_data.join(MIGRATED).exists() && old_data.join("hydra-ui.json").exists(), "marked done; the old folders stay");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn local_settings_win() {
-        let mut base: toml::Table = toml::from_str("theme = 'hydra'\n[ui]\nmouse = true\nsplash = true\n").unwrap();
+        let mut base: toml::Table = toml::from_str("theme = 'monokai'\n[ui]\nmouse = true\nsplash = true\n").unwrap();
         let over: toml::Table = toml::from_str("shell = 'zsh'\n[ui]\nsplash = false\n").unwrap();
         merge(&mut base, over);
         let cfg: Config = toml::Value::Table(base).try_into().unwrap();
         assert_eq!(cfg.shell.as_deref(), Some("zsh"));
         assert!(cfg.ui.mouse && !cfg.ui.splash, "tables merge key by key");
-        assert_eq!(cfg.theme, "hydra");
+        assert_eq!(cfg.theme, "monokai");
     }
 
     #[test]

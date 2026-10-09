@@ -54,34 +54,34 @@ agent CLIs you want to run, a Nerd Font for icons.
 ## Project-specific: setup
 
 ```sh
-git clone https://github.com/CydoEntis/hydra && cd hydra
+git clone https://github.com/CydoEntis/seshi && cd seshi
 cargo build
 cargo test
-cargo install --path .   # then run: hydra
+cargo install --path .   # then run: seshi
 ```
 
-Settings live in `config.toml` (`%APPDATA%\hydra\` on Windows,
-`~/.config/hydra/` elsewhere), with `config.local.toml` beside it for
+Settings live in `config.toml` (`%APPDATA%\seshi\` on Windows,
+`~/.config/seshi/` elsewhere), with `config.local.toml` beside it for
 machine-only values. `config.example.toml` documents every key.
 
 ## Project-specific: variables
 
-No `.env` file: Hydra is configured through `config.toml`. Environment variables
+No `.env` file: Seshi is configured through `config.toml`. Environment variables
 it reads:
 
 | Variable | Purpose | Set by |
 | --- | --- | --- |
-| `HYDRA_CONFIG` | use this config file instead of the default | user |
-| `HYDRA_SOCKET` | name of a separate server (like `tmux -L`); used for nested test servers | user |
-| `HYDRA_REMOTE` | the SSH host this client works on (from `--remote`) | hydra |
-| `HYDRA_SSH`, `HYDRA_REMOTE_CMD` | replace `ssh` / the remote `hydra` command | user |
-| `HYDRA_TERM_ID`, `HYDRA_PANE_TOKEN` | the pane's id and secret, set inside every pane | daemon |
+| `SESHI_CONFIG` | use this config file instead of the default | user |
+| `SESHI_SOCKET` | name of a separate server (like `tmux -L`); used for nested test servers | user |
+| `SESHI_REMOTE` | the SSH host this client works on (from `--remote`) | seshi |
+| `SESHI_SSH`, `SESHI_REMOTE_CMD` | replace `ssh` / the remote `seshi` command | user |
+| `SESHI_TERM_ID`, `SESHI_PANE_TOKEN` | the pane's id and secret, set inside every pane | daemon |
 | `LINEAR_API_KEY` (and Plane's) | ticket sources, when not in `config.local.toml` | user |
-| `HYDRA_SHOW` | tests print rendered frames | developer |
-| `HYDRA_PR`, `HYDRA_PR_DIR` | the live pull-request test (`cargo test pr_live -- --ignored`) | developer |
+| `SESHI_SHOW` | tests print rendered frames | developer |
+| `SESHI_PR`, `SESHI_PR_DIR` | the live pull-request test (`cargo test pr_live -- --ignored`) | developer |
 | `EDITOR`, `VISUAL`, `SHELL`, `COMSPEC` | editor and shell defaults | OS / user |
 
 ## Project-specific: environments
 
-Local only: Hydra is a desktop tool. Builds come from `cargo install --path .`
+Local only: Seshi is a desktop tool. Builds come from `cargo install --path .`
 (no published releases yet). `dev` is the working branch.

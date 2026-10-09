@@ -26,12 +26,12 @@ use std::path::PathBuf;
 
 /// An agent-aware terminal multiplexer.
 #[derive(Parser)]
-#[command(name = "hydra", version, about)]
+#[command(name = "seshi", version, about)]
 struct Args {
     /// Directory to open as a workspace (switches to it if already open).
     path: Option<PathBuf>,
     /// Work on another machine over SSH (user@host): the UI here, agents there. Needs
-    /// hydra installed there too.
+    /// seshi installed there too.
     #[arg(long, global = true)]
     remote: Option<String>,
     #[command(subcommand)]
@@ -100,17 +100,17 @@ enum Cmd {
     },
     /// Focus a pane (switches workspace and tab).
     Focus { pane: protocol::TermId },
-    /// The program in a pane (default: this one) is an agent: hydra learns it, by its
+    /// The program in a pane (default: this one) is an agent: seshi learns it, by its
     /// program (any alias) or, run by node / python, by its script.
     Teach { pane: Option<protocol::TermId> },
     /// Run a command in a floating pane over everything (it closes when the command exits):
-    /// `hydra popup -- fzf`, `hydra popup -- lazygit`.
+    /// `seshi popup -- fzf`, `seshi popup -- lazygit`.
     Popup {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         cmd: Vec<String>,
     },
-    /// What a pane's agent may do through hydra: a comma list of read, write, start, respond,
-    /// admin (`hydra grant 4 read,write`), or `default` for the config's ([mcp] grants).
+    /// What a pane's agent may do through seshi: a comma list of read, write, start, respond,
+    /// admin (`seshi grant 4 read,write`), or `default` for the config's ([mcp] grants).
     Grant { pane: protocol::TermId, grants: String },
     /// Ask the person a question and wait for their answer (printed): from an agent in a
     /// pane. It shows in the Inbox and on the pane, with these answers (default Yes / No).
@@ -120,14 +120,14 @@ enum Cmd {
         #[arg(short = 'o', long = "option")]
         options: Vec<String>,
     },
-    /// Run a command (default: your shell) with a `tmux` that opens hydra panes, so Claude
-    /// Code's agent teams put each teammate in a pane: `hydra tmux-shim -- claude`.
+    /// Run a command (default: your shell) with a `tmux` that opens seshi panes, so Claude
+    /// Code's agent teams put each teammate in a pane: `seshi tmux-shim -- claude`.
     TmuxShim {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<String>,
     },
-    /// Go to a session and bring hydra's window forward: what clicking a notification runs.
-    /// Takes a hydra:// link or a pane number.
+    /// Go to a session and bring seshi's window forward: what clicking a notification runs.
+    /// Takes a seshi:// link or a pane number.
     Reveal { target: String },
     /// Close a pane.
     Close { pane: Option<protocol::TermId> },
@@ -190,7 +190,7 @@ enum Cmd {
     /// Debugging: print the colours a pane's program draws.
     #[command(hide = true)]
     DebugColors { pane: u32 },
-    /// Check that everything hydra relies on is in place, and how to fix what isn't.
+    /// Check that everything seshi relies on is in place, and how to fix what isn't.
     Doctor,
     /// Install the newest release over this one.
     Update {
@@ -201,12 +201,12 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
-    /// Let this repo's .hydra.toml hooks run (they don't until you allow them).
+    /// Let this repo's .seshi.toml hooks run (they don't until you allow them).
     Allow {
         /// The repo (default: here).
         dir: Option<PathBuf>,
     },
-    /// (Claude Code's status line) hand what the session used to hydra, then show the
+    /// (Claude Code's status line) hand what the session used to seshi, then show the
     /// status line you had before.
     #[command(hide = true)]
     Statusline,
@@ -220,7 +220,7 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<String>,
     },
-    /// Extensions: `hydra ext list`, `hydra ext new <name>`.
+    /// Extensions: `seshi ext list`, `seshi ext new <name>`.
     Ext {
         /// list | new | run
         #[arg(default_value = "list")]
@@ -233,7 +233,7 @@ enum Cmd {
         #[arg(long)]
         term: Option<protocol::TermId>,
     },
-    /// Start, stop or restart this worktree's dev server (from `.hydra.toml`).
+    /// Start, stop or restart this worktree's dev server (from `.seshi.toml`).
     Dev {
         /// start | stop | restart
         #[arg(default_value = "start")]
@@ -243,10 +243,10 @@ enum Cmd {
         dir: Option<PathBuf>,
     },
     /// Run as an MCP server (stdio) so agents can see and steer the others.
-    /// `hydra integrate mcp` registers it with Claude Code.
+    /// `seshi integrate mcp` registers it with Claude Code.
     Mcp,
     /// Share your config and ideas between machines through a private GitHub repo:
-    /// `hydra sync setup [repo]`, `hydra sync` (pull + push now), `hydra sync off`.
+    /// `seshi sync setup [repo]`, `seshi sync` (pull + push now), `seshi sync off`.
     Sync {
         action: Option<String>,
         name: Option<String>,
@@ -271,17 +271,17 @@ fn main() {
     let args = Args::parse();
     if let Some(r) = &args.remote {
         // SAFETY: set once at startup, before any thread is started.
-        unsafe { std::env::set_var("HYDRA_REMOTE", r) };
+        unsafe { std::env::set_var("SESHI_REMOTE", r) };
     }
-    config::migrate_from_drover();
+    config::migrate_old_names();
     update::tidy();
-    // `hydra <dir>` opens a directory; a typo'd subcommand shouldn't silently attach.
+    // `seshi <dir>` opens a directory; a typo'd subcommand shouldn't silently attach.
     if let Some(p) = args.path.as_ref().or(match &args.cmd {
         Some(Cmd::Attach { path }) => path.as_ref(),
         _ => None,
     }) && !p.is_dir()
     {
-        eprintln!("hydra: `{}` is not a directory or a command (see `hydra --help`)", p.display());
+        eprintln!("seshi: `{}` is not a directory or a command (see `seshi --help`)", p.display());
         std::process::exit(2);
     }
     let result = match args.cmd {
@@ -351,7 +351,7 @@ fn main() {
                 if link.is_some() {
                     println!("click the notification to go to the session you're on");
                 }
-                alert::notify("claude needs you", "hydra · this is a test", link.as_deref());
+                alert::notify("claude needs you", "seshi · this is a test", link.as_deref());
             }
             for (what, sound) in [("needs you", &cfg.notify.sound_needs), ("done", &cfg.notify.sound_done)] {
                 match alert::sound_file(sound) {
@@ -366,12 +366,12 @@ fn main() {
         }
     };
     if let Err(e) = result {
-        eprintln!("hydra: {e:#}");
+        eprintln!("seshi: {e:#}");
         std::process::exit(1);
     }
 }
 
-/// Open the app. Started by an in-app update to a hydra that can't talk to the running
+/// Open the app. Started by an in-app update to a seshi that can't talk to the running
 /// server: restart the server (its sessions resume) instead of stopping with an error.
 fn open_client(open: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let updated = std::env::var_os(client::UPDATED_ENV).is_some();

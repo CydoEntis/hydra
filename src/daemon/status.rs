@@ -76,7 +76,7 @@ impl Daemon {
                         t.subagent_seen = Some(Instant::now());
                         if sa.start {
                             // Its start, or news from one already running (listed once; one
-                            // missed while hydra was away joins the list here).
+                            // missed while seshi was away joins the list here).
                             if sa.id.is_empty() || !t.subagents.iter().any(|(id, _)| *id == sa.id) {
                                 t.subagents.push((sa.id, sa.kind));
                             }

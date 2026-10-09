@@ -27,7 +27,7 @@ impl App {
             Mode::Prompt { input, .. } | Mode::Picker { query: input, .. } | Mode::Worktrees { query: input, .. } => {
                 input.push_str(s.lines().next().unwrap_or(""));
             }
-            // Hydra's own text boxes take the paste, not the pane behind them.
+            // Seshi's own text boxes take the paste, not the pane behind them.
             Mode::Talk { input, .. } => input.push_str(&s.lines().collect::<Vec<_>>().join(" ")),
             Mode::Ideas(v) => v.input.push_str(s.lines().next().unwrap_or("")),
             Mode::Find(v) => v.query.push_str(s.lines().next().unwrap_or("")),
@@ -394,7 +394,7 @@ impl App {
         }
         // Programs that ask for the mouse (Claude Code's full-screen view, vim, lazygit,
         // htop, …) get it, like in any terminal: clicks, wheel, drags. Shift keeps it for
-        // hydra (select text); right-click stays hydra's menu.
+        // seshi (select text); right-click stays seshi's menu.
         if self.hy.drag.is_none()
             && !self.splash
             && matches!(self.mode, Mode::Normal)
@@ -404,7 +404,7 @@ impl App {
             && (self.hy.right_clicks.contains(&term)
                 || !matches!(m.kind, MouseEventKind::Down(MouseButton::Right) | MouseEventKind::Up(MouseButton::Right) | MouseEventKind::Drag(MouseButton::Right)))
             // The wheel goes to full-screen programs, which scroll themselves; one printing
-            // into the normal screen (Claude Code) has its history here, so hydra scrolls it.
+            // into the normal screen (Claude Code) has its history here, so seshi scrolls it.
             && (!matches!(m.kind, MouseEventKind::ScrollUp | MouseEventKind::ScrollDown)
                 || self.parsers.get(&term).is_some_and(|p| p.screen().alternate_screen()))
             && let Some(bytes) = self.parsers.get(&term).and_then(|p| keys::mouse_bytes(p.screen(), &m, pos.x - inner.x, pos.y - inner.y))

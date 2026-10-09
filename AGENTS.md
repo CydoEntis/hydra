@@ -244,7 +244,7 @@ These apply in every project built from this starter:
 
 ## Project-specific: mission
 
-Hydra is a terminal multiplexer built for running many coding agents at once
+Seshi is a terminal multiplexer built for running many coding agents at once
 (Claude Code, Codex, Gemini, OpenCode, …): see which ones need you, jump to them,
 and keep them running when you leave. It serves developers who run several agents
 across several projects, on Windows, macOS and Linux. The one thing it must do
@@ -262,10 +262,10 @@ has to be right, and sessions survive the UI closing.
 3. **Windows is a first-class target.** Every change builds and behaves on
    Windows (ConPTY, named pipes, PowerShell) as well as Linux and macOS; the
    cross-checks in the gate are not optional.
-4. **One layout.** The `hydra` layout is the only UI. Floating and tiled are two
+4. **One layout.** The `seshi` layout is the only UI. Floating and tiled are two
    styles of drawing it (ADR 0007); don't add other layouts or switches between them.
 5. **Status reports are only trusted from the pane itself**: its process tree, or
-   its `HYDRA_PANE_TOKEN`. Never accept a status change from an unverified source.
+   its `SESHI_PANE_TOKEN`. Never accept a status change from an unverified source.
 6. **No blocking work on the UI thread.** Git, file walks, network and process
    spawns go through background tasks (`spawn_bg`) and report back as messages.
 
@@ -282,18 +282,18 @@ cargo check --target aarch64-apple-darwin
 ```
 
 For UI changes, also look at the screen: tests render frames with `TestBackend`
-(`HYDRA_SHOW=1 cargo test <name> -- --nocapture` prints them), and a live check
-runs a nested server with `HYDRA_SOCKET=<name> hydra`.
+(`SESHI_SHOW=1 cargo test <name> -- --nocapture` prints them), and a live check
+runs a nested server with `SESHI_SOCKET=<name> seshi`.
 
 ## Project-specific: workflow and tooling
 
 - **Plan:** `docs/ROADMAP.md` (the plan doc: phases, scope, decisions, rules). Design references: `docs/design-brief.md`, `docs/design-brief-v3.md`.
-- **Branches:** work lands on `dev` at https://github.com/CydoEntis/hydra; one
+- **Branches:** work lands on `dev` at https://github.com/CydoEntis/seshi; one
   commit per logical change, pushed after the gate passes.
-- **Install locally:** `cargo install --path .` (stop a running `hydra` first on
+- **Install locally:** `cargo install --path .` (stop a running `seshi` first on
   Windows, or the binary is locked).
 - **Releases:** set `version` in `Cargo.toml`, commit, bring `main` up to `dev`, then tag
   `vX.Y.Z` on `main` and push the tag. `.github/workflows/release.yml` builds Windows, macOS
   (Apple Silicon and Intel) and Linux (x64, ARM; static musl) archives with checksums and
   publishes the GitHub Release that `install.sh` / `install.ps1` download from.
-- **Tickets:** GitHub issues on CydoEntis/hydra, labelled by phase (`phase-5`, …) and linked from the plan.
+- **Tickets:** GitHub issues on CydoEntis/seshi, labelled by phase (`phase-5`, …) and linked from the plan.

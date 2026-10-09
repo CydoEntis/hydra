@@ -1,4 +1,4 @@
-//! Hydra's queue: work waiting for an agent. Fewer than `queue_at_once` running, the next
+//! Seshi's queue: work waiting for an agent. Fewer than `queue_at_once` running, the next
 //! starts in its own worktree; when its agent finishes, it's yours to review. A ticket's
 //! tracker is told both (in progress, then review).
 

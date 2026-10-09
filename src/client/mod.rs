@@ -42,7 +42,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 /// How often the client looks at its timers (spinners, toasts, pending focus).
-/// How often an open window asks again whether a newer hydra is out.
+/// How often an open window asks again whether a newer seshi is out.
 const UPDATE_CHECK_EVERY: Duration = Duration::from_secs(3 * 60 * 60);
 const TICK: Duration = Duration::from_millis(50);
 /// The shortest time between two frames (about 80 a second at most).
@@ -71,13 +71,13 @@ enum Mode {
     Worktrees { ws: WsId, cmd: Option<String>, items: Option<Vec<WorktreeEntry>>, query: String, sel: usize },
     /// Talking to one pane's agent in a modal.
     Talk { term: TermId, input: String },
-    /// Hydra layout: open a folder as a project.
+    /// Seshi layout: open a folder as a project.
     Finder(Box<hydra::Finder>),
-    /// Hydra layout: new pane (project, worktree, what to run).
+    /// Seshi layout: new pane (project, worktree, what to run).
     HyPane(hydra::NewPaneHy),
-    /// Hydra layout: the settings overlay.
+    /// Seshi layout: the settings overlay.
     HySettings(Box<design::SettingsView>),
-    /// Hydra layout: keyboard cursor in the sidebar; bare keys act like leader keys.
+    /// Seshi layout: keyboard cursor in the sidebar; bare keys act like leader keys.
     Side,
     /// Ship this branch? (what will happen, then Enter)
     Ship(Box<ShipAsk>),
@@ -89,7 +89,7 @@ enum Mode {
     Chats(Box<history::ChatsView>),
     RaceNew(Box<work::RaceNew>),
     Race(Box<work::RaceView>),
-    /// A right-click menu (hydra layout).
+    /// A right-click menu (seshi layout).
     HyMenu(Box<menu::HyMenu>),
     /// Find a file / search the code.
     Find(Box<find::FindView>),
@@ -324,15 +324,15 @@ enum PickTarget {
 }
 
 pub struct App {
-    /// A newer release, found when hydra opened or since (the Update button shows).
+    /// A newer release, found when seshi opened or since (the Update button shows).
     update_available: Option<String>,
     /// What changed in it (and any releases between), for the update dialog.
     update_notes: Vec<String>,
-    /// When hydra last asked whether a newer release is out.
+    /// When seshi last asked whether a newer release is out.
     update_checked: Option<Instant>,
     /// An update is downloading.
     updating: bool,
-    /// Installed a newer hydra: start it here once this one has closed.
+    /// Installed a newer seshi: start it here once this one has closed.
     restart: Option<PathBuf>,
     cfg: Config,
     theme: Theme,
@@ -389,7 +389,7 @@ pub struct App {
     last_click: Option<(Hit, Instant)>,
     /// The welcome screen is up; which of its panes is selected.
     splash: bool,
-    /// The hydra layout's own state.
+    /// The seshi layout's own state.
     hy: hydra::Hy,
     /// The terminal window has focus (for alerts about the session you're looking at).
     window_focused: bool,
@@ -413,14 +413,14 @@ pub struct App {
     cursor_sent: u8,
 }
 
-/// Set on a hydra started by an in-app update, so it may restart a server too old to talk to.
-pub const UPDATED_ENV: &str = "HYDRA_UPDATED";
+/// Set on a seshi started by an in-app update, so it may restart a server too old to talk to.
+pub const UPDATED_ENV: &str = "SESHI_UPDATED";
 
 pub fn run(opts: Options) -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;
     let restart = rt.block_on(run_async(opts))?;
     drop(rt);
-    // Updated: the new hydra takes over this terminal, with the same arguments.
+    // Updated: the new seshi takes over this terminal, with the same arguments.
     if let Some(exe) = restart {
         let status = std::process::Command::new(&exe).args(std::env::args_os().skip(1)).env(UPDATED_ENV, "1").status()?;
         std::process::exit(status.code().unwrap_or(0));
@@ -452,7 +452,7 @@ async fn run_async(opts: Options) -> Result<Option<PathBuf>> {
 
     let mut terminal = ratatui::init();
     // A panic must leave the shell as it found it: ratatui's own hook leaves the alternate
-    // screen and raw mode; this one also turns off what hydra turned on.
+    // screen and raw mode; this one also turns off what seshi turned on.
     let earlier = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         restore_terminal();
@@ -476,7 +476,7 @@ async fn run_async(opts: Options) -> Result<Option<PathBuf>> {
     Ok(None)
 }
 
-/// Undo everything hydra turned on in the terminal: mouse, paste and focus reporting, its
+/// Undo everything seshi turned on in the terminal: mouse, paste and focus reporting, its
 /// cursor shape and background colour, the alternate screen and raw mode. Safe to run twice.
 fn restore_terminal() {
     let _ = execute!(
@@ -644,14 +644,14 @@ impl App {
         }
     }
 
-    /// Download the newest hydra in the background, then restart this window into it (the
+    /// Download the newest seshi in the background, then restart this window into it (the
     /// sessions keep running in the server).
     fn start_update(&mut self) {
         if self.updating {
             return;
         }
         self.updating = true;
-        self.notify("Updating hydra… the window restarts when it's done".into(), false);
+        self.notify("Updating seshi… the window restarts when it's done".into(), false);
         self.spawn_bg(|| {
             let r = crate::update::install_latest();
             Bg::Then(Box::new(move |app: &mut App| match r {
@@ -691,7 +691,7 @@ impl App {
         let _ = self.out.send(msg);
     }
 
-    /// Ask (in the background) whether a newer hydra is out: when the window opens, then now
+    /// Ask (in the background) whether a newer seshi is out: when the window opens, then now
     /// and then while it stays open. A new one brings up the Update button.
     fn check_for_update(&mut self) {
         if !self.cfg.ui.update_check {
@@ -706,7 +706,7 @@ impl App {
                 if let Some(v) = newer
                     && app.update_available.as_ref() != Some(&v)
                 {
-                    app.notify(format!("hydra {v} is out: Update now is in Settings"), false);
+                    app.notify(format!("seshi {v} is out: Update now is in Settings"), false);
                     app.update_available = Some(v);
                     app.update_notes = notes;
                 }
@@ -721,7 +721,7 @@ impl App {
         }
         let new = self.update_available.clone().unwrap_or_else(|| "the latest".into());
         self.mode = Mode::Confirm(Box::new(menu::Confirm {
-            title: "Update hydra".into(),
+            title: "Update seshi".into(),
             sub: String::new(),
             what: format!("{} → {new}", env!("CARGO_PKG_VERSION")),
             detail: String::new(),
@@ -760,7 +760,7 @@ impl App {
         self.active_tab().map(|t| t.focus)
     }
 
-    /// A floating pane (`hydra popup`) open now: it has the keys until it closes.
+    /// A floating pane (`seshi popup`) open now: it has the keys until it closes.
     fn popup(&self) -> Option<TermId> {
         self.snap.terms.values().filter(|t| t.popup).map(|t| t.id).max()
     }
@@ -890,7 +890,7 @@ impl App {
         p.screen_mut().set_scrollback(at);
         let s = p.screen();
         let mouse = match s.mouse_protocol_mode() {
-            vt100::MouseProtocolMode::None => "hydra",
+            vt100::MouseProtocolMode::None => "seshi",
             _ => "the program",
         };
         let full = if s.alternate_screen() { "full-screen (it scrolls itself)" } else { "normal screen" };

@@ -13,7 +13,7 @@ pub struct Saved {
     pub workspaces: Vec<SavedWs>,
     /// Index into `workspaces`.
     pub active: usize,
-    /// Worktrees hydra created (the only ones it may remove by itself).
+    /// Worktrees seshi created (the only ones it may remove by itself).
     #[serde(default)]
     pub made_worktrees: Vec<PathBuf>,
     /// Queued work not started yet.
@@ -63,7 +63,7 @@ pub struct SavedPane {
 }
 
 pub fn path() -> PathBuf {
-    let label = std::env::var("HYDRA_SOCKET").unwrap_or_else(|_| "default".into());
+    let label = std::env::var("SESHI_SOCKET").unwrap_or_else(|_| "default".into());
     crate::config::data_dir().join(format!("session-{label}.json"))
 }
 
@@ -104,9 +104,9 @@ pub fn forget() {
 /// restarts (an update, a reboot): one file per pane, named by its id.
 pub fn output_dir() -> PathBuf {
     if cfg!(test) {
-        return std::env::temp_dir().join(format!("hydra-test-output-{}", std::process::id()));
+        return std::env::temp_dir().join(format!("seshi-test-output-{}", std::process::id()));
     }
-    let label = std::env::var("HYDRA_SOCKET").unwrap_or_else(|_| "default".into());
+    let label = std::env::var("SESHI_SOCKET").unwrap_or_else(|_| "default".into());
     crate::config::data_dir().join(format!("output-{label}"))
 }
 

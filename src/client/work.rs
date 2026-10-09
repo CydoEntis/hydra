@@ -78,7 +78,7 @@ pub struct TicketsView {
     pub sel: usize,
 }
 
-/// The Tickets view's last tab: hydra's queue.
+/// The Tickets view's last tab: seshi's queue.
 pub const QUEUE_TAB: &str = "queue";
 
 impl TicketsView {
@@ -270,7 +270,7 @@ impl App {
         }
     }
 
-    /// Put work in hydra's queue, for the agent new work goes to.
+    /// Put work in seshi's queue, for the agent new work goes to.
     fn queue_work(&mut self, dir: &Path, prompt: &str, title: &str, branch: &str, ticket: Option<QueuedTicket>) {
         let agent = self.hy_agent();
         let item = QueueItem {
@@ -918,12 +918,12 @@ pub(super) fn draw_race(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, v: 
 
 #[cfg(test)]
 mod live {
-    /// `HYDRA_PR_DIR=<clone> cargo test tickets_live -- --ignored --nocapture`
+    /// `SESHI_PR_DIR=<clone> cargo test tickets_live -- --ignored --nocapture`
     #[test]
     #[ignore]
     fn tickets_live() {
         use super::Source;
-        let dir = std::path::PathBuf::from(std::env::var("HYDRA_PR_DIR").unwrap());
+        let dir = std::path::PathBuf::from(std::env::var("SESHI_PR_DIR").unwrap());
         let list = crate::tickets::GitHubIssues.list(&dir).unwrap();
         println!("{} open issues", list.len());
         for t in list.iter().take(3) {

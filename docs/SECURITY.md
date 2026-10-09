@@ -117,10 +117,10 @@ an SSH remote being someone else's machine.
 
 No user accounts. Access to the daemon is access to its local socket: a named
 pipe on Windows, a Unix socket in the temp directory elsewhere, named per user
-(`hydra-<user>-<label>.sock`). Socket access must stay limited to the user who
-started the daemon. Status reports (`hydra hook`) are accepted only from a
+(`seshi-<user>-<label>.sock`). Socket access must stay limited to the user who
+started the daemon. Status reports (`seshi hook`) are accepted only from a
 process inside the pane (traced through its process tree) or carrying that
-pane's `HYDRA_PANE_TOKEN`, a random secret set only in that pane's environment.
+pane's `SESHI_PANE_TOKEN`, a random secret set only in that pane's environment.
 Remote work goes over the user's own `ssh`, so SSH's authentication applies.
 Secrets (Linear/Plane keys) belong in `config.local.toml`, which config sync never
 uploads.

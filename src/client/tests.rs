@@ -159,7 +159,7 @@ mod hydra_tests {
     }
 
     fn show(s: &str) {
-        if std::env::var("HYDRA_SHOW").is_ok() {
+        if std::env::var("SESHI_SHOW").is_ok() {
             println!("{s}");
         }
     }
@@ -169,7 +169,7 @@ mod hydra_tests {
         let (text, mut app) = super::design_tests::render_with(160, 45);
         show(&text);
         let lines: Vec<&str> = text.lines().collect();
-        assert!(!text.contains(">_ hydra"), "no logo");
+        assert!(!text.contains(">_ seshi"), "no logo");
         // The floating grid: a row of margin, the sidebar card the full height two columns in,
         // tab pills one row down, the cards below a row of air.
         assert!(lines[0].trim().is_empty(), "a row of margin on top");
@@ -215,14 +215,14 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains("Corners") && o.contains("PREVIEW") && o.contains("focused") && o.contains("dimmed"), "the pane settings, with a preview");
-        // The splash: the braille hydra, the wordmark, what happened, buttons.
+        // The splash: the SESHI wordmark, its tagline, what happened, buttons.
         app.mode = Mode::Normal;
         app.splash = true;
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("⣿") && o.contains("██████"), "art and wordmark");
+        assert!(o.contains("███████ ███████ ███████ ██   ██ ██") && o.contains("every session, one calm place") && !o.contains("⣿"), "the block wordmark, no art");
         assert!(o.contains("while you were away") && o.contains("1 need you") && o.contains("Resume where you left off") && o.contains("New session"));
-        // Small windows drop the art but keep the rest.
+        // Small windows keep it all.
         let o = draw(&mut app, 100, 30);
         assert!(!o.contains("⣿") && o.contains("New session"));
     }
@@ -474,7 +474,7 @@ mod hydra_tests {
     fn wheel_scrolls_history() {
         use crossterm::event::{MouseEvent, MouseEventKind};
         let (_, mut app) = super::design_tests::render_with(160, 45);
-        // The terminal is as big as the card's inside (hydra sizes it so).
+        // The terminal is as big as the card's inside (seshi sizes it so).
         let (_, inside) = app.panes[0];
         let mut p = vt100::Parser::new(inside.height, inside.width, 1000);
         for i in 1..=100 {
@@ -515,7 +515,7 @@ mod hydra_tests {
         for _ in 0..5 {
             app.on_mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: inner.x + 5, row: inner.y + 5, modifiers: KeyModifiers::NONE });
         }
-        assert_eq!(app.history(1).0, 15, "hydra scrolled its history");
+        assert_eq!(app.history(1).0, 15, "seshi scrolled its history");
         // A full-screen program (no history of its own here) gets the wheel itself.
         let mut p = vt100::Parser::new(40, 120, 1000);
         p.process(b"\x1b[?1049h\x1b[?1000h\x1b[?1006h");
@@ -585,7 +585,7 @@ mod hydra_tests {
 
     #[test]
     fn saves_pasted_images_as_png() {
-        let p = std::env::temp_dir().join(format!("hydra-paste-{}.png", std::process::id()));
+        let p = std::env::temp_dir().join(format!("seshi-paste-{}.png", std::process::id()));
         let px: Vec<u8> = (0..4 * 3 * 2).map(|i| i as u8).collect();
         super::write_png(&p, 3, 2, &px).unwrap();
         let bytes = std::fs::read(&p).unwrap();
@@ -855,7 +855,7 @@ mod hydra_tests {
         app.parsers.insert(term, p);
         app.feed(term, &b"line\r\n".repeat(100));
         let info = app.pane_info(term).unwrap();
-        assert!(info.contains("normal screen") && info.contains("the wheel goes to hydra") && info.contains("61 lines of history"), "{info}");
+        assert!(info.contains("normal screen") && info.contains("the wheel goes to seshi") && info.contains("61 lines of history"), "{info}");
         app.feed(term, b"\x1b[?1049h\x1b[?1000h\x1b[?1006h");
         let info = app.pane_info(term).unwrap();
         assert!(info.contains("full-screen") && info.contains("the wheel goes to the program"), "{info}");
@@ -959,7 +959,7 @@ mod hydra_tests {
     #[test]
     fn changes_outside_git_offers_git_init() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
-        let dir = std::env::temp_dir().join(format!("hydra-nogit-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("seshi-nogit-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         app.open_changes(dir.clone());
         let o = draw(&mut app, 160, 45);
@@ -987,7 +987,7 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains("PANES") && o.contains("Corners") && o.contains("PREVIEW"), "the pane settings first, with their preview");
-        for _ in 0..10 {
+        for _ in 0..13 {
             app.on_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         }
         let o = draw(&mut app, 160, 45);
@@ -1118,7 +1118,7 @@ mod hydra_tests {
         assert!(matches!(app.mode, Mode::KeyMap(_)));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        for g in ["AGENTS", "PANES", "TABS", "PROJECT", "HYDRA"] {
+        for g in ["AGENTS", "PANES", "TABS", "PROJECT", "SESHI"] {
             assert!(o.contains(g), "the key map has {g}");
         }
         assert!(o.contains("jump to waiting ● 1") && o.contains("worktrees  ›") && o.contains("1 2 3"), "counts on their keys, steps marked");
@@ -1424,7 +1424,7 @@ mod hydra_tests {
         app.act(Action::Settings);
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains(&format!("hydra {} → 9.9.9", env!("CARGO_PKG_VERSION"))) && o.contains("Update now"), "the button by the version");
+        assert!(o.contains(&format!("seshi {} → 9.9.9", env!("CARGO_PKG_VERSION"))) && o.contains("Update now"), "the button by the version");
         // Clicking asks first: from this version to the new one, and what changed.
         let at = app.hits.iter().find_map(|(r, h)| (*h == Hit::Hy(hydra::HyHit::Update)).then_some((r.x + 1, r.y))).expect("it can be clicked");
         app.on_mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: at.0, row: at.1, modifiers: KeyModifiers::NONE });
@@ -1863,7 +1863,7 @@ mod hydra_tests {
             app.act(a);
             let o = draw(&mut app, 120, 34);
             show(&o);
-            assert!(o.contains("╭─ ") && o.contains(" ✕ ─"), "{title}: a hydra card (title in its border, ✕ to close)");
+            assert!(o.contains("╭─ ") && o.contains(" ✕ ─"), "{title}: a seshi card (title in its border, ✕ to close)");
         }
     }
 
@@ -1924,15 +1924,15 @@ mod settings_splash_tests {
         let settings = draw(&mut app);
         app.mode = Mode::HySettings(Box::new(design::SettingsView { cat: 2, sel: 0, editing: None, capturing: false, scroll: 0 }));
         let keys = draw(&mut app);
-        if std::env::var("HYDRA_SHOW").is_ok() {
+        if std::env::var("SESHI_SHOW").is_ok() {
             println!("{splash}\n{settings}\n{keys}");
         }
-        assert!(splash.contains("██████") && splash.contains("many heads, one body"));
+        assert!(splash.contains("███████") && splash.contains("every session, one calm place"));
         assert!(splash.contains("Resume where you left off") && splash.contains("New session") && !splash.contains("Open a folder"));
         for page in ["General", "Sessions", "Appearance", "Agents", "Keys"] {
             assert!(settings.contains(page), "page {page}");
         }
         assert!(settings.contains("Leader key") && settings.contains("Splash screen"));
-        assert!(keys.contains("Default") && keys.contains("Monokai"), "a row per theme");
+        assert!(keys.contains("Seshi Night") && keys.contains("Seshi Day"), "a row per theme, Seshi's own first");
     }
 }

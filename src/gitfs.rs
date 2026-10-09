@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-/// Names for branches hydra makes up (a new worktree nobody named).
+/// Names for branches seshi makes up (a new worktree nobody named).
 pub const WT_NAMES: [&str; 16] = [
     "quick-fox", "calm-heron", "bright-owl", "steady-elk", "brave-wren", "swift-lynx", "keen-otter", "bold-raven",
     "wise-badger", "lucky-hare", "sly-marten", "warm-finch", "deep-pike", "grey-wolf", "red-kite", "tall-crane",
@@ -61,7 +61,7 @@ pub fn main_branch(main_root: &Path) -> Option<String> {
 mod tests {
     #[test]
     fn a_submodule_is_its_own_repo() {
-        let root = std::env::temp_dir().join(format!("hydra-submod-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("seshi-submod-{}", std::process::id()));
         let modgit = root.join("super").join(".git").join("modules").join("lib");
         let sub = root.join("super").join("lib");
         std::fs::create_dir_all(&modgit).unwrap();
@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn reads_main_and_linked_checkouts() {
-        let base = std::env::temp_dir().join(format!("hydra-gitfs-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("seshi-gitfs-{}", std::process::id()));
         let main = base.join("repo");
         let wt = base.join("repo-feat");
         std::fs::create_dir_all(main.join(".git").join("worktrees").join("feat")).unwrap();
@@ -97,7 +97,7 @@ mod tests {
         assert_eq!((h.branch.as_str(), h.linked), ("feat/x", true));
         assert_eq!(h.main_root, main);
         assert_eq!(main_branch(&h.main_root).as_deref(), Some("main"));
-        assert!(head(&std::env::temp_dir().join("hydra-nowhere-x")).is_none() || true);
+        assert!(head(&std::env::temp_dir().join("seshi-nowhere-x")).is_none() || true);
         let _ = std::fs::remove_dir_all(base);
     }
 }

@@ -184,7 +184,7 @@ impl App {
                 Bg::ExtDone(crate::ext::run(&shell, &e, &dir, &c.run, &vars))
             });
         } else {
-            let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "hydra".into());
+            let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "seshi".into());
             let t = term.map(|t| format!(" --term {t}")).unwrap_or_default();
             let cmd = format!("{} ext run {} {ci}{t}", self.cfg.quote_for_shell(&exe), self.cfg.quote_for_shell(&e.name));
             let cmd = if self.cfg.shell_command()[0].to_lowercase().contains("powershell") || self.cfg.shell_command()[0].to_lowercase().contains("pwsh") { format!("& {cmd}") } else { cmd };
@@ -494,7 +494,7 @@ impl App {
         self.spawn_bg(move || Bg::Pr(which.clone(), pr::load(&dir, &which)));
     }
 
-    /// Open a file in your editor: terminal editors inside hydra beside what you're on,
+    /// Open a file in your editor: terminal editors inside seshi beside what you're on,
     /// others (VS Code, …) as their own window.
     pub(super) fn open_in_editor(&mut self, path: &std::path::Path) {
         self.open_in_editor_at(path, None);

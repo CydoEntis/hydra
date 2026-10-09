@@ -146,22 +146,22 @@ monorepo split.
 
 ## Project-specific: system context
 
-Hydra is one binary that runs in two roles:
+Seshi is one binary that runs in two roles:
 
-- **Daemon (server):** started on demand, one per user (or per `HYDRA_SOCKET`
+- **Daemon (server):** started on demand, one per user (or per `SESHI_SOCKET`
   name). Owns every pane: spawns shells and agents in pseudo-terminals
   (ConPTY on Windows), parses their output with `vt100`, detects agent status,
   manages worktrees, persists sessions, and restores them after a restart.
 - **Client (UI):** the full-screen TUI. Connects over a local socket (named pipe
   on Windows, Unix socket elsewhere), receives snapshots and pane output, sends
   commands and keystrokes. Many clients can attach; any can detach.
-- **CLI subcommands** (`hydra send`, `hydra read`, `hydra wait`, `hydra worktree`,
-  `hydra doctor`, `hydra mcp`, `hydra proxy`, …) talk to the same daemon.
+- **CLI subcommands** (`seshi send`, `seshi read`, `seshi wait`, `seshi worktree`,
+  `seshi doctor`, `seshi mcp`, `seshi proxy`, …) talk to the same daemon.
 
 External systems: the agent CLIs it runs (claude, codex, …) and their hook
-callbacks (`hydra hook`), `git` and `gh`, Linear and Plane APIs (tickets), `ssh`
-for remote machines (`--remote host` runs `ssh host hydra proxy`), the OS
-clipboard and notifications, and an MCP server (`hydra mcp`) agents use to talk to
+callbacks (`seshi hook`), `git` and `gh`, Linear and Plane APIs (tickets), `ssh`
+for remote machines (`--remote host` runs `ssh host seshi proxy`), the OS
+clipboard and notifications, and an MCP server (`seshi mcp`) agents use to talk to
 each other.
 
 ## Project-specific: stack
@@ -172,7 +172,7 @@ Rust, edition 2024, stable toolchain. Key libraries: `tokio` (async runtime),
 format) over `tokio-util` length-delimited frames, `serde`/`toml`/`toml_edit`
 (config), `sysinfo` (process trees, memory), `ignore` + `regex` (file search),
 `arboard` (clipboard), `clap` (CLI), `anyhow` (errors), `tracing` (logs).
-`vt100` is a patched copy in `vendor/vt100` (see its `HYDRA.md`; wired in with
+`vt100` is a patched copy in `vendor/vt100` (see its `SESHI.md`; wired in with
 `[patch.crates-io]`): keep its changes there and listed in that file.
 Rules for the language live in `docs/stack/rust.md`.
 

@@ -137,7 +137,7 @@ pub fn switch(dir: &Path, name: &str, create: bool, carry: Option<Carry>, messag
     let mut note = String::new();
     match carry {
         Some(Carry::Stash) => {
-            git(dir, &["stash", "push", "-u", "-m", &format!("hydra: before switching to {name}")])?;
+            git(dir, &["stash", "push", "-u", "-m", &format!("seshi: before switching to {name}")])?;
             note = " (your changes are stashed: `git stash pop` brings them back)".into();
         }
         Some(Carry::Commit) => {
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn switching_with_changes_stashed_or_brought_along() {
-        let dir = std::env::temp_dir().join(format!("hydra-branch-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("seshi-branch-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         run(&dir, &["init", "-q", "-b", "main"]);

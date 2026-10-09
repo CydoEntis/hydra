@@ -101,10 +101,10 @@ entry point (handler / route / command / consumer)
 ## Project-specific: API style
 
 Not HTTP. A private IPC protocol between client and daemon over a local socket
-(or `ssh host hydra proxy`): length-delimited frames carrying msgpack-encoded
+(or `ssh host seshi proxy`): length-delimited frames carrying msgpack-encoded
 `ClientMsg` / `ServerMsg` enums (`src/protocol.rs`). The first exchange is
 `Hello { version }` → `Welcome { version }`; mismatched `PROTOCOL_VERSION`s are
-refused. The CLI subcommands and the MCP server (`hydra mcp`, JSON-RPC over stdio)
+refused. The CLI subcommands and the MCP server (`seshi mcp`, JSON-RPC over stdio)
 are thin wrappers that send the same commands.
 
 ## Project-specific: response and error shapes
@@ -117,7 +117,7 @@ and exit non-zero.
 ## Project-specific: auth model
 
 Socket access is the auth (see `docs/SECURITY.md`); pane status reports also need
-the pane's process tree or `HYDRA_PANE_TOKEN`.
+the pane's process tree or `SESHI_PANE_TOKEN`.
 
 ## Project-specific: feature/module structure
 

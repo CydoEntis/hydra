@@ -95,9 +95,9 @@ pub enum Kind {
     Folder,
 }
 
-/// Editors hydra offers when they're installed.
+/// Editors seshi offers when they're installed.
 pub const EDITORS: &[&str] = &["code", "cursor", "zed", "nvim", "vim", "hx", "micro", "nano", "emacs", "subl", "notepad++", "notepad"];
-/// Shells hydra offers when they're installed.
+/// Shells seshi offers when they're installed.
 pub const SHELLS: &[&str] = &["pwsh", "powershell", "cmd", "bash", "zsh", "fish", "nu", "elvish", "xonsh"];
 
 /// The choices for a program setting: "default" first, then the candidates installed here,
@@ -158,26 +158,26 @@ impl Cat {
 pub const SETTINGS: &[Setting] = &[
     // General
     Setting { path: "prefix", label: "Leader key", kind: Kind::Key, cat: Cat::General, help: "Press it, let go, then a key. Enter, then press the new leader." },
-    Setting { path: "ui.splash", label: "Splash screen", kind: Kind::Bool, cat: Cat::General, help: "Show the hydra and what happened while you were away when you start." },
-    Setting { path: "ui.update_check", label: "Check for updates", kind: Kind::Bool, cat: Cat::General, help: "When hydra opens (and every few hours while it's open), see whether a newer one is out; the Update button installs it." },
+    Setting { path: "ui.splash", label: "Splash screen", kind: Kind::Bool, cat: Cat::General, help: "Show the seshi and what happened while you were away when you start." },
+    Setting { path: "ui.update_check", label: "Check for updates", kind: Kind::Bool, cat: Cat::General, help: "When seshi opens (and every few hours while it's open), see whether a newer one is out; the Update button installs it." },
     Setting { path: "ui.mouse", label: "Mouse", kind: Kind::Bool, cat: Cat::General, help: "Click, hover, scroll and drag. Hold Shift to select text with your terminal instead." },
     Setting { path: "ui.which_key", label: "Keys after a pause", kind: Kind::Bool, cat: Cat::General, help: "After the leader key, show every shortcut if you pause." },
     Setting { path: "ui.sidebar_position", label: "Sidebar side", kind: Kind::Choice(&["left", "right"]), cat: Cat::General, help: "Which edge the sidebar sits on." },
-    Setting { path: "ui.start_dir", label: "Start folder", kind: Kind::Folder, cat: Cat::General, help: "Where plain `hydra` opens (and the shell after you close everything). Empty: wherever you run it. ~ is home." },
-    Setting { path: "editor", label: "Editor", kind: Kind::Program(EDITORS), cat: Cat::General, help: "For open in editor (e). Empty: $VISUAL, $EDITOR, then code. nvim, hx, … open inside hydra." },
+    Setting { path: "ui.start_dir", label: "Start folder", kind: Kind::Folder, cat: Cat::General, help: "Where plain `seshi` opens (and the shell after you close everything). Empty: wherever you run it. ~ is home." },
+    Setting { path: "editor", label: "Editor", kind: Kind::Program(EDITORS), cat: Cat::General, help: "For open in editor (e). Empty: $VISUAL, $EDITOR, then code. nvim, hx, … open inside seshi." },
     Setting { path: "shell", label: "Shell", kind: Kind::Program(SHELLS), cat: Cat::General, help: "The shell new sessions run. Empty: pwsh / powershell on Windows, $SHELL elsewhere." },
-    Setting { path: "shell_integration", label: "PowerShell folder tracking", kind: Kind::Bool, cat: Cat::General, help: "Lets hydra see where PowerShell sessions cd to." },
+    Setting { path: "shell_integration", label: "PowerShell folder tracking", kind: Kind::Bool, cat: Cat::General, help: "Lets seshi see where PowerShell sessions cd to." },
     // Sessions
     Setting { path: "checkpoints", label: "Checkpoints", kind: Kind::Bool, cat: Cat::Sessions, help: "After each agent turn, save its folder's state (outside your branch) so you can roll back to it." },
     Setting { path: "queue_at_once", label: "Queued tasks at once", kind: Kind::Int { step: 1, min: 1, max: 12 }, cat: Cat::Sessions, help: "How many agents the queue runs at the same time; the next starts when one finishes." },
     Setting { path: "auto_continue", label: "Continue after a limit", kind: Kind::Bool, cat: Cat::Sessions, help: "An agent stopped by its plan limit is told \"continue\" once the limit resets." },
     Setting { path: "ui.attention_sort", label: "Sort sidebar by attention", kind: Kind::Bool, cat: Cat::Sessions, help: "Sessions that need you float to the top, then done, then working, then idle." },
-    Setting { path: "notify.desktop", label: "Desktop notifications", kind: Kind::Bool, cat: Cat::Sessions, help: "A notification when an agent you're not looking at needs you or finishes, even with hydra closed." },
+    Setting { path: "notify.desktop", label: "Desktop notifications", kind: Kind::Bool, cat: Cat::Sessions, help: "A notification when an agent you're not looking at needs you or finishes, even with seshi closed." },
     Setting { path: "notify.sound_needs", label: "Sound when one needs you", kind: Kind::Choice(crate::alert::SOUNDS), cat: Cat::Sessions, help: "Or set a path to your own sound file in config.toml." },
     Setting { path: "notify.sound_done", label: "Sound when one finishes", kind: Kind::Choice(crate::alert::SOUNDS), cat: Cat::Sessions, help: "Or set a path to your own sound file in config.toml." },
     Setting { path: "notify.bell", label: "Terminal bell too", kind: Kind::Bool, cat: Cat::Sessions, help: "Also rings the terminal bell (some terminals flash or bounce the window)." },
-    Setting { path: "worktree.delete_with_last", label: "Remove a worktree with its last agent", kind: Kind::Bool, cat: Cat::Sessions, help: "Closing the last thing in a worktree hydra made removes its folder; the branch is kept. Never with uncommitted changes." },
-    Setting { path: "restore.enabled", label: "Bring sessions back after a restart", kind: Kind::Bool, cat: Cat::Sessions, help: "Agents keep going in the background; after a reboot hydra rebuilds your sessions." },
+    Setting { path: "worktree.delete_with_last", label: "Remove a worktree with its last agent", kind: Kind::Bool, cat: Cat::Sessions, help: "Closing the last thing in a worktree seshi made removes its folder; the branch is kept. Never with uncommitted changes." },
+    Setting { path: "restore.enabled", label: "Bring sessions back after a restart", kind: Kind::Bool, cat: Cat::Sessions, help: "Agents keep going in the background; after a reboot seshi rebuilds your sessions." },
     Setting { path: "restore.agents", label: "Resume agents", kind: Kind::Bool, cat: Cat::Sessions, help: "Restart agents in their last conversation (claude --resume, codex resume)." },
     Setting { path: "restore.commands", label: "Re-run commands", kind: Kind::Bool, cat: Cat::Sessions, help: "Run again the commands sessions were started with (lazygit, a dev server, ...)." },
     Setting { path: "sleep_after", label: "Put idle agents to sleep", kind: Kind::Choice(&["never", "15m", "1h", "4h"]), cat: Cat::Sessions, help: "Agents sitting idle this long are stopped to save memory; opening one resumes it where it was." },
@@ -194,8 +194,8 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "worktree.per_agent", label: "Own worktree per agent", kind: Kind::Bool, cat: Cat::Agents, help: "Agents started in a repo's main folder (+ New, the quick prompt, or claude/codex typed in a shell) get their own branch and folder." },
     Setting { path: "quick.place", label: "Quick prompt opens in", kind: Kind::Choice(&["worktree", "right", "down", "tab", "here"]), cat: Cat::Agents, help: "Where an agent starts when you give it a task with the quick prompt." },
     Setting { path: "worktree.command", label: "Start in new worktrees", kind: Kind::Text, cat: Cat::Agents, help: "A command to run in every new worktree (e.g. claude). Empty: a shell." },
-    Setting { path: "mcp.approve", label: "Agents may approve prompts", kind: Kind::Choice(&["never", "safe", "always"]), cat: Cat::Agents, help: "Through hydra mcp. safe: only prompts for commands on [mcp] safe (tests, lint, git status…). Saying no is always allowed." },
-    Setting { path: "mcp.scope", label: "Agents can reach", kind: Kind::Choice(&["project", "all"]), cat: Cat::Agents, help: "project: only sessions in the calling agent's own repo. Set up with: hydra integrate mcp" },
+    Setting { path: "mcp.approve", label: "Agents may approve prompts", kind: Kind::Choice(&["never", "safe", "always"]), cat: Cat::Agents, help: "Through seshi mcp. safe: only prompts for commands on [mcp] safe (tests, lint, git status…). Saying no is always allowed." },
+    Setting { path: "mcp.scope", label: "Agents can reach", kind: Kind::Choice(&["project", "all"]), cat: Cat::Agents, help: "project: only sessions in the calling agent's own repo. Set up with: seshi integrate mcp" },
     Setting { path: "detection.working_window_ms", label: "Working window (ms)", kind: Kind::Int { step: 250, min: 250, max: 10_000 }, cat: Cat::Agents, help: "For agents without hooks: output this recent counts as working." },
 ];
 
@@ -299,7 +299,7 @@ mod tests {
     fn settings_step_and_display() {
         let cfg = Config::default();
         for s in SETTINGS.iter().filter(|s| s.path != "shell") {
-            // `shell` is unset by default (hydra picks one), so it has no value yet.
+            // `shell` is unset by default (seshi picks one), so it has no value yet.
             assert!(current(&cfg, s.path).is_some(), "missing setting {}", s.path);
         }
         let lines = SETTINGS.iter().find(|s| s.path == "scrollback").unwrap();
@@ -313,16 +313,16 @@ mod tests {
 
     #[test]
     fn write_keeps_comments() {
-        let dir = std::env::temp_dir().join(format!("hydra-settings-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("seshi-settings-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("config.toml");
         std::fs::write(&file, "# my notes\ntheme = \"nord\"\n\n[ui]\n# my ui notes\nsidebar = true\n").unwrap();
-        // SAFETY: tests touching HYDRA_CONFIG run in this one test only.
-        unsafe { std::env::set_var("HYDRA_CONFIG", &file) };
+        // SAFETY: tests touching SESHI_CONFIG run in this one test only.
+        unsafe { std::env::set_var("SESHI_CONFIG", &file) };
         write("ui.which_key_delay_ms", 500.into()).unwrap();
         write("worktree.command", "claude".into()).unwrap();
         let out = std::fs::read_to_string(&file).unwrap();
-        unsafe { std::env::remove_var("HYDRA_CONFIG") };
+        unsafe { std::env::remove_var("SESHI_CONFIG") };
         assert!(out.contains("# my notes") && out.contains("# my ui notes"), "{out}");
         assert!(out.contains("which_key_delay_ms = 500"), "{out}");
         assert!(out.contains("[worktree]") && out.contains("command = \"claude\""), "{out}");

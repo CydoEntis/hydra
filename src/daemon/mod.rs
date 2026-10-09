@@ -109,7 +109,7 @@ struct Client {
     tx: mpsc::Sender<ServerMsg>,
     attach: bool,
     /// The pane it acts from (its secret checked): what it may do is that pane's grants.
-    /// None: you (hydra's window, or a terminal outside hydra).
+    /// None: you (seshi's window, or a terminal outside seshi).
     from: Option<TermId>,
     /// Its queue filled up (a stalled terminal, a slow SSH link): it's dropped, and can
     /// attach again for a fresh copy of everything.
@@ -152,7 +152,7 @@ struct Daemon {
     last_save: Instant,
     last_output_save: Instant,
     last_saved: String,
-    /// Worktrees hydra created; closing the last thing in one removes it.
+    /// Worktrees seshi created; closing the last thing in one removes it.
     made_worktrees: Vec<PathBuf>,
     /// Plan limits by agent, as last reported.
     limits: BTreeMap<String, Vec<Limit>>,
@@ -160,7 +160,7 @@ struct Daemon {
     spent: Vec<(u64, f64)>,
     codex_busy: bool,
     last_codex: Instant,
-    /// Hydra's queue of work.
+    /// Seshi's queue of work.
     queue: Vec<QueueItem>,
     /// Checkouts a checkpoint is being saved for (one at a time each).
     checkpointing: std::collections::HashSet<PathBuf>,
@@ -192,11 +192,11 @@ pub fn run() -> Result<()> {
     rt.block_on(async {
         // Refuse to start a second daemon on the same socket.
         if ipc::connect().await.is_ok() {
-            anyhow::bail!("a hydra daemon is already running on {}", ipc::socket_id());
+            anyhow::bail!("a seshi daemon is already running on {}", ipc::socket_id());
         }
         let listener = ipc::listen()?;
         tracing::info!("daemon listening on {}", ipc::socket_id());
-        // Lets `hydra kill-server` from another version stop it (it can't talk to this one).
+        // Lets `seshi kill-server` from another version stop it (it can't talk to this one).
         let _ = std::fs::write(ipc::pid_file(), std::process::id().to_string());
         let (tx, rx) = mpsc::channel::<Ev>(4096);
 
@@ -247,7 +247,7 @@ fn init_logging() {
             .with_writer(Mutex::new(file))
             .with_ansi(false)
             .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_env("HYDRA_LOG").unwrap_or_else(|_| "info".into()),
+                tracing_subscriber::EnvFilter::try_from_env("SESHI_LOG").unwrap_or_else(|_| "info".into()),
             )
             .try_init();
     }
@@ -288,7 +288,7 @@ async fn serve(id: ClientId, stream: interprocess::local_socket::tokio::Stream, 
     writer.abort();
 }
 
-/// What a pane may do through hydra (see `[mcp] grants`).
+/// What a pane may do through seshi (see `[mcp] grants`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Grant {
     Read,
@@ -314,7 +314,7 @@ impl Grant {
             Grant::Write => "type into other panes",
             Grant::Start => "start sessions",
             Grant::Respond => "answer another agent's prompt or question",
-            Grant::Admin => "close other panes or stop hydra",
+            Grant::Admin => "close other panes or stop seshi",
         }
     }
 }
@@ -333,7 +333,7 @@ impl Daemon {
         if respond_by_setting || grants.iter().any(|x| x == g.name()) {
             return Ok(());
         }
-        anyhow::bail!("this pane may not {} through hydra (hydra grant {from} {} allows it)", g.says(), g.name())
+        anyhow::bail!("this pane may not {} through seshi (seshi grant {from} {} allows it)", g.says(), g.name())
     }
 
     /// The grant a command needs.
@@ -362,7 +362,7 @@ impl Daemon {
             }
             // Only you hand out grants.
             Command::Grant { .. } if self.clients.get(&client).is_some_and(|c| c.from.is_some()) => {
-                anyhow::bail!("grants are yours to give: run hydra grant outside hydra's panes, or use the pane's menu")
+                anyhow::bail!("grants are yours to give: run seshi grant outside seshi's panes, or use the pane's menu")
             }
             _ => Ok(()),
         }
@@ -378,11 +378,11 @@ impl Daemon {
     /// A daemon with no panes yet; its process scanner and hook thread are running.
     fn new(cfg: Config, tx: mpsc::Sender<Ev>) -> Daemon {
         contain::children_die_with_us();
-        // Clicking a notification opens its hydra:// link (Windows needs to be told how).
+        // Clicking a notification opens its seshi:// link (Windows needs to be told how).
         if cfg.notify.desktop && !cfg!(test) {
             crate::reveal::register();
         }
-        // Hooks naming another hydra (an older install) can't reach this server.
+        // Hooks naming another seshi (an older install) can't reach this server.
         if !cfg!(test) {
             crate::cli::refresh_claude_hooks();
         }
@@ -495,7 +495,7 @@ impl Daemon {
     }
 
     fn should_exit(&self) -> bool {
-        // A window still showing hydra (empty projects, the splash) keeps it open: closing
+        // A window still showing seshi (empty projects, the splash) keeps it open: closing
         // the last pane mustn't close the app under you.
         if !self.terms.is_empty() || self.pending_ops > 0 || self.clients.values().any(|c| c.attach) {
             return false;
@@ -819,7 +819,7 @@ impl Daemon {
                         self.send(
                             client,
                             ServerMsg::Notice(format!(
-                                "Worktree `{branch}` is ready at {}. Finish this turn; hydra then restarts you there, in this same conversation, and every later edit happens in that folder.",
+                                "Worktree `{branch}` is ready at {}. Finish this turn; seshi then restarts you there, in this same conversation, and every later edit happens in that folder.",
                                 path.display()
                             )),
                         );
@@ -1050,7 +1050,7 @@ impl Daemon {
         id
     }
 
-    /// Claude, started by hydra, learns how to move itself into a worktree (and may run
+    /// Claude, started by seshi, learns how to move itself into a worktree (and may run
     /// just that command without asking).
     fn teach(&self, cmd: &str) -> String {
         let mut words = cmd.split_whitespace();
@@ -1059,12 +1059,12 @@ impl Daemon {
         if !self.cfg.teach_agents || !is_claude || cmd.contains("--append-system-prompt") {
             return cmd.to_string();
         }
-        let note = "You are running inside Hydra, a terminal where one person runs many coding agents. If the user asks you to do the work in a worktree (or on a separate branch so you don't touch their checkout), run `hydra worktree --move <short-branch-name>` with the Bash tool before editing anything, then end your turn: Hydra creates the worktree and restarts you there in this same conversation.";
+        let note = "You are running inside Seshi, a terminal where one person runs many coding agents. If the user asks you to do the work in a worktree (or on a separate branch so you don't touch their checkout), run `seshi worktree --move <short-branch-name>` with the Bash tool before editing anything, then end your turn: Seshi creates the worktree and restarts you there in this same conversation.";
         let rest = cmd[first.len()..].trim_start();
         format!(
             "{first} --append-system-prompt {} --allowedTools {} {rest}",
             self.cfg.quote_for_shell(note),
-            self.cfg.quote_for_shell("Bash(hydra worktree:*)")
+            self.cfg.quote_for_shell("Bash(seshi worktree:*)")
         )
         .trim_end()
         .to_string()
@@ -1192,7 +1192,7 @@ mod logic_tests;
 mod tests {
     #[test]
     fn worktrees_of_trusted_repos_are_trusted() {
-        let dir = std::env::temp_dir().join(format!("hydra-trust-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("seshi-trust-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("claude.json");
         std::fs::write(&f, r#"{"projects":{"c:/code/app":{"hasTrustDialogAccepted":true}},"other":1}"#).unwrap();

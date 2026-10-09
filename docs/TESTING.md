@@ -74,7 +74,7 @@ journeys that must never break.
 The built-in test harness: `cargo test` runs everything (unit tests sit in
 `#[cfg(test)] mod` blocks beside the code). UI tests render frames with
 ratatui's `TestBackend` and assert on the text and cell styles;
-`HYDRA_SHOW=1 cargo test <name> -- --nocapture` prints the frames. One test:
+`SESHI_SHOW=1 cargo test <name> -- --nocapture` prints the frames. One test:
 `cargo test <name>`.
 
 ## Project-specific: layout and fixtures
@@ -82,8 +82,8 @@ ratatui's `TestBackend` and assert on the text and cell styles;
 Tests live next to the code they test. Client UI tests build a fake snapshot
 with `design_tests::render_with(w, h)` (projects, worktrees, agents in
 each state) and drive it with `app.on_key` / `app.act`. Live checks use a nested
-server: `HYDRA_SOCKET=test hydra`, then `hydra send` / `hydra read` against it.
-Tests never touch the user's real config (`HYDRA_CONFIG` or in-memory configs).
+server: `SESHI_SOCKET=test seshi`, then `seshi send` / `seshi read` against it.
+Tests never touch the user's real config (`SESHI_CONFIG` or in-memory configs).
 
 ## Project-specific: required coverage
 

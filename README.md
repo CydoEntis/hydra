@@ -1,36 +1,13 @@
-<h1 align="center">hydra</h1>
+<h1 align="center">seshi</h1>
 
-<p align="center"><strong>Many heads, one body.</strong> A terminal multiplexer for running lots of coding agents at once.</p>
+<p align="center"><strong>Every session, one calm place.</strong> Run lots of coding agents side by side, see which ones need you, and keep them going when you leave.</p>
 
 <pre align="center">
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡀⠀⠀⠀⠀⢠
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠻⣦⡀⠀⢸⣆
-⠀⠀⠀⠀⣠⣦⣤⣀⣀⣤⣤⣀⡀⠀⣀⣠⡆⠀⠀⠀⠀⠀⠀⠤⠒⠛⣛⣛⣻⣿⣶⣾⣿⣦⣄⢿⣆
-⠀⠀⠀⠸⠿⢿⣿⣿⣿⣯⣭⣿⣿⣿⣿⣋⣀⠀⠀⠀⠀⠀⠀⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣤⡀
-⠀⠀⠀⠀⠀⠀⠀⠙⢿⣿⣿⡿⢿⣿⣿⣿⣿⣿⣓⠢⠄⢠⡾⢻⣿⣿⣿⣿⡟⠁⠀⠀⠈⠙⢿⣿⣿⣯⡻⣿⡄
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠀⠀⠀⠙⢿⣿⣿⣿⣷⣄⠁⠀⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣷⣄⡀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⣿⣿⣿⣷⣌⢧⠀⣿⣿⣿⣿⣿⣿⣄⠀⠀⠀⠀⢀⠉⠙⠛⠛⠿⣿⣿⣿⡆
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⡀⠠⢻⡟⢿⣿⣿⣿⣿⣧⣄⣀⠀⠘⢶⣄⣀⠀⠀⠈⢻⠿⠁
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣸⣿⣿⣿⣿⣾⠀⠀⠀⠻⣈⣙⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⣷⣦⡀
-⠀⠀⠀⠈⠲⣄⠀⠀⣀⡤⠤⠀⠀⠀⢠⣿⣿⣿⡿⣿⠇⠀⠀⠐⠺⢉⣡⣴⣿⣿⣿⣿⣿⣿⣿⡿⢿⣿⣿⣿⣶⣿⣿⣿⣶⣶⡀
-⠀⠀⠀⠀⢠⣿⣴⣿⣷⣶⣦⣤⡀⠀⢸⣿⣿⣿⠇⠏⠀⠀⠀⢀⣴⣿⣿⣿⣿⣿⠟⢿⣿⣿⣿⣷⠀⠹⣿⣿⠿⠿⠛⠻⠿⣿⠇
-⠀⠀⠀⣠⣿⣿⣿⣿⣿⣿⣿⣷⣯⡂⢸⣿⣿⣿⠀⠀⠀⠀⢀⠾⣻⣿⣿⣿⠟⠀⠀⠈⣿⣿⣿⣿⡇⠀⠀⣀⣀⡀⠀⢠⡞⠉
-⠀⠀⢸⣟⣽⣿⣯⠀⠀⢹⣿⣿⣿⡟⠼⣿⣿⣿⣇⠀⠀⠀⠠⢰⣿⣿⣿⣿⡄⠀⠀⠀⣸⣿⣿⣿⡇⠀⢀⣤⣼⣿⣷⣾⣷⡀
-⠀⢀⣾⣿⡿⠟⠋⠀⠀⢸⣿⣿⣿⣿⡀⢿⣿⣿⣿⣦⠀⠀⠀⢺⣿⣿⣿⣿⣿⣄⠀⠀⣿⣿⣿⣿⡇⠐⣿⣿⣿⣿⠿⣿⣿⡿⣦
-⠀⢻⣿⠏⠀⠀⠀⠀⢠⣿⣿⣿⡟⡿⠀⠀⢻⣿⣿⣿⣷⣤⡀⠘⣷⠻⣿⣿⣿⣿⣷⣼⣿⣿⣿⣿⣇⣾⣿⣿⣿⠁⠀⢼⣿⣿⣿⣆
-⠀⠀⠈⠀⠀⠀⠀⠀⢸⣿⣿⣿⡗⠁⠀⠀⠀⠙⢿⣿⣿⣿⣿⣷⣾⣆⡙⣿⣿⣿⣿⣿⣿⣿⣿⣿⠌⣾⣿⣿⣿⣆⠀⠀⠀⠉⠻⣿⡷
-⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣷⣄⠀⠀⠀⠀⠀⠈⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡏⠀⠘⣟⣿⣿⣿⡆⠀⠀⠀⠀⠙⠁
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠻⣿⣿⣿⣿⣿⣶⣤⣤⣤⣀⣠⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠀⠀⠀⢈⣿⣿⣿⡇
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣟⣠⣤⣤⣶⣿⣿⣿⠟
-⠀⠀⠀⠀⠀⠀⢀⣠⣤⣄⠀⠠⢶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣟⡁
-⢀⣀⠀⣠⣀⡠⠞⣿⣿⣿⣿⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣴⣿⣷⣦⣄⣀⢿⡽⢻⣦
-⠻⠶⠾⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠋
-
-      ██  ██  ██  ██  █████   █████    ████ 
-      ██  ██  ██  ██  ██  ██  ██  ██  ██  ██
-      ██████   ████   ██  ██  █████   ██████
-      ██  ██    ██    ██  ██  ██ ██   ██  ██
-      ██  ██    ██    █████   ██  ██  ██  ██
+███████ ███████ ███████ ██   ██ ██
+██      ██      ██      ██   ██ ██
+███████ █████   ███████ ███████ ██
+     ██ ██           ██ ██   ██ ██
+███████ ███████ ███████ ██   ██ ██
 </pre>
 
 <p align="center">
@@ -40,7 +17,7 @@
   <a href="#script-it">Script it</a>
 </p>
 
-<p align="center"><img src="docs/media/demo.gif" alt="hydra: jumping to the agent that needs you, splitting a pane, keys and settings" width="900"></p>
+<p align="center"><img src="docs/media/demo.gif" alt="seshi: jumping to the agent that needs you, splitting a pane, keys and settings" width="900"></p>
 
 <table>
   <tr>
@@ -67,8 +44,8 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
 [nebula](https://github.com/agentSystemLabs/nebula) and [fut](https://github.com/mikker/fut).
 
 - **Agents keep running after you close the UI.** A background daemon owns every pseudoterminal
-  (ConPTY on Windows). `<leader> q` detaches, and running `hydra` again reattaches.
-- **Survives restarts.** Sessions are saved as they change; after a reboot `hydra` rebuilds them
+  (ConPTY on Windows). `<leader> q` detaches, and running `seshi` again reattaches.
+- **Survives restarts.** Sessions are saved as they change; after a reboot `seshi` rebuilds them
   in the right folders and resumes agents (`claude --resume <id>`, `codex resume --last`, ...).
   Each pane's recent output is kept on disk too, so its history is still there to scroll
   back through, above a line marking the restart.
@@ -84,16 +61,16 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
 - **Usage and limits.** Each agent's card shows how full its context is and what its session
   has cost, and its sidebar row shows the context once it's past half. An agent stopped by a limit
   is told "continue" once the limit resets (Settings → Continue after a limit). Claude's numbers
-  come from its status line: `hydra integrate claude` makes hydra's run first and then yours,
+  come from its status line: `seshi integrate claude` makes seshi's run first and then yours,
   which looks the same as before.
-- **Undo an agent, find an old chat.** After each agent turn hydra saves its folder's state as
+- **Undo an agent, find an old chat.** After each agent turn seshi saves its folder's state as
   a checkpoint (git commits under `refs/hydra/checkpoints/`, off your branch and index);
   "Checkpoints" in the palette rolls the folder back to any of them, saving what's there first.
   "Past chats" lists your recent Claude and Codex conversations, searches all of them (Enter),
   and picks one up again in its own folder.
 - **Detection without setup.** The process tree finds `claude`, `codex`, `gemini`, `opencode`,
   `cursor-agent`, `copilot`, `amp`, `qwen`, `aider` and others, and screen patterns tell
-  working from blocked. Hooks (`hydra integrate claude`) make it exact.
+  working from blocked. Hooks (`seshi integrate claude`) make it exact.
 - **Git without leaving.** New agents get their own worktree, including `claude` or `codex`
   typed into a shell in a repo's main folder (turn it off with *Own worktree per agent* in
   Settings; `--continue`/`--resume` stay put). Changes (`d`) shows the diff with
@@ -102,47 +79,52 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
 - **Everything is configurable.** The leader, every binding, commands bound to keys, themes and
   per-colour overrides, icons, the sidebar side, detection patterns and your own agents. Settings
   (`<leader> ,`) save to your config with its comments kept.
-- **Scriptable.** `hydra split -- claude`, `hydra send`, `hydra read` and `hydra ls --json`
-  work from any shell, including from an agent running inside hydra.
+- **Scriptable.** `seshi split -- claude`, `seshi send`, `seshi read` and `seshi ls --json`
+  work from any shell, including from an agent running inside seshi.
 
 ## Install
 
 **macOS, Linux, Omarchy / Arch:**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/CydoEntis/hydra/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/CydoEntis/seshi/main/install.sh | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/CydoEntis/hydra/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/CydoEntis/seshi/main/install.ps1 | iex
 ```
 
 The installers pick the build for your machine, check its checksum, put it in
-`~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\hydra`, added to your PATH) and tell you if
-another `hydra` comes first. No admin rights needed. `HYDRA_VERSION=v0.3.0` picks a version;
-`HYDRA_INSTALL_DIR` a folder. If scripts are blocked (a locked-down work PC), download the archive
-for your machine from [Releases](https://github.com/CydoEntis/hydra/releases) and put `hydra` on your PATH.
-To update later: Hydra checks each time you open it (and every few hours while it stays
+`~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\seshi`, added to your PATH) and tell you if
+another `seshi` comes first. No admin rights needed. `SESHI_VERSION=v0.3.0` picks a version;
+`SESHI_INSTALL_DIR` a folder. If scripts are blocked (a locked-down work PC), download the archive
+for your machine from [Releases](https://github.com/CydoEntis/seshi/releases) and put `seshi` on your PATH.
+To update later: Seshi checks each time you open it (and every few hours while it stays
 open), and when a newer version is out a dot shows after `, settings` at the foot of the
-sidebar, and Settings has an **Update now** button by the version (also "Update hydra" in the
+sidebar, and Settings has an **Update now** button by the version (also "Update seshi" in the
 command palette). Click it to see your version, the new one and what changed; confirm, and the new
 version downloads and the window restarts into it, with your sessions still running. From a
-shell it's `hydra update` (or `hydra update --check` to just
+shell it's `seshi update` (or `seshi update --check` to just
 look). Turn the check off in Settings (Check for updates).
 
-Then run `hydra doctor` to check your setup. For the best look: a terminal with true colour and a
+**Coming from hydra?** Seshi is its new name. Install seshi as above; the first time it starts,
+it brings hydra's config, saved sessions and history over (hydra's own folders are left as they
+were), and the next server start points your Claude hooks at seshi. Run `seshi integrate mcp` again
+if agents used hydra's MCP tools, then uninstall hydra when you're happy.
+
+Then run `seshi doctor` to check your setup. For the best look: a terminal with true colour and a
 [Nerd Font](https://www.nerdfonts.com) (Windows Terminal, Ghostty, Alacritty, WezTerm, iTerm2).
 Optional: `git` (worktrees, changes), `gh` (pull requests, issues).
 
-From source (any platform with Rust): `cargo install --git https://github.com/CydoEntis/hydra`.
+From source (any platform with Rust): `cargo install --git https://github.com/CydoEntis/seshi`.
 
 ## Use
 
 ```sh
-hydra            # attach (starts the server if needed); opens the current dir
-hydra ~/code/api # open or switch to that directory
+seshi            # attach (starts the server if needed); opens the current dir
+seshi ~/code/api # open or switch to that directory
 ```
 
 Agents come first in the sidebar, then terminals, then sessions on other machines (SSH). They are
@@ -181,7 +163,7 @@ split beside a session stays with it.
   drop a session on another group (its name or one of its sessions) to move it there, within its
   section. Click to fold or open. With the sidebar focused
   (`Ctrl+Space e`), a row's menu letters work directly (the sidebar's foot lists them): `x` (or
-  Delete) closes, `r` renames, `m` messages. Settings says which hydra you're on.
+  Delete) closes, `r` renames, `m` messages. Settings says which seshi you're on.
 
 The leader key is `Ctrl+Space`. Press it and a sky-blue pill appears at the end of the tab row
 (the pane you're in turns sky too); press a key, or wait a moment (or press `?`) for the key map.
@@ -207,7 +189,7 @@ second step (`w` worktrees: new, switch, merge, delete; Backspace goes back).
 | `,` / `?` / `U` / `N` / `q` | settings / key map / memory / history / quit (agents keep running) |
 
 In **Files**: Enter puts the path in the agent's prompt, `e` opens it in your editor (`editor`
-in config; nvim, helix … open inside hydra), `y` copies the path. In **Changes**: `c` commit,
+in config; nvim, helix … open inside seshi), `y` copies the path. In **Changes**: `c` commit,
 `p` open a PR, `v` the PR, `e` editor, `x` mark the file reviewed (it sinks; the mark clears
 if the file changes again), `r` reply to the agent. In a **pull request**: Tab for the
 diff, `f` hands failing checks and review comments to the branch's agent, `o` opens it on GitHub.
@@ -234,11 +216,11 @@ Everything also works with the mouse. Hold Shift to select text with your termin
 ## Alerts
 
 A desktop notification and a sound when an agent you're not looking at needs you or finishes,
-also when no hydra window is open (the server sends it). Sounds: glass, ping, chime, pop, off,
-or a path to your own file (`[notify] sound_needs`, `sound_done`). `hydra test-alert` tries them.
+also when no seshi window is open (the server sends it). Sounds: glass, ping, chime, pop, off,
+or a path to your own file (`[notify] sound_needs`, `sound_done`). `seshi test-alert` tries them.
 
-Click a notification to go to its session: hydra comes to the front on it (its split too).
-That works for the note inside hydra and the desktop pop-ups on Windows and Linux (on
+Click a notification to go to its session: seshi comes to the front on it (its split too).
+That works for the note inside seshi and the desktop pop-ups on Windows and Linux (on
 Omarchy / Hyprland the window is brought forward too); on macOS, install
 `terminal-notifier` for clickable ones.
 
@@ -273,7 +255,7 @@ ready for review.
 
 **Merging.** In Changes, `m` merges a worktree's branch into the main one, then closes its
 sessions and removes the worktree and the branch. Closing the last session in a worktree
-hydra made removes the folder; its branch goes too when it's already merged.
+seshi made removes the folder; its branch goes too when it's already merged.
 
 ## Recipes
 
@@ -289,13 +271,13 @@ They show up in + New as `⚙ feature`.
 ## Agents that steer agents (MCP)
 
 ```sh
-hydra integrate mcp     # registers `hydra mcp` with Claude Code (prints the Codex snippet too)
+seshi integrate mcp     # registers `seshi mcp` with Claude Code (prints the Codex snippet too)
 ```
 
-Any agent can then use hydra's tools: `hydra_list` (sessions, status, the question each is
-asking), `hydra_read` (a screen), `hydra_send` (type a message), `hydra_answer` (a numbered
-prompt), `hydra_start` (a new agent in its own worktree; your screen stays where it was) and
-`hydra_interrupt`. There is no merge, push or delete.
+Any agent can then use seshi's tools: `seshi_list` (sessions, status, the question each is
+asking), `seshi_read` (a screen), `seshi_send` (type a message), `seshi_answer` (a numbered
+prompt), `seshi_start` (a new agent in its own worktree; your screen stays where it was) and
+`seshi_interrupt`. There is no merge, push or delete.
 
 You decide how far that goes (Settings → Agents, or `[mcp]`):
 
@@ -309,9 +291,9 @@ scope = "project"    # project: only sessions in the calling agent's repo | all
 ## Sync between machines
 
 ```sh
-hydra sync setup          # first machine: makes a private GitHub repo hydra-config
-hydra sync setup          # other machines: picks it up (your old config is kept as a backup)
-hydra sync                # pull + push now (it also happens on its own)
+seshi sync setup          # first machine: makes a private GitHub repo seshi-config
+seshi sync setup          # other machines: picks it up (your old config is kept as a backup)
+seshi sync                # pull + push now (it also happens on its own)
 ```
 
 Shared: `config.toml` and `ideas.json`. Anything for one machine only (a shell path, keys) goes in
@@ -319,40 +301,41 @@ Shared: `config.toml` and `ideas.json`. Anything for one machine only (a shell p
 
 ## Splash and settings
 
-hydra opens on the splash: the hydra, what happened while you were away (`● 2 need you ⠹ 3 still
+seshi opens on the splash: the seshi, what happened while you were away (`● 2 need you ⠹ 3 still
 working ● 1 finished`) and buttons: Resume where you left off (`r`), New session (`n`).
-Turn it off in Settings → General. Settings → General → Start folder sets where plain `hydra`
+Turn it off in Settings → General. Settings → General → Start folder sets where plain `seshi`
 opens (e.g. `~/code`); empty means wherever you run it.
 
 `Ctrl+Space ,` opens **Settings**, with tabs (Tab cycles): General · Sessions · Appearance · Agents ·
-Projects · Keys. Values are chips you click (or ←→ / Enter). Appearance has the themes (Default,
-PaperColor Dark, Tango Dark, Monokai, Tokyo Night) with live swatches; the theme recolours agent
-output's ANSI colours too. On Keys, Enter then press a new key to rebind a shortcut. Projects lists
+Projects · Keys. Values are chips you click (or ←→ / Enter). Appearance has how panes look and
+the themes: **Seshi Night** (the default: warm driftwood dark, sunset peach) and **Seshi Day** (its
+light twin), then Hydra, PaperColor Dark, Tango Dark, Monokai, Tokyo Night and more, with live
+swatches; the theme recolours agent output's ANSI colours too. On Keys, Enter then press a new key to rebind a shortcut. Projects lists
 the folders you opened (Enter forgets one). Everything is saved to `config.toml` (comments kept)
 and applies at once.
 
 ## Command name clash
 
-`hydra` is also the name of a Linux password-testing tool (THC-Hydra). If you have that installed,
+`seshi` is also the name of a Linux password-testing tool (THC-Seshi). If you have that installed,
 give this one its own name; the app doesn't care what it's called:
 
 ```sh
-alias hy='~/.cargo/bin/hydra'                          # bash / zsh
-Set-Alias hy "$env:USERPROFILE\.cargo\bin\hydra.exe"   # PowerShell ($PROFILE)
+alias hy='~/.cargo/bin/seshi'                          # bash / zsh
+Set-Alias hy "$env:USERPROFILE\.cargo\bin\seshi.exe"   # PowerShell ($PROFILE)
 ```
 
 ## Configure
 
 ```sh
-hydra config init   # writes the annotated example to the config path
-hydra config path   # %APPDATA%\hydra\config.toml, or ~/.config/hydra/config.toml
+seshi config init   # writes the annotated example to the config path
+seshi config path   # %APPDATA%\seshi\config.toml, or ~/.config/seshi/config.toml
 ```
 
 See [`config.example.toml`](config.example.toml) for every option. Some highlights:
 
 ```toml
 prefix = "ctrl+a"
-theme = "tokyo-night"          # catppuccin-mocha/latte, tokyo-night, gruvbox, nord, dracula, mono
+theme = "tokyo-night"          # seshi-night (default), seshi-day, catppuccin-mocha/latte, gruvbox, nord, dracula, mono
 
 [theme_overrides]
 accent = "#ff9e64"
@@ -372,7 +355,7 @@ working_patterns = ["esc to interrupt"]
 blocked_patterns = ["\\(y/n\\)"]
 ```
 
-## Never leave hydra
+## Never leave seshi
 
 | Leader + | Panel | What it does |
 |---|---|---|
@@ -412,11 +395,11 @@ saved to the data directory a couple of seconds after it changes. On the next st
 
 - Panes reopen in their last known directory. For PowerShell, that requires your prompt to report it
   via OSC 7 or OSC 9;9, as oh-my-posh and starship can. Other shells are tracked automatically.
-- Agents resume. With hooks installed, hydra knows the exact session (`claude --resume <id>`).
+- Agents resume. With hooks installed, seshi knows the exact session (`claude --resume <id>`).
   Otherwise it uses the agent's "most recent" form (`claude --continue`, `codex resume --last`).
-- Panes started with a command (`spawn-right:lazygit`, `hydra split -- x`) run it again.
+- Panes started with a command (`spawn-right:lazygit`, `seshi split -- x`) run it again.
 
-`hydra kill-server` keeps the session for next time, and `hydra kill-server --forget` discards it.
+`seshi kill-server` keeps the session for next time, and `seshi kill-server --forget` discards it.
 Closing every pane yourself also starts fresh. A burst of panes dying at once, as at logoff or a
 crash, is not recorded, so the last good layout survives. Configure all of this under `[restore]`,
 and per agent with `resume` / `resume_last`.
@@ -424,9 +407,9 @@ and per agent with `resume` / `resume_last`.
 ## Worktrees
 
 ```sh
-hydra worktree feat/login -- claude      # new branch from HEAD, opened with claude running
-hydra worktree fix-123 --base origin/main
-hydra worktree-remove [--force]          # closes the workspace and removes the checkout
+seshi worktree feat/login -- claude      # new branch from HEAD, opened with claude running
+seshi worktree fix-123 --base origin/main
+seshi worktree-remove [--force]          # closes the workspace and removes the checkout
 ```
 
 New worktrees go to `{repo_parent}/{repo}-worktrees/{branch}` (set `[worktree] dir`). An existing
@@ -452,27 +435,27 @@ Copies go to the system clipboard and, through OSC 52, to your outer terminal (w
 Each pane's process tree is scanned about once a second. Detected agents get a status from
 these sources, in order:
 
-1. **Hooks**, which are exact. `hydra integrate claude` adds hooks to `~/.claude/settings.json`.
-   They stay inert outside hydra panes and are tagged so a re-run or `--uninstall` replaces them cleanly.
-   Any tool can report its own state with `hydra hook <name> --status working|blocked|done|idle`.
-   `hydra integrate gemini` and `hydra integrate qwen` do the same for Gemini CLI and Qwen Code;
-   `hydra integrate opencode` writes a small opencode plugin that tells hydra what it's doing.
-   For Codex, `hydra integrate codex` sets hydra as its `notify` (in `~/.codex/config.toml`;
+1. **Hooks**, which are exact. `seshi integrate claude` adds hooks to `~/.claude/settings.json`.
+   They stay inert outside seshi panes and are tagged so a re-run or `--uninstall` replaces them cleanly.
+   Any tool can report its own state with `seshi hook <name> --status working|blocked|done|idle`.
+   `seshi integrate gemini` and `seshi integrate qwen` do the same for Gemini CLI and Qwen Code;
+   `seshi integrate opencode` writes a small opencode plugin that tells seshi what it's doing.
+   For Codex, `seshi integrate codex` sets seshi as its `notify` (in `~/.codex/config.toml`;
    another program's notify is left alone).
 2. **Screen patterns**: regexes matched against the bottom of the screen, such as "esc to interrupt".
 3. **Activity**: recent output that isn't the echo of your own typing.
 
 A turn that finishes while you're looking elsewhere is **done** until you focus that pane.
 
-**An agent hydra doesn't know** (a newer CLI, or one you start with your own alias): right-click
-its pane and pick **"… is an agent"**, or run `hydra teach` in it (`hydra teach 4` for pane 4).
-Hydra looks at the program actually running, whatever alias started it (or, for a node /
+**An agent seshi doesn't know** (a newer CLI, or one you start with your own alias): right-click
+its pane and pick **"… is an agent"**, or run `seshi teach` in it (`seshi teach 4` for pane 4).
+Seshi looks at the program actually running, whatever alias started it (or, for a node /
 python harness, its package or script), and adds it under `[[agents]]` in your config with the
 usual screen signs of working. Edit that entry to tune them.
 
 ## Popups
 
-`hydra popup -- fzf` (or `lazygit`, `htop`, any command) opens a floating pane over everything,
+`seshi popup -- fzf` (or `lazygit`, `htop`, any command) opens a floating pane over everything,
 in the folder you're in; it has the keys until the command exits, then it's gone.
 
 ## Agents asking you
@@ -480,7 +463,7 @@ in the folder you're in; it has the keys until the command exits, then it's gone
 An agent (or any script in a pane) can ask you something with fixed answers and wait:
 
 ```sh
-hydra ask-human "Deploy to staging?" -o Yes -o "Not yet"   # prints the answer you pick
+seshi ask-human "Deploy to staging?" -o Yes -o "Not yet"   # prints the answer you pick
 ```
 
 The pane shows **needs you** (with a notification), the question is in the Inbox and on the
@@ -488,53 +471,53 @@ pane's answer bar, and a number or click answers. Without `-o` the answers are Y
 
 ## What agents may do
 
-A command an agent runs in its pane (the `hydra` CLI, or `hydra mcp`) acts as that pane, and a
+A command an agent runs in its pane (the `seshi` CLI, or `seshi mcp`) acts as that pane, and a
 pane may by default **read** other panes, **write** (type) into them and **start** sessions. To
 also **respond** (answer another agent's prompt or question) or **admin** (close other panes,
-stop hydra), grant it: `hydra grant 4 read,write,start,respond` (`hydra grant 4 default` puts it
+stop seshi), grant it: `seshi grant 4 read,write,start,respond` (`seshi grant 4 default` puts it
 back), or change the default in `[mcp] grants`. Only you can grant: not from inside a pane. These
 are guardrails for agents that behave, not a sandbox.
 
 ## Claude Code agent teams
 
-Claude Code's agent teams can put each teammate in its own pane, through tmux. In a hydra pane
+Claude Code's agent teams can put each teammate in its own pane, through tmux. In a seshi pane
 (macOS, Linux):
 
 ```sh
-hydra tmux-shim -- env CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude
+seshi tmux-shim -- env CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude
 ```
 
-Claude sees a tmux, and every teammate it starts opens as a hydra pane beside it: in the
+Claude sees a tmux, and every teammate it starts opens as a seshi pane beside it: in the
 sidebar under Agents, with its status, in the Inbox. They close when the team is done. The shim
 changes nothing outside that command; a real tmux still works inside it. Calls it doesn't
-handle yet are logged in `tmux-shim/calls.log` in hydra's data folder.
+handle yet are logged in `tmux-shim/calls.log` in seshi's data folder.
 
 ## Script it
 
 ```sh
-hydra ls [--json]                      # tree of workspaces / tabs / panes with agent status
-hydra split [--down] [-p ID] -- codex  # inside a pane, targets that pane by default
-hydra send -p 3 "run the tests"        # types text and presses Enter
-hydra read -p 3                        # the pane's screen as text
-hydra new ~/code/web -- claude
-hydra worktree feat/x -- claude        # worktree workspace for this pane's repo
-hydra focus 3 | close 3 | kill-server [--forget]
-hydra send -p 3 --wait "fix the bug"   # waits for the turn to end, prints the agent's reply
-hydra wait -p 3 [--regex "passed"]     # the turn ending, or text on the screen (exit 2: timeout)
-hydra worktree --move [name]           # run by an agent: move itself into a new worktree
-hydra dev start|stop|restart           # this worktree's dev server (from .hydra.toml)
-hydra ext list | new <name>            # extensions
-hydra doctor                           # check everything hydra relies on
-hydra --remote me@box                  # the UI here, agents on another machine (any command)
+seshi ls [--json]                      # tree of workspaces / tabs / panes with agent status
+seshi split [--down] [-p ID] -- codex  # inside a pane, targets that pane by default
+seshi send -p 3 "run the tests"        # types text and presses Enter
+seshi read -p 3                        # the pane's screen as text
+seshi new ~/code/web -- claude
+seshi worktree feat/x -- claude        # worktree workspace for this pane's repo
+seshi focus 3 | close 3 | kill-server [--forget]
+seshi send -p 3 --wait "fix the bug"   # waits for the turn to end, prints the agent's reply
+seshi wait -p 3 [--regex "passed"]     # the turn ending, or text on the screen (exit 2: timeout)
+seshi worktree --move [name]           # run by an agent: move itself into a new worktree
+seshi dev start|stop|restart           # this worktree's dev server (from .seshi.toml)
+seshi ext list | new <name>            # extensions
+seshi doctor                           # check everything seshi relies on
+seshi --remote me@box                  # the UI here, agents on another machine (any command)
 ```
 
-`HYDRA_SOCKET=name` runs a separate server, like `tmux -L`.
+`SESHI_SOCKET=name` runs a separate server, like `tmux -L`.
 
 ## How it works
 
 ```
-hydra (TUI client) ──┐      named pipe (Windows) / unix socket
-hydra ls/send/hook ──┼──►   hydra daemon
+seshi (TUI client) ──┐      named pipe (Windows) / unix socket
+seshi ls/send/hook ──┼──►   seshi daemon
                       │        ├─ workspace / tab / split-tree model (source of truth)
                       │        ├─ one PTY per pane (portable-pty → ConPTY / openpty)
                       │        │    reader thread → vt100 parser + replay ring
@@ -550,13 +533,13 @@ hydra ls/send/hook ──┼──►   hydra daemon
 - `src/layout.rs`: split tree, rects, neighbour search
 - `src/config.rs`, `src/keys.rs`, `src/theme.rs`: everything user-facing
 
-## Per-repo settings: `.hydra.toml`
+## Per-repo settings: `.seshi.toml`
 
 Commit one to the repo:
 
 ```toml
 [dev]
-run = "npm run dev"              # right-click a folder > Run dev server, or `hydra dev`
+run = "npm run dev"              # right-click a folder > Run dev server, or `seshi dev`
 ready = "ready in|listening on"  # the row says "ready" once the output matches
 port = 3000                      # each worktree gets its own $PORT: 3000, 3001, ...
 
@@ -565,22 +548,22 @@ on_create = "npm install"        # in every new worktree
 on_remove = ""
 ```
 
-Hooks don't run until you allow them: run `hydra allow` in the repo (it shows the
-commands). If they change, they wait for `hydra allow` again, so a cloned repo can't run
+Hooks don't run until you allow them: run `seshi allow` in the repo (it shows the
+commands). If they change, they wait for `seshi allow` again, so a cloned repo can't run
 code on its own. A hook is stopped after 10 minutes.
 
 ## Extensions
 
-`hydra ext new deploy` makes `<config>/extensions/deploy/hydra-ext.toml`: `[[commands]]` show in
+`seshi ext new deploy` makes `<config>/extensions/deploy/seshi-ext.toml`: `[[commands]]` show in
 the palette (hidden with their last line shown, or in a pane), `[[labels]]` put a short line on
 every worktree row, and `[hooks]` run on agent start, agent done, needs you, worktree create
-and remove, with `HYDRA_EVENT`, `HYDRA_WORKTREE`, `HYDRA_BRANCH`, `HYDRA_AGENT`, `HYDRA_SAID` and
+and remove, with `SESHI_EVENT`, `SESHI_WORKTREE`, `SESHI_BRANCH`, `SESHI_AGENT`, `SESHI_SAID` and
 more set. `./` in a command is the extension's folder.
 
 ## Remote
 
-`hydra --remote me@box` runs the UI here and everything else there, over ssh (hydra must be
-installed on both; `HYDRA_REMOTE_CMD` if it isn't on the far side's PATH, `HYDRA_SSH="ssh -p
+`seshi --remote me@box` runs the UI here and everything else there, over ssh (seshi must be
+installed on both; `SESHI_REMOTE_CMD` if it isn't on the far side's PATH, `SESHI_SSH="ssh -p
 2222"` for options). Panes, agents, worktrees and statuses work; views that read files (Files,
 Changes, find, branches) don't yet.
 

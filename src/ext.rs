@@ -1,4 +1,4 @@
-//! Extensions: a folder in `<config>/extensions/<name>/` with a `hydra-ext.toml` that adds
+//! Extensions: a folder in `<config>/extensions/<name>/` with a `seshi-ext.toml` that adds
 //! commands to the palette, labels to worktree rows, and commands run when things happen.
 //!
 //! ```toml
@@ -22,14 +22,14 @@
 //! on_worktree_remove = ""
 //! ```
 //!
-//! Every command runs in the worktree it's about, through your shell, with HYDRA_EXT_DIR,
-//! HYDRA_EVENT, HYDRA_WORKTREE, HYDRA_BRANCH, HYDRA_REPO, HYDRA_TERM_ID, HYDRA_AGENT,
-//! HYDRA_STATUS, HYDRA_PROMPT and HYDRA_SAID set when they apply.
+//! Every command runs in the worktree it's about, through your shell, with SESHI_EXT_DIR,
+//! SESHI_EVENT, SESHI_WORKTREE, SESHI_BRANCH, SESHI_REPO, SESHI_TERM_ID, SESHI_AGENT,
+//! SESHI_STATUS, SESHI_PROMPT and SESHI_SAID set when they apply.
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-pub const MANIFEST: &str = "hydra-ext.toml";
+pub const MANIFEST: &str = "seshi-ext.toml";
 
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(default)]
@@ -131,7 +131,7 @@ pub fn resolve(ext_dir: &Path, cmd: &str) -> String {
 pub fn run(shell: &[String], ext: &Ext, cwd: &Path, cmd: &str, vars: &[(String, String)]) -> Result<String, String> {
     let mut c = crate::proc::shell(shell, &resolve(&ext.dir, cmd), false);
     c.current_dir(if cwd.is_dir() { cwd } else { &ext.dir }).stdin(std::process::Stdio::null());
-    c.env("HYDRA_EXT_DIR", &ext.dir);
+    c.env("SESHI_EXT_DIR", &ext.dir);
     for (k, v) in vars {
         c.env(k, v);
     }
@@ -149,22 +149,22 @@ pub fn run(shell: &[String], ext: &Ext, cwd: &Path, cmd: &str, vars: &[(String, 
 
 /// The environment for something about `dir` (and maybe a pane).
 pub fn vars(event: &str, dir: &Path, term: Option<&crate::protocol::TermInfo>) -> Vec<(String, String)> {
-    let mut v = vec![("HYDRA_EVENT".to_string(), event.to_string()), ("HYDRA_WORKTREE".to_string(), dir.display().to_string())];
+    let mut v = vec![("SESHI_EVENT".to_string(), event.to_string()), ("SESHI_WORKTREE".to_string(), dir.display().to_string())];
     if let Some(h) = crate::gitfs::head(dir) {
-        v.push(("HYDRA_BRANCH".into(), h.branch));
-        v.push(("HYDRA_REPO".into(), h.main_root.display().to_string()));
+        v.push(("SESHI_BRANCH".into(), h.branch));
+        v.push(("SESHI_REPO".into(), h.main_root.display().to_string()));
     }
     if let Some(t) = term {
-        v.push(("HYDRA_TERM_ID".into(), t.id.to_string()));
-        v.push(("HYDRA_AGENT".into(), t.agent.clone().unwrap_or_default()));
-        v.push(("HYDRA_STATUS".into(), t.status.label().to_string()));
-        v.push(("HYDRA_PROMPT".into(), t.summary.clone()));
-        v.push(("HYDRA_SAID".into(), t.said.chars().take(4000).collect()));
+        v.push(("SESHI_TERM_ID".into(), t.id.to_string()));
+        v.push(("SESHI_AGENT".into(), t.agent.clone().unwrap_or_default()));
+        v.push(("SESHI_STATUS".into(), t.status.label().to_string()));
+        v.push(("SESHI_PROMPT".into(), t.summary.clone()));
+        v.push(("SESHI_SAID".into(), t.said.chars().take(4000).collect()));
     }
     v
 }
 
-/// `hydra ext new <name>`: a starter extension to edit.
+/// `seshi ext new <name>`: a starter extension to edit.
 pub fn scaffold(name: &str) -> anyhow::Result<PathBuf> {
     let d = dir().join(name);
     anyhow::ensure!(!d.exists(), "{} already exists", d.display());
@@ -185,7 +185,7 @@ background = true
 # run = "git log -1 --format=%cr"
 # every = 120
 
-# Run when things happen (HYDRA_EVENT, HYDRA_WORKTREE, HYDRA_AGENT, HYDRA_SAID, ...).
+# Run when things happen (SESHI_EVENT, SESHI_WORKTREE, SESHI_AGENT, SESHI_SAID, ...).
 [hooks]
 on_agent_done = ""
 on_needs_you = ""
@@ -193,9 +193,9 @@ on_needs_you = ""
     );
     std::fs::write(d.join(MANIFEST), manifest)?;
     let body = if cfg!(windows) {
-        "Write-Output \"hello from $env:HYDRA_EXT_DIR, on $env:HYDRA_BRANCH\"\n"
+        "Write-Output \"hello from $env:SESHI_EXT_DIR, on $env:SESHI_BRANCH\"\n"
     } else {
-        "#!/bin/sh\necho \"hello from $HYDRA_EXT_DIR, on $HYDRA_BRANCH\"\n"
+        "#!/bin/sh\necho \"hello from $SESHI_EXT_DIR, on $SESHI_BRANCH\"\n"
     };
     std::fs::write(d.join(script), body)?;
     #[cfg(unix)]

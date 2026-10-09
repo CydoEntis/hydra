@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn past_chats_are_found_by_what_was_said() {
-        let dir = std::env::temp_dir().join(format!("hydra-chats-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("seshi-chats-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let claude = dir.join("c1.jsonl");
         std::fs::write(
@@ -454,7 +454,7 @@ mod live {
     fn chats_live() {
         let files = super::chat_files();
         let t = std::time::Instant::now();
-        let hits = super::search_chats(&files, &std::env::var("HYDRA_CHAT_QUERY").unwrap_or_default(), 10);
+        let hits = super::search_chats(&files, &std::env::var("SESHI_CHAT_QUERY").unwrap_or_default(), 10);
         println!("{} files, {} hits in {:?}", files.len(), hits.len(), t.elapsed());
         for h in hits {
             println!("{} {} {} | {} | {}", h.agent, h.id, h.cwd.display(), h.title.chars().take(60).collect::<String>(), h.snippet.chars().take(80).collect::<String>());

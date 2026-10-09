@@ -16,7 +16,7 @@ fn groups() -> Vec<(&'static str, Vec<(Action, &'static str)>)> {
         ("PANES", vec![(Action::NewPane, "new pane"), (Action::Zoom, "zoom"), (Action::ClosePane, "close"), (Action::Arrange, "layout"), (Action::Focus(Dir::Left), "move focus")]),
         ("TABS", vec![(Action::NewTab, "new tab"), (Action::SelectTab(1), "go to tab"), (Action::RenameTab, "rename")]),
         ("PROJECT", vec![(Action::OpenProject, "open project"), (Action::Worktrees, "worktrees  ›"), (Action::Files, "files"), (Action::Changes, "changes")]),
-        ("HYDRA", vec![(Action::Settings, "settings"), (Action::Help, "all keys"), (Action::Detach, "quit, agents keep running")]),
+        ("SESHI", vec![(Action::Settings, "settings"), (Action::Help, "all keys"), (Action::Detach, "quit, agents keep running")]),
     ]
 }
 

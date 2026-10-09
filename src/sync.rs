@@ -1,4 +1,4 @@
-//! Keep your hydra setup the same on every machine through a private GitHub repo. The
+//! Keep your seshi setup the same on every machine through a private GitHub repo. The
 //! config folder itself is the git repo; only config.toml and ideas.json are shared.
 //! Anything machine-specific goes in config.local.toml, which is never synced and wins
 //! over config.toml.
@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-const IGNORE: &str = "# hydra sync: only these are shared between machines\n*\n!.gitignore\n!config.toml\n!ideas.json\n";
+const IGNORE: &str = "# seshi sync: only these are shared between machines\n*\n!.gitignore\n!config.toml\n!ideas.json\n";
 
 pub fn dir() -> PathBuf {
     crate::config::config_path().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
@@ -59,12 +59,12 @@ pub fn setup(name: &str) -> Result<String> {
         }
         Err(_) => {
             if !d.join("config.toml").exists() {
-                std::fs::write(d.join("config.toml"), "# hydra config (shared between your machines)\n")?;
+                std::fs::write(d.join("config.toml"), "# seshi config (shared between your machines)\n")?;
             }
             git(&["add", "-A"]).map_err(anyhow::Error::msg)?;
-            let _ = git(&["commit", "-q", "-m", &format!("hydra setup from {}", host())]);
+            let _ = git(&["commit", "-q", "-m", &format!("seshi setup from {}", host())]);
             run("gh", &["repo", "create", name, "--private", "--source", ".", "--remote", "origin", "--push"]).map_err(anyhow::Error::msg)?;
-            Ok(format!("created the private repo {name}; run `hydra sync setup {name}` on your other machines"))
+            Ok(format!("created the private repo {name}; run `seshi sync setup {name}` on your other machines"))
         }
     }
 }
@@ -80,7 +80,7 @@ pub fn pull() -> Result<bool, String> {
 pub fn push() -> Result<(), String> {
     git(&["add", "-A"])?;
     if git(&["diff", "--cached", "--quiet"]).is_err() {
-        git(&["commit", "-q", "-m", &format!("hydra: from {}", host())])?;
+        git(&["commit", "-q", "-m", &format!("seshi: from {}", host())])?;
     }
     if git(&["push", "-q", "origin", "main"]).is_err() {
         // Another machine pushed first: take theirs, then ours on top.
@@ -104,11 +104,11 @@ pub fn push_soon() {
     });
 }
 
-/// `hydra sync [setup <name> | off]`
+/// `seshi sync [setup <name> | off]`
 pub fn command(action: Option<&str>, name: Option<&str>) -> Result<()> {
     match action {
         Some("setup") => {
-            println!("{}", setup(name.unwrap_or("hydra-config"))?);
+            println!("{}", setup(name.unwrap_or("seshi-config"))?);
         }
         Some("off") => {
             let g = dir().join(".git");
@@ -117,10 +117,10 @@ pub fn command(action: Option<&str>, name: Option<&str>) -> Result<()> {
             }
             println!("sync is off on this machine (the GitHub repo is untouched)");
         }
-        Some(other) => bail!("unknown `{other}`: use `hydra sync`, `hydra sync setup [repo]` or `hydra sync off`"),
+        Some(other) => bail!("unknown `{other}`: use `seshi sync`, `seshi sync setup [repo]` or `seshi sync off`"),
         None => {
             if !enabled() {
-                println!("sync is off. `hydra sync setup` shares your config and ideas through a private GitHub repo.");
+                println!("sync is off. `seshi sync setup` shares your config and ideas through a private GitHub repo.");
                 return Ok(());
             }
             let changed = pull().map_err(anyhow::Error::msg)?;

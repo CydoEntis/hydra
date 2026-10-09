@@ -802,42 +802,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
-name = "hydra"
-version = "0.13.0"
-dependencies = [
- "anyhow",
- "arboard",
- "bytes",
- "clap",
- "crossterm",
- "directories",
- "futures-util",
- "getrandom 0.3.4",
- "ignore",
- "interprocess",
- "libc",
- "png 0.17.16",
- "portable-pty",
- "ratatui",
- "regex",
- "rmp-serde",
- "serde",
- "serde_bytes",
- "serde_json",
- "sha2",
- "sysinfo",
- "tokio",
- "tokio-util",
- "toml",
- "toml_edit",
- "tracing",
- "tracing-subscriber",
- "unicode-width",
- "vt100",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "ident_case"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1916,6 +1880,42 @@ checksum = "b16809bc35793b19ce4e0c53924bc0dce3937f15487997cfdaed936004180730"
 dependencies = [
  "cfg-if",
  "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "seshi"
+version = "0.13.0"
+dependencies = [
+ "anyhow",
+ "arboard",
+ "bytes",
+ "clap",
+ "crossterm",
+ "directories",
+ "futures-util",
+ "getrandom 0.3.4",
+ "ignore",
+ "interprocess",
+ "libc",
+ "png 0.17.16",
+ "portable-pty",
+ "ratatui",
+ "regex",
+ "rmp-serde",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "sha2",
+ "sysinfo",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "toml_edit",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-width",
+ "vt100",
  "windows-sys 0.61.2",
 ]
 

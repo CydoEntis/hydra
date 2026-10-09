@@ -48,5 +48,5 @@ cargo check --target aarch64-apple-darwin
 ## Project-specific: rust
 
 - Edition 2024, stable toolchain; `[profile.dev.package."*"] opt-level = 2` keeps the emulator fast in debug builds.
-- UI tests use ratatui's `TestBackend`; set `HYDRA_SHOW=1` to print frames.
+- UI tests use ratatui's `TestBackend`; set `SESHI_SHOW=1` to print frames.
 - Platform code is gated with `cfg(windows)` / `cfg(unix)`; both sides must compile (the cross-checks in the gate).

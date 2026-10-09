@@ -365,8 +365,8 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
         hit(app, tr, HyHit::SetTab(i));
         x += w + 1;
     }
-    // Which hydra this is, and the way to the next one.
-    let mut ver = vec![seg(format!("hydra {}", env!("CARGO_PKG_VERSION")), c.fg(t.muted))];
+    // Which seshi this is, and the way to the next one.
+    let mut ver = vec![seg(format!("seshi {}", env!("CARGO_PKG_VERSION")), c.fg(t.muted))];
     if let Some(new) = &app.update_available {
         ver.push(seg(format!(" → {new}  "), c.fg(t.accent).add_modifier(Modifier::BOLD)));
     }
@@ -449,7 +449,7 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
                     // One theme: ● if it's yours, its name, eight swatches.
                     SRow::Theme(ti) => {
                         let name = crate::theme::BUILTIN[*ti];
-                        let cur = if app.cfg.theme.is_empty() { "hydra" } else { app.cfg.theme.as_str() };
+                        let cur = if app.cfg.theme.is_empty() { crate::theme::DEFAULT } else { app.cfg.theme.as_str() };
                         let mine = cur == name || (cur == "drover" && name == "hydra");
                         put(buf, lx, y, &[seg(if mine { "●" } else { "○" }, st.fg(if mine { t.accent } else { t.muted })), seg(format!(" {}", theme_label(name)), ls)], vx - 1);
                         let th = Theme::named(name);

@@ -267,12 +267,12 @@ mod tests {
 
 #[cfg(test)]
 mod live {
-    /// Against a real repo: `HYDRA_PR_DIR=<clone> HYDRA_PR=<n> cargo test pr_live -- --ignored --nocapture`.
+    /// Against a real repo: `SESHI_PR_DIR=<clone> SESHI_PR=<n> cargo test pr_live -- --ignored --nocapture`.
     #[test]
     #[ignore]
     fn pr_live() {
-        let dir = std::path::PathBuf::from(std::env::var("HYDRA_PR_DIR").unwrap());
-        let n = std::env::var("HYDRA_PR").unwrap();
+        let dir = std::path::PathBuf::from(std::env::var("SESHI_PR_DIR").unwrap());
+        let n = std::env::var("SESHI_PR").unwrap();
         let info = super::load(&dir, &n).unwrap();
         println!("#{} {} [{}] {} → {} +{} −{} files {}", info.number, info.title, info.state, info.branch, info.base, info.additions, info.deletions, info.files);
         println!("checks: {:?}", info.checks.iter().take(5).collect::<Vec<_>>());

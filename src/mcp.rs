@@ -1,4 +1,4 @@
-//! `hydra mcp`: hydra as an MCP server (stdio), so an agent can see and steer the others —
+//! `seshi mcp`: seshi as an MCP server (stdio), so an agent can see and steer the others —
 //! list them, read their screens, message them, answer their prompts (only as allowed), start
 //! new ones in their own worktrees, interrupt them. There is no merge, push or delete.
 //!
@@ -41,20 +41,20 @@ fn fail(s: impl Into<String>) -> Value {
 }
 
 fn tools() -> Value {
-    let id = json!({ "type": "integer", "description": "The session id (from hydra_list)." });
+    let id = json!({ "type": "integer", "description": "The session id (from seshi_list)." });
     json!([
         {
-            "name": "hydra_list",
-            "description": "List the agent and shell sessions running in hydra (in this project, unless hydra is set to allow all): id, agent, status (working / needs-you / done / idle), branch and folder, what it's on, and the question it's asking if it needs an answer.",
+            "name": "seshi_list",
+            "description": "List the agent and shell sessions running in seshi (in this project, unless seshi is set to allow all): id, agent, status (working / needs-you / done / idle), branch and folder, what it's on, and the question it's asking if it needs an answer.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "hydra_read",
+            "name": "seshi_read",
             "description": "Read the end of a session's screen (what the agent shows right now).",
             "inputSchema": { "type": "object", "properties": { "id": id, "lines": { "type": "integer", "description": "How many lines from the bottom (default 40)." } }, "required": ["id"] }
         },
         {
-            "name": "hydra_send",
+            "name": "seshi_send",
             "description": "Type a message into a session's prompt and press Enter, like a person would. With wait, returns once it has finished that turn, with its reply.",
             "inputSchema": { "type": "object", "properties": {
                 "id": id,
@@ -64,7 +64,7 @@ fn tools() -> Value {
             }, "required": ["id", "text"] }
         },
         {
-            "name": "hydra_wait",
+            "name": "seshi_wait",
             "description": "Wait until a session finishes its turn (or needs an answer), or until text matching a regex shows on its screen. Returns its reply or the matching line.",
             "inputSchema": { "type": "object", "properties": {
                 "id": id,
@@ -73,12 +73,12 @@ fn tools() -> Value {
             }, "required": ["id"] }
         },
         {
-            "name": "hydra_answer",
-            "description": "Answer a session's numbered prompt (e.g. 1 = Yes, 3 = No). Saying yes is only allowed if the user has turned that on in hydra's settings; otherwise ask the user.",
+            "name": "seshi_answer",
+            "description": "Answer a session's numbered prompt (e.g. 1 = Yes, 3 = No). Saying yes is only allowed if the user has turned that on in seshi's settings; otherwise ask the user.",
             "inputSchema": { "type": "object", "properties": { "id": id, "choice": { "type": "integer", "minimum": 1, "maximum": 9 } }, "required": ["id", "choice"] }
         },
         {
-            "name": "hydra_start",
+            "name": "seshi_start",
             "description": "Start a new agent on a task. In a git repo it gets its own worktree and branch, so it never edits the same files as anyone else. Returns its session id.",
             "inputSchema": { "type": "object", "properties": {
                 "prompt": { "type": "string", "description": "The task." },
@@ -87,7 +87,7 @@ fn tools() -> Value {
             }, "required": ["prompt"] }
         },
         {
-            "name": "hydra_interrupt",
+            "name": "seshi_interrupt",
             "description": "Interrupt what a session is doing (Ctrl+C).",
             "inputSchema": { "type": "object", "properties": { "id": id }, "required": ["id"] }
         }
@@ -133,7 +133,7 @@ impl Server {
         let snap = self.snapshot()?;
         let t = snap.terms.get(&id).cloned().ok_or_else(|| format!("no session {id}"))?;
         if !self.in_scope(&t) {
-            return Err(format!("session {id} is in another project; hydra only lets you reach sessions in {}", self.root.display()));
+            return Err(format!("session {id} is in another project; seshi only lets you reach sessions in {}", self.root.display()));
         }
         Ok(t)
     }
@@ -148,16 +148,16 @@ impl Server {
 
     fn call(&self, name: &str, args: &Value) -> Value {
         let r = match name {
-            "hydra_list" => self.list(),
-            "hydra_read" => self.read(args),
-            "hydra_send" => self.send(args),
-            "hydra_wait" => self.session(args).and_then(|t| {
+            "seshi_list" => self.list(),
+            "seshi_read" => self.read(args),
+            "seshi_send" => self.send(args),
+            "seshi_wait" => self.session(args).and_then(|t| {
                 let regex = args.get("regex").and_then(Value::as_str).map(str::to_string);
                 self.wait(t.id, regex.as_deref(), args, false)
             }),
-            "hydra_answer" => self.answer(args),
-            "hydra_start" => self.start(args),
-            "hydra_interrupt" => self.session(args).and_then(|t| cli::send(Some(t.id), "\x03".into(), false).map(|_| format!("interrupted {}", t.id)).map_err(|e| format!("{e:#}"))),
+            "seshi_answer" => self.answer(args),
+            "seshi_start" => self.start(args),
+            "seshi_interrupt" => self.session(args).and_then(|t| cli::send(Some(t.id), "\x03".into(), false).map(|_| format!("interrupted {}", t.id)).map_err(|e| format!("{e:#}"))),
             other => Err(format!("no tool {other}")),
         };
         match r {
@@ -209,9 +209,9 @@ impl Server {
         }
         let msg = args.get("text").and_then(Value::as_str).ok_or("give the text")?;
         // Text sent to a session that's waiting on a question would answer it; that goes
-        // through hydra_answer and the user's approval rules instead.
+        // through seshi_answer and the user's approval rules instead.
         if t.status == Status::Blocked && self.cfg.mcp.approve != "always" {
-            return Err(format!("session {} is waiting on a question; use hydra_answer (the user's approval rules apply) or ask the user", t.id));
+            return Err(format!("session {} is waiting on a question; use seshi_answer (the user's approval rules apply) or ask the user", t.id));
         }
         cli::send(Some(t.id), msg.to_string(), true).map_err(|e| format!("{e:#}"))?;
         if args.get("wait").and_then(Value::as_bool) == Some(true) {
@@ -237,7 +237,7 @@ impl Server {
                     said
                 };
                 let state = match s {
-                    Status::Blocked => "needs an answer (see hydra_read / hydra_answer)",
+                    Status::Blocked => "needs an answer (see seshi_read / seshi_answer)",
                     _ => "finished",
                 };
                 Ok(format!("{term} {state}:\n{reply}"))
@@ -258,10 +258,10 @@ impl Server {
                 "safe" => {
                     let q = question.to_lowercase();
                     if !self.cfg.mcp.safe.iter().any(|s| !s.is_empty() && q.contains(&s.to_lowercase())) {
-                        return Err(format!("\"{}\" isn't on the user's safe list, so hydra won't approve it. Ask the user.", question.trim()));
+                        return Err(format!("\"{}\" isn't on the user's safe list, so seshi won't approve it. Ask the user.", question.trim()));
                     }
                 }
-                _ => return Err("The user hasn't let agents approve prompts (hydra Settings → Agents). Ask the user to answer it.".into()),
+                _ => return Err("The user hasn't let agents approve prompts (seshi Settings → Agents). Ask the user to answer it.".into()),
             }
         }
         cli::send(Some(t.id), choice.to_string(), false).map_err(|e| format!("{e:#}"))?;
@@ -279,7 +279,7 @@ impl Server {
         let q = self.cfg.quote_for_shell(prompt);
         let cmd = match self.cfg.quick.agents.iter().find(|a| a.name == agent) {
             Some(a) => a.command.replace("{prompt}", &q),
-            // Only agents hydra knows, by plain name: anything else would run as a command.
+            // Only agents seshi knows, by plain name: anything else would run as a command.
             None if known_agent(&self.cfg, &agent) => format!("{agent} {q}"),
             None => {
                 let mut names: Vec<String> = self.cfg.quick.agents.iter().map(|a| a.name.clone()).collect();
@@ -294,7 +294,7 @@ impl Server {
         let worktree = args.get("worktree").and_then(Value::as_bool).unwrap_or(true) && crate::gitfs::head(&self.root).is_some();
         let branch = slug(prompt);
         let c = if worktree {
-            let ws = before.active_ws.or_else(|| before.workspaces.first().map(|w| w.id)).ok_or("hydra has nothing open")?;
+            let ws = before.active_ws.or_else(|| before.workspaces.first().map(|w| w.id)).ok_or("seshi has nothing open")?;
             let branch = if before.terms.values().any(|t| t.branch.as_deref() == Some(branch.as_str())) { format!("{branch}-{}", had.len()) } else { branch.clone() };
             Command::NewWorktree { ws, branch, base: None, cmd: Some(cmd), split: None, from: Some(self.root.clone()) }
         } else {
@@ -313,7 +313,7 @@ impl Server {
                 return Ok(format!("started {agent} as session {new} in {place}"));
             }
         }
-        Ok(format!("asked hydra to start {agent}; it hasn't appeared yet"))
+        Ok(format!("asked seshi to start {agent}; it hasn't appeared yet"))
     }
 }
 
@@ -327,7 +327,7 @@ fn slug(s: &str) -> String {
 /// Run the server on stdin / stdout until stdin closes.
 pub fn run() -> Result<()> {
     let (cfg, _) = crate::config::Config::load_or_default();
-    let server = Server { cfg, root: caller_root(), me: std::env::var("HYDRA_TERM_ID").ok().and_then(|s| s.parse().ok()) };
+    let server = Server { cfg, root: caller_root(), me: std::env::var("SESHI_TERM_ID").ok().and_then(|s| s.parse().ok()) };
     let stdin = std::io::stdin();
     let mut out = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -343,8 +343,8 @@ pub fn run() -> Result<()> {
             "initialize" => Ok(json!({
                 "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2025-06-18")),
                 "capabilities": { "tools": {} },
-                "serverInfo": { "name": "hydra", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "hydra runs your user's coding agents side by side. Use hydra_list to see them, hydra_read to see a screen, hydra_send to message one, hydra_start to start a helper in its own worktree. Don't answer prompts unless the user allows it."
+                "serverInfo": { "name": "seshi", "version": env!("CARGO_PKG_VERSION") },
+                "instructions": "seshi runs your user's coding agents side by side. Use seshi_list to see them, seshi_read to see a screen, seshi_send to message one, seshi_start to start a helper in its own worktree. Don't answer prompts unless the user allows it."
             })),
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({ "tools": tools() })),

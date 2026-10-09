@@ -1,4 +1,4 @@
-//! Per-project settings that live in the repo, `.hydra.toml`: how to run its dev server, and
+//! Per-project settings that live in the repo, `.seshi.toml`: how to run its dev server, and
 //! commands to run when a worktree is made or removed.
 //!
 //! ```toml
@@ -37,13 +37,15 @@ pub struct Hooks {
     pub on_remove: String,
 }
 
-pub const FILE: &str = ".hydra.toml";
+pub const FILE: &str = ".seshi.toml";
+/// What the file was called before the rename; still read when there's no `FILE`.
+const OLD_FILE: &str = ".hydra.toml";
 
 /// Longest a worktree hook may run before it's stopped.
 pub const HOOK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
-/// A repo's hook commands run only once the user has allowed them (`hydra allow`, like
-/// direnv): a cloned repo's `.hydra.toml` can't run code by itself. Approvals are kept per
+/// A repo's hook commands run only once the user has allowed them (`seshi allow`, like
+/// direnv): a cloned repo's `.seshi.toml` can't run code by itself. Approvals are kept per
 /// repo and command, in a file beside the config that is never synced.
 fn allowed_path() -> PathBuf {
     crate::config::config_path().with_file_name("allowed-hooks.json")
@@ -92,12 +94,15 @@ fn allow_in(file: &Path, dir: &Path, cmds: &[&str]) -> anyhow::Result<()> {
     std::fs::rename(&tmp, file).with_context(|| format!("saving {}", file.display()))
 }
 
-/// The settings for a checkout: its own `.hydra.toml`, else the main checkout's.
+/// The settings for a checkout: its own `.seshi.toml` (or `.hydra.toml`), else the main
+/// checkout's.
 pub fn load(dir: &Path) -> Project {
     let main = crate::gitfs::head(dir).map(|h| h.main_root);
     for d in std::iter::once(dir.to_path_buf()).chain(main) {
-        if let Ok(text) = std::fs::read_to_string(d.join(FILE)) {
-            return toml::from_str(&text).unwrap_or_default();
+        for name in [FILE, OLD_FILE] {
+            if let Ok(text) = std::fs::read_to_string(d.join(name)) {
+                return toml::from_str(&text).unwrap_or_default();
+            }
         }
     }
     Project::default()
@@ -171,7 +176,7 @@ mod tests {
 
     #[test]
     fn hooks_run_only_once_allowed() {
-        let dir = std::env::temp_dir().join(format!("hydra-allow-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("seshi-allow-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("allowed-hooks.json");
         assert!(!allowed_in(&file, &dir, "npm install"), "nothing is allowed at first");

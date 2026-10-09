@@ -264,7 +264,7 @@ pub fn mark(cfg: &crate::config::Tickets, source: &str, dir: &Path, t: &Ticket, 
     match source {
         "github" => {
             let body = match progress {
-                Progress::Started => format!("An agent started on this ({note}), from hydra's queue."),
+                Progress::Started => format!("An agent started on this ({note}), from seshi's queue."),
                 Progress::Review => format!("Ready for review ({note})."),
             };
             let mut cmd = std::process::Command::new("gh");

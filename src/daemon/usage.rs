@@ -56,7 +56,7 @@ impl Daemon {
         }
     }
 
-    /// What sessions in hydra have cost over the last day.
+    /// What sessions in seshi have cost over the last day.
     pub(super) fn spent_today(&self) -> f64 {
         let now = term::unix_now();
         self.spent.iter().filter(|(at, _)| now.saturating_sub(*at) < DAY).map(|(_, c)| c).sum()

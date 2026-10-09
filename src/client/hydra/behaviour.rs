@@ -630,7 +630,7 @@ impl App {
         self.notify(format!("answered {name}: {label}"), false);
     }
 
-    /// A question an agent asked you with `hydra ask-human`, waiting in this pane.
+    /// A question an agent asked you with `seshi ask-human`, waiting in this pane.
     pub(in crate::client) fn pending_question(&self, term: TermId) -> Option<&crate::protocol::HumanQuestion> {
         self.snap.questions.iter().find(|q| q.term == term)
     }

@@ -1,7 +1,7 @@
 //! The "workspaces" layout from the design handoff: a sidebar of workspaces (one per repo)
 //! → their worktrees → the agent in each; borderless panes with one-row title bars; an
 //! answer bar on panes that need you; a crumb in the top bar and counts in the status line.
-//! Plus the hydra-native views that replace the pane area (Changes, Files), the
+//! Plus the seshi-native views that replace the pane area (Changes, Files), the
 //! talk-to-a-worktree modal and the + Pane menu.
 
 use super::render::{status_icon, truncate};

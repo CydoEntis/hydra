@@ -1,7 +1,7 @@
 //! A stand-in `tmux` so tools that open their own panes through tmux (Claude Code's agent
-//! teams) open them as hydra panes. `hydra tmux-shim -- claude` runs a command with a `tmux`
-//! first on its PATH (a link to hydra) and `TMUX` naming this shim; hydra, run under the
-//! name `tmux`, answers those calls from the hydra server. Calls meant for a real tmux
+//! teams) open them as seshi panes. `seshi tmux-shim -- claude` runs a command with a `tmux`
+//! first on its PATH (a link to seshi) and `TMUX` naming this shim; seshi, run under the
+//! name `tmux`, answers those calls from the seshi server. Calls meant for a real tmux
 //! (`TMUX` naming another server, `-L` / `-S`) go to the real one.
 //!
 //! What it answers: the commands those tools use (split-window, send-keys, display-message,
@@ -16,17 +16,17 @@ use crate::layout::Dir;
 use crate::protocol::{ClientMsg, Command, Reply, Snapshot, TermId};
 
 /// What `TMUX` starts with when it names this shim.
-const MARK: &str = "hydra-tmux-shim";
+const MARK: &str = "seshi-tmux-shim";
 
 fn shim_dir() -> PathBuf {
     crate::config::data_dir().join("tmux-shim")
 }
 
-/// `hydra tmux-shim [-- command…]`: run the command (default: your shell) with the shim.
+/// `seshi tmux-shim [-- command…]`: run the command (default: your shell) with the shim.
 #[cfg(unix)]
 pub fn run(cmd: Vec<String>) -> Result<()> {
     use std::os::unix::process::CommandExt;
-    let term = std::env::var("HYDRA_TERM_ID").context("run it inside a hydra pane")?;
+    let term = std::env::var("SESHI_TERM_ID").context("run it inside a seshi pane")?;
     let bin = shim_dir().join("bin");
     std::fs::create_dir_all(&bin)?;
     let link = bin.join("tmux");
@@ -56,7 +56,7 @@ pub fn run(_cmd: Vec<String>) -> Result<()> {
     bail!("the tmux shim is for macOS and Linux (Claude Code's split-pane teammates don't run on Windows)")
 }
 
-/// hydra was started under the name `tmux`.
+/// seshi was started under the name `tmux`.
 pub fn invoked_as_tmux() -> bool {
     std::env::args_os()
         .next()
@@ -94,7 +94,7 @@ fn real_tmux(args: &[String]) -> i32 {
         std::env::split_paths(&p).filter(|d| *d != ours).map(|d| d.join("tmux")).find(|c| c.is_file())
     });
     let Some(real) = found else {
-        eprintln!("tmux: not installed (and this call isn't for hydra's tmux shim)");
+        eprintln!("tmux: not installed (and this call isn't for seshi's tmux shim)");
         return 127;
     };
     std::process::Command::new(real).args(args).status().map(|s| s.code().unwrap_or(1)).unwrap_or(127)
@@ -291,7 +291,7 @@ fn answer(args: &[String]) -> Result<String> {
             }
         }
         "has-session" | "has" => Ok(String::new()),
-        // Layout and options: hydra places panes itself; nothing to change.
+        // Layout and options: seshi places panes itself; nothing to change.
         "select-layout" | "selectl" | "resize-pane" | "resizep" | "set-option" | "set" | "set-window-option" | "setw" | "refresh-client"
         | "rename-window" | "renamew" | "select-window" | "selectw" | "bind-key" | "bind" | "source-file" | "source" => Ok(String::new()),
         "show-options" | "show" | "show-window-options" | "showw" => {
@@ -371,7 +371,7 @@ fn expand(fmt: &str, snap: &Snapshot, term: TermId) -> String {
             "pane_height" => t.map(|t| t.rows.to_string()).unwrap_or_default(),
             "pane_active" => (ws.and_then(|i| snap.workspaces[i].tab()).is_some_and(|tab| tab.focus == term) as u8).to_string(),
             "pane_dead" | "pane_in_mode" | "window_zoomed_flag" => "0".into(),
-            "session_name" => "hydra".into(),
+            "session_name" => "seshi".into(),
             "session_id" => "$0".into(),
             "session_attached" | "session_windows" => "1".into(),
             "window_id" => format!("@{}", ws.map(|i| snap.workspaces[i].id).unwrap_or(0)),
@@ -471,6 +471,6 @@ mod tests {
             is_new: false,
             group: None,
         });
-        assert_eq!(expand("#{pane_id} #{session_name} #{window_id} #D ##", &snap, 4), "%4 hydra @7 %4 #");
+        assert_eq!(expand("#{pane_id} #{session_name} #{window_id} #D ##", &snap, 4), "%4 seshi @7 %4 #");
     }
 }

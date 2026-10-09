@@ -1,6 +1,6 @@
 //! Clicking a notification takes you to its session. Notifications carry a link
-//! (`hydra://session/12?socket=default`); opening it runs `hydra reveal <link>`, which
-//! focuses that session and asks the window showing hydra to come to the front.
+//! (`seshi://session/12?socket=default`); opening it runs `seshi reveal <link>`, which
+//! focuses that session and asks the window showing seshi to come to the front.
 
 use anyhow::{Context, Result, bail};
 #[cfg(not(windows))]
@@ -8,11 +8,11 @@ use std::process::Command;
 
 use crate::protocol::TermId;
 
-const SCHEME: &str = "hydra";
+const SCHEME: &str = "seshi";
 
-/// This server's name (`HYDRA_SOCKET`), which the link carries so the right one is reached.
+/// This server's name (`SESHI_SOCKET`), which the link carries so the right one is reached.
 fn socket_label() -> String {
-    std::env::var("HYDRA_SOCKET").unwrap_or_else(|_| "default".into())
+    std::env::var("SESHI_SOCKET").unwrap_or_else(|_| "default".into())
 }
 
 /// The link to a session on this server.
@@ -62,15 +62,15 @@ fn decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// `hydra reveal <link or pane>`: focus the session and bring its window forward.
+/// `seshi reveal <link or pane>`: focus the session and bring its window forward.
 pub fn run(target: &str) -> Result<()> {
-    let Some((term, socket)) = parse(target) else { bail!("not a hydra link or pane number: {target}") };
+    let Some((term, socket)) = parse(target) else { bail!("not a seshi link or pane number: {target}") };
     if let Some(s) = socket {
         // SAFETY: set once at startup, before any thread is started.
-        unsafe { std::env::set_var("HYDRA_SOCKET", s) };
+        unsafe { std::env::set_var("SESHI_SOCKET", s) };
     }
     // Clicking the notification gave this process the right to bring a window forward;
-    // pass it on to the hydra window, which does it when the server asks.
+    // pass it on to the seshi window, which does it when the server asks.
     #[cfg(windows)]
     unsafe {
         windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(windows_sys::Win32::UI::WindowsAndMessaging::ASFW_ANY);
@@ -78,7 +78,7 @@ pub fn run(target: &str) -> Result<()> {
     crate::cli::reveal(term).context("couldn't reach that session")
 }
 
-/// Bring the terminal window this hydra runs in to the front (the server asked: a
+/// Bring the terminal window this seshi runs in to the front (the server asked: a
 /// notification for one of its sessions was clicked). Best effort, off the UI thread.
 pub fn raise_window() {
     #[cfg(windows)]
@@ -111,7 +111,7 @@ fn raise_windows() {
 fn raise_unix() {
     let quiet = |c: &mut Command| crate::proc::quiet(c).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success());
     if cfg!(target_os = "macos") {
-        // The terminal app hydra runs in, by the name it gives itself.
+        // The terminal app seshi runs in, by the name it gives itself.
         let app = match std::env::var("TERM_PROGRAM").unwrap_or_default().as_str() {
             "Apple_Terminal" => "Terminal",
             "iTerm.app" => "iTerm",
@@ -155,7 +155,7 @@ fn ancestors(mut pid: u32) -> Vec<u32> {
     out
 }
 
-/// Windows: make `hydra://` links open this hydra (per user, no admin), through a console
+/// Windows: make `seshi://` links open this seshi (per user, no admin), through a console
 /// with no window so clicking a notification doesn't flash one.
 #[cfg(windows)]
 pub fn register() {
@@ -176,7 +176,7 @@ pub fn register() {
         }
     };
     let base = format!(r"Software\Classes\{SCHEME}");
-    set(&base, None, "URL:hydra");
+    set(&base, None, "URL:seshi");
     set(&base, Some("URL Protocol"), "");
     set(&format!(r"{base}\shell\open\command"), None, &format!("conhost.exe --headless \"{}\" reveal \"%1\"", exe.display()));
 }
@@ -191,11 +191,11 @@ mod tests {
     #[test]
     fn links_round_trip() {
         let l = format!("{SCHEME}://session/12?socket={}", encode("my demo"));
-        assert_eq!(l, "hydra://session/12?socket=my%20demo");
+        assert_eq!(l, "seshi://session/12?socket=my%20demo");
         assert_eq!(parse(&l), Some((12, Some("my demo".into()))));
-        assert_eq!(parse("hydra://session/7/"), Some((7, None)));
+        assert_eq!(parse("seshi://session/7/"), Some((7, None)));
         assert_eq!(parse("7"), Some((7, None)), "a pane number works too");
-        assert_eq!(parse("hydra://nope/7"), None);
+        assert_eq!(parse("seshi://nope/7"), None);
         assert_eq!(parse("https://example.com/session/7"), None);
         assert_eq!(decode("100%"), "100%", "a stray % stays");
     }

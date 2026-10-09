@@ -1,17 +1,17 @@
-# Plan: Hydra
+# Plan: Seshi
 
 Source of truth for scope, order, decisions and rules. Tickets hold the detail.
 Read this before starting work. If work conflicts with it, stop and say so.
 Last reconciled: 2026-10-05 at `9cfde2c` on `dev`.
 Verify: `cargo test && cargo clippy --all-targets -- -D warnings && cargo check --target x86_64-unknown-linux-gnu && cargo check --target aarch64-apple-darwin`
 
-Hydra is a terminal multiplexer built for running many coding agents at once: see
+Seshi is a terminal multiplexer built for running many coding agents at once: see
 which ones need you, jump to them, and keep them running when you leave. See
 `AGENTS.md` for the mission and `docs/ARCHITECTURE.md` for how it is built.
 
 ## Now
 
-Active phase: **7 — test-week feedback** (collecting: the user runs Hydra for a week)
+Active phase: **7 — test-week feedback** (collecting: the user runs Seshi for a week)
 Next unblocked: none (the rest is on hold)
 
 ## Phases
@@ -24,18 +24,18 @@ tickets existed.)
 
 ### 2 — Launching and steering agents from one place (Batch B) · complete 2026-10-03 at `54855dd`
 
-Task box, agent presets, `hydra send --wait` / `hydra wait`, live model and
+Task box, agent presets, `seshi send --wait` / `seshi wait`, live model and
 last-prompt per row.
 
-### 3 — Code and environment without leaving Hydra (Batch C) · complete 2026-10-03 at `54855dd`
+### 3 — Code and environment without leaving Seshi (Batch C) · complete 2026-10-03 at `54855dd`
 
 Branch switcher, review marks in Changes, dev server per worktree with hooks,
 prewarmed agents.
 
 ### 4 — Reach and extras (Batch D) · complete 2026-10-03 at `54855dd`
 
-SSH remotes, extensions, tabs and splits in the hydra layout, memory view,
-notification history, `hydra doctor`, more agent types, BEL tracking.
+SSH remotes, extensions, tabs and splits in the seshi layout, memory view,
+notification history, `seshi doctor`, more agent types, BEL tracking.
 
 ### 5 — Safe and steady · complete 2026-10-04 at `f3b7ae7`
 
@@ -56,7 +56,7 @@ Done: #20 sidebar sections (0.7.0), #21 Inbox (0.7.5), #22 Claude Code agent tea
 Next, in order:
 
 1. #25 (rest) Hooks for Gemini, opencode, Qwen in one command
-2. #24 (rest) Per-pane permissions for what an agent may do through hydra
+2. #24 (rest) Per-pane permissions for what an agent may do through seshi
 3. #28 Scrollback: jump between commands (0.8.1), multi-pane copy (0.9.1) — done
 4. #26 Layouts: split, grid, main and stack, columns; popups — done (0.9.0); tabs 1-9 are the workspaces
 
@@ -74,14 +74,14 @@ Everything below is shipped on `dev` unless marked.
 - SSH remotes (`--remote host`) — shipped — `src/ipc.rs` `connect_remote`
 
 **Agents**
-- Status detection: working / needs you / done (until seen) / idle, from screen patterns, OSC progress and agent hooks — shipped — `src/daemon/scan.rs`, `hydra hook` in `src/cli.rs`
-- Trusted status reports (process tree or `HYDRA_PANE_TOKEN`) — shipped — `src/daemon/term.rs`, `src/cli.rs`
+- Status detection: working / needs you / done (until seen) / idle, from screen patterns, OSC progress and agent hooks — shipped — `src/daemon/scan.rs`, `seshi hook` in `src/cli.rs`
+- Trusted status reports (process tree or `SESHI_PANE_TOKEN`) — shipped — `src/daemon/term.rs`, `src/cli.rs`
 - Agent kinds: Claude, Codex, Gemini, OpenCode, Cursor, Copilot, Amp, Qwen, Aider, Goose, Crush, Droid, Pi, Kiro, Grok, custom `[[agents]]` — shipped — `src/config.rs`
 - New agent task box (project, worktree, agent, model, effort), presets, prewarm — shipped — `src/client/work.rs`
 - Message / reply / quick follow-up, answer prompts — shipped — `src/client/hydra.rs`
 - Race agents on one task — shipped — `Action::Race`
-- Agents talk to agents (MCP server `hydra mcp`) — shipped — `src/mcp.rs`
-- `hydra send --wait`, `hydra wait`, `hydra read` — shipped — `src/cli.rs`
+- Agents talk to agents (MCP server `seshi mcp`) — shipped — `src/mcp.rs`
+- `seshi send --wait`, `seshi wait`, `seshi read` — shipped — `src/cli.rs`
 - Memory per session — shipped — `Mode::Memory`
 
 **The UI (one layout, ADR-0004)**
@@ -100,23 +100,27 @@ Everything below is shipped on `dev` unless marked.
 - Files (tree, preview, in-place edit, external editor), find file, search code — shipped — `src/client/files.rs`, `src/client/find.rs`, `src/client/views.rs`
 - Changes (diff, review marks, commit, git init offer), branch switcher, pull requests, Ship — shipped — `src/client/branch.rs`, `src/client/pr.rs`
 - Tickets: GitHub issues/PRs, Linear, Plane — shipped — `src/client/inbox.rs`
-- Dev server per worktree (`.hydra.toml`) — shipped — `src/project.rs`
+- Dev server per worktree (`.seshi.toml`) — shipped — `src/project.rs`
 - Ideas, map of the project, tasks — shipped — `Action::Ideas`, `Action::Map`, `src/client/tasks.rs`
 - Agent tools view (MCP, skills, plugins; per project / global) — shipped — `src/client/toolbox.rs`
-- Own worktree for `claude`/`codex` typed into a shell in a repo's main folder — shipped 0.9.12 — `hydra agent-dir`, `daemon/term.rs` `agent_functions`
-- Usage and limits meter, context per agent, continue after a limit — shipped 0.10.0 — `hydra statusline`, `src/daemon/usage.rs`
+- Own worktree for `claude`/`codex` typed into a shell in a repo's main folder — shipped 0.9.12 — `seshi agent-dir`, `daemon/term.rs` `agent_functions`
+- Usage and limits meter, context per agent, continue after a limit — shipped 0.10.0 — `seshi statusline`, `src/daemon/usage.rs`
 - Queue (tickets and typed tasks, N at once, tracker follows); merge that cleans up — shipped 0.11.0 — `src/daemon/queue.rs`, `src/tickets.rs`
 - Checkpoints after agent turns, Past chats (search, resume) — shipped 0.12.0 — `src/checkpoint.rs`, `src/client/history.rs`
+
+**Identity**
+- Renamed hydra → Seshi: command, folders, `SESHI_*`, `.seshi.toml`, MCP, releases; one-time move of an old install — done, unreleased — `config::migrate_old_names`, ADR-0008
+- Seshi Night (default) and Seshi Day themes; block SESHI wordmark on the splash — done, unreleased — `src/theme.rs`, `src/client/hydra/splash.rs`
 
 **Extras**
 - Extensions (manifest, commands, hooks) — shipped — `src/ext.rs`
 - Desktop alerts and sounds, notification history — shipped — `src/alert.rs`
 - Click a notification to jump to its session — shipped — `src/reveal.rs`, `src/alert.rs` (#19)
 - Sidebar groups sessions by where they work now (repo, or folder outside git); no projects to open; splits stay with their session — shipped — `src/client/hydra/mod.rs`
-- Releases and installers (Windows, macOS, Linux; checksums), `hydra update` and a daily update check — shipped — `.github/workflows/release.yml`, `install.sh`, `install.ps1`, `src/update.rs`
+- Releases and installers (Windows, macOS, Linux; checksums), `seshi update` and a daily update check — shipped — `.github/workflows/release.yml`, `install.sh`, `install.ps1`, `src/update.rs`
 - CI: test and clippy on Linux and Windows, a macOS check — shipped — `.github/workflows/ci.yml`
 - Config sync across machines (local file never synced) — shipped — `src/sync.rs`
-- `hydra doctor` — shipped — `src/cli.rs`
+- `seshi doctor` — shipped — `src/cli.rs`
 
 ## Out
 
@@ -132,6 +136,7 @@ Everything below is shipped on `dev` unless marked.
 - [ADR-0002](docs/adr/0002-portable-pty-and-vt100.md) — portable-pty (ConPTY) and vt100 for terminals. Rules out: a home-grown PTY layer.
 - [ADR-0003](docs/adr/0003-msgpack-over-local-sockets.md) — msgpack frames over local sockets, versioned. Rules out: unversioned message changes; network listeners.
 - [ADR-0006](docs/adr/0006-floating-design-keys.md) — Leader keys follow the floating design's key map (supersedes ADR-0005). Rules out: defaults that differ from the key map shown in the app.
+- [ADR-0008](docs/adr/0008-rename-to-seshi.md) — The app is called Seshi; an old hydra install is brought over once. Rules out: new code or paths under the old name.
 - [ADR-0007](docs/adr/0007-floating-and-tiled-styles.md) — One layout, drawn floating or tiled (supersedes ADR-0004). Rules out: other layouts, styles that move or hide parts of the UI.
 
 ## Rules
@@ -140,7 +145,7 @@ Everything below is shipped on `dev` unless marked.
 - Status reports need the pane's token or its process chain — `src/daemon/mod.rs` hook handling — AGENTS.md non-negotiable 5
 - Nothing in a cloned repo runs without the user's approval — `src/project.rs` — SECURITY.md
 - Client and daemon refuse to talk across protocol versions — `src/protocol.rs` `PROTOCOL_VERSION`, checked on `Hello` — ADR-0003
-- Config always loads the hydra layout — `src/config.rs` `Config::load` — ADR-0007
+- Config always loads the seshi layout — `src/config.rs` `Config::load` — ADR-0007
 - Every built-in theme passes the contrast audit — `cargo test` (theme audit test in `src/theme.rs`) — readability
 - Both platform sides compile — `cargo check --target x86_64-unknown-linux-gnu` / `aarch64-apple-darwin` — AGENTS.md non-negotiable 3
 - clippy is clean — `cargo clippy --all-targets -- -D warnings` — CODE-STANDARDS

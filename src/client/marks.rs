@@ -1,5 +1,5 @@
 //! Where each command started in a pane's history, so you can jump between them. Shells mark
-//! their prompt with OSC 133;A (fish, PowerShell through hydra, shells set up for it); the
+//! their prompt with OSC 133;A (fish, PowerShell through seshi, shells set up for it); the
 //! line it lands on is noted in history numbering that keeps counting as lines scroll away.
 //! A jump checks the line still holds what it did (the history drops its oldest lines once
 //! full) and looks nearby if it moved.

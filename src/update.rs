@@ -1,4 +1,4 @@
-//! Updating hydra from its GitHub releases: `hydra update`, and a quiet check (when the
+//! Updating seshi from its GitHub releases: `seshi update`, and a quiet check (when the
 //! window opens, then every few hours) that says when a newer version is out. Downloads go through the GitHub CLI while the repo is
 //! private (your sign-in), and straight from GitHub once it's public.
 
@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const REPO: &str = "CydoEntis/hydra";
+const REPO: &str = "CydoEntis/seshi";
 
 /// The release build that runs on this machine.
 pub fn target() -> Option<&'static str> {
@@ -27,7 +27,7 @@ pub fn target() -> Option<&'static str> {
 }
 
 fn asset_for(target: &str) -> String {
-    format!("hydra-{target}.{}", if cfg!(windows) { "zip" } else { "tar.gz" })
+    format!("seshi-{target}.{}", if cfg!(windows) { "zip" } else { "tar.gz" })
 }
 
 /// `1.2.3` (a leading `v` allowed) as numbers, for comparing.
@@ -98,32 +98,32 @@ fn sha256_hex(path: &Path) -> Result<String> {
     Ok(Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// `hydra update`: install the newest release over this one. `check` only says whether
+/// `seshi update`: install the newest release over this one. `check` only says whether
 /// there is one; `force` reinstalls it even when it's this version.
 pub fn run(check: bool, force: bool) -> Result<()> {
     let current = env!("CARGO_PKG_VERSION");
     let tag = latest_tag().map_err(|e| anyhow::anyhow!(e))?;
     if !is_newer(&tag) && !force {
-        println!("hydra {current} is the latest version.");
+        println!("seshi {current} is the latest version.");
         return Ok(());
     }
     if check {
-        println!("hydra {} is out (you have {current}). Run: hydra update", tag.trim_start_matches('v'));
+        println!("seshi {} is out (you have {current}). Run: seshi update", tag.trim_start_matches('v'));
         return Ok(());
     }
     let Some(target) = target() else { bail!("there's no release build for this machine; build from source") };
     let asset = asset_for(target);
-    let tmp = std::env::temp_dir().join(format!("hydra-update-{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("seshi-update-{}", std::process::id()));
     std::fs::create_dir_all(&tmp)?;
     let result = install(&tag, target, &asset, &tmp, true);
     let _ = std::fs::remove_dir_all(&tmp);
     let exe = result?;
-    println!("Updated hydra {current} -> {} ({}).", tag.trim_start_matches('v'), exe.display());
+    println!("Updated seshi {current} -> {} ({}).", tag.trim_start_matches('v'), exe.display());
     if crate::cli::server_running() {
         println!("Your running sessions still use the old version until the server restarts:");
-        println!("  hydra kill-server, then hydra (agents stop, and resume when it starts)");
+        println!("  seshi kill-server, then seshi (agents stop, and resume when it starts)");
     } else {
-        println!("Run hydra to start it.");
+        println!("Run seshi to start it.");
     }
     Ok(())
 }
@@ -134,7 +134,7 @@ pub fn install_latest() -> Result<(String, PathBuf)> {
     let tag = latest_tag().map_err(|e| anyhow::anyhow!(e))?;
     let Some(target) = target() else { bail!("there's no release build for this machine; build from source") };
     let asset = asset_for(target);
-    let tmp = std::env::temp_dir().join(format!("hydra-update-{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("seshi-update-{}", std::process::id()));
     std::fs::create_dir_all(&tmp)?;
     let result = install(&tag, target, &asset, &tmp, false);
     let _ = std::fs::remove_dir_all(&tmp);
@@ -143,7 +143,7 @@ pub fn install_latest() -> Result<(String, PathBuf)> {
 
 fn install(tag: &str, target: &str, asset: &str, tmp: &Path, say: bool) -> Result<PathBuf> {
     if say {
-        println!("Downloading hydra {} for {target}...", tag.trim_start_matches('v'));
+        println!("Downloading seshi {} for {target}...", tag.trim_start_matches('v'));
     }
     let archive = download(tag, asset, tmp)?;
     let sums = std::fs::read_to_string(download(tag, "sha256sums.txt", tmp)?)?;
@@ -155,12 +155,12 @@ fn install(tag: &str, target: &str, asset: &str, tmp: &Path, say: bool) -> Resul
         bail!("checksum mismatch for {asset}; nothing was changed");
     }
     crate::proc::run(system_tool("tar").arg("-xf").arg(&archive).arg("-C").arg(tmp)).map_err(|e| anyhow::anyhow!("unpacking: {e}"))?;
-    let name = if cfg!(windows) { "hydra.exe" } else { "hydra" };
-    let new = tmp.join(format!("hydra-{target}")).join(name);
+    let name = if cfg!(windows) { "seshi.exe" } else { "seshi" };
+    let new = tmp.join(format!("seshi-{target}")).join(name);
     if !new.is_file() {
         bail!("the download had no {name}");
     }
-    let exe = std::env::current_exe().context("finding this hydra")?;
+    let exe = std::env::current_exe().context("finding this seshi")?;
     replace_exe(&new, &exe)?;
     Ok(exe)
 }
@@ -174,29 +174,29 @@ fn replace_exe(new: &Path, exe: &Path) -> Result<()> {
         std::fs::rename(exe, &old).with_context(|| format!("moving the old {} aside", exe.display()))?;
         if let Err(e) = std::fs::copy(new, exe) {
             let _ = std::fs::rename(&old, exe);
-            return Err(e).context("putting the new hydra in place");
+            return Err(e).context("putting the new seshi in place");
         }
     } else {
-        let staged = exe.with_file_name(".hydra.new");
-        std::fs::copy(new, &staged).context("staging the new hydra")?;
+        let staged = exe.with_file_name(".seshi.new");
+        std::fs::copy(new, &staged).context("staging the new seshi")?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))?;
         }
-        std::fs::rename(&staged, exe).context("putting the new hydra in place")?;
+        std::fs::rename(&staged, exe).context("putting the new seshi in place")?;
     }
     Ok(())
 }
 
 /// A name for the old program that's free. An older one moved aside can still be running
-/// (an agent's `hydra mcp` keeps going until its session ends), so it can't always be
+/// (an agent's `seshi mcp` keeps going until its session ends), so it can't always be
 /// removed; the next one gets a number.
 fn free_old_path(exe: &Path) -> PathBuf {
-    std::iter::once(exe.with_file_name("hydra.old.exe"))
-        .chain((2..).map(|n| exe.with_file_name(format!("hydra.old-{n}.exe"))))
+    std::iter::once(exe.with_file_name("seshi.old.exe"))
+        .chain((2..).map(|n| exe.with_file_name(format!("seshi.old-{n}.exe"))))
         .find(|p| !p.exists())
-        .unwrap_or_else(|| exe.with_file_name("hydra.old.exe"))
+        .unwrap_or_else(|| exe.with_file_name("seshi.old.exe"))
 }
 
 /// Remove the old programs updates moved aside beside `exe`, the ones nothing runs any more.
@@ -204,7 +204,7 @@ fn tidy_beside(exe: &Path) {
     let Some(dir) = exe.parent() else { return };
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let name = e.file_name().to_string_lossy().to_lowercase();
-        if name.starts_with("hydra.old") && name.ends_with(".exe") {
+        if name.starts_with("seshi.old") && name.ends_with(".exe") {
             let _ = std::fs::remove_file(e.path());
         }
     }
@@ -291,55 +291,55 @@ mod tests {
 
     #[test]
     fn the_latest_tag_comes_from_where_github_redirects() {
-        assert_eq!(tag_from_url("https://github.com/CydoEntis/hydra/releases/tag/v0.3.1\n").as_deref(), Some("v0.3.1"));
-        assert_eq!(tag_from_url("https://github.com/CydoEntis/hydra/releases"), None, "no release yet");
-        assert_eq!(tag_from_url("https://github.com/CydoEntis/hydra/releases/tag/nightly"), None);
+        assert_eq!(tag_from_url("https://github.com/CydoEntis/seshi/releases/tag/v0.3.1\n").as_deref(), Some("v0.3.1"));
+        assert_eq!(tag_from_url("https://github.com/CydoEntis/seshi/releases"), None, "no release yet");
+        assert_eq!(tag_from_url("https://github.com/CydoEntis/seshi/releases/tag/nightly"), None);
     }
 
     #[test]
     fn this_machine_has_a_build() {
         let t = target().expect("a release target for the platforms we build");
-        assert!(asset_for(t).starts_with("hydra-"));
+        assert!(asset_for(t).starts_with("seshi-"));
     }
 
     #[test]
     fn swapping_the_program_keeps_a_way_back() {
-        let dir = std::env::temp_dir().join(format!("hydra-swap-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("seshi-swap-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let exe = dir.join(if cfg!(windows) { "hydra.exe" } else { "hydra" });
+        let exe = dir.join(if cfg!(windows) { "seshi.exe" } else { "seshi" });
         let new = dir.join("new-build");
         std::fs::write(&exe, "old").unwrap();
         std::fs::write(&new, "new").unwrap();
         replace_exe(&new, &exe).unwrap();
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "new");
         if cfg!(windows) {
-            assert_eq!(std::fs::read_to_string(exe.with_file_name("hydra.old.exe")).unwrap(), "old", "the old one is moved aside");
+            assert_eq!(std::fs::read_to_string(exe.with_file_name("seshi.old.exe")).unwrap(), "old", "the old one is moved aside");
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// An older program moved aside is still running (an agent's `hydra mcp`): the update
+    /// An older program moved aside is still running (an agent's `seshi mcp`): the update
     /// steps past it instead of failing.
     #[cfg(windows)]
     #[test]
     fn an_old_program_still_running_doesnt_stop_an_update() {
         use std::os::windows::fs::OpenOptionsExt;
-        let dir = std::env::temp_dir().join(format!("hydra-swap-busy-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("seshi-swap-busy-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let exe = dir.join("hydra.exe");
+        let exe = dir.join("seshi.exe");
         let new = dir.join("new-build");
         std::fs::write(&exe, "current").unwrap();
         std::fs::write(&new, "new").unwrap();
-        std::fs::write(dir.join("hydra.old.exe"), "running").unwrap();
+        std::fs::write(dir.join("seshi.old.exe"), "running").unwrap();
         // Open with no delete sharing, the way a running program holds its file.
         const FILE_SHARE_READ: u32 = 1;
-        let held = std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(dir.join("hydra.old.exe")).unwrap();
+        let held = std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(dir.join("seshi.old.exe")).unwrap();
         replace_exe(&new, &exe).unwrap();
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "new");
-        assert_eq!(std::fs::read_to_string(dir.join("hydra.old-2.exe")).unwrap(), "current", "the next free name");
+        assert_eq!(std::fs::read_to_string(dir.join("seshi.old-2.exe")).unwrap(), "current", "the next free name");
         drop(held);
         tidy_beside(&exe);
-        assert!(!dir.join("hydra.old.exe").exists() && !dir.join("hydra.old-2.exe").exists(), "both tidied once nothing runs them");
+        assert!(!dir.join("seshi.old.exe").exists() && !dir.join("seshi.old-2.exe").exists(), "both tidied once nothing runs them");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,19 +1,19 @@
 #!/bin/sh
-# Install hydra on macOS or Linux (any distro, Omarchy / Arch included).
+# Install seshi on macOS or Linux (any distro, Omarchy / Arch included).
 #
-#   Public repo:   curl -fsSL https://raw.githubusercontent.com/CydoEntis/hydra/main/install.sh | sh
-#   Private repo:  gh api -H "Accept: application/vnd.github.raw" repos/CydoEntis/hydra/contents/install.sh | sh
+#   Public repo:   curl -fsSL https://raw.githubusercontent.com/CydoEntis/seshi/main/install.sh | sh
+#   Private repo:  gh api -H "Accept: application/vnd.github.raw" repos/CydoEntis/seshi/contents/install.sh | sh
 #
 # Settings (environment variables):
-#   HYDRA_VERSION      a tag such as v0.1.0 (default: the latest release)
-#   HYDRA_INSTALL_DIR  where the binary goes (default: ~/.local/bin)
+#   SESHI_VERSION      a tag such as v0.1.0 (default: the latest release)
+#   SESHI_INSTALL_DIR  where the binary goes (default: ~/.local/bin)
 set -eu
 
-REPO="CydoEntis/hydra"
-DIR="${HYDRA_INSTALL_DIR:-$HOME/.local/bin}"
+REPO="CydoEntis/seshi"
+DIR="${SESHI_INSTALL_DIR:-$HOME/.local/bin}"
 
 say() { printf '%s\n' "$*"; }
-fail() { say "hydra install: $*" >&2; exit 1; }
+fail() { say "seshi install: $*" >&2; exit 1; }
 
 case "$(uname -s)" in
   Linux) os=unknown-linux-musl ;;
@@ -26,7 +26,7 @@ case "$(uname -m)" in
   *) fail "no build for $(uname -m) yet; build from source with: cargo install --git https://github.com/$REPO" ;;
 esac
 target="$arch-$os"
-asset="hydra-$target.tar.gz"
+asset="seshi-$target.tar.gz"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -34,14 +34,14 @@ trap 'rm -rf "$tmp"' EXIT
 # A private repo needs the GitHub CLI (signed in); a public one downloads directly.
 fetch() {
   if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    if [ -n "${HYDRA_VERSION:-}" ]; then
-      gh release download "$HYDRA_VERSION" -R "$REPO" -p "$1" -D "$tmp" --clobber
+    if [ -n "${SESHI_VERSION:-}" ]; then
+      gh release download "$SESHI_VERSION" -R "$REPO" -p "$1" -D "$tmp" --clobber
     else
       gh release download -R "$REPO" -p "$1" -D "$tmp" --clobber
     fi
   else
-    if [ -n "${HYDRA_VERSION:-}" ]; then
-      url="https://github.com/$REPO/releases/download/$HYDRA_VERSION/$1"
+    if [ -n "${SESHI_VERSION:-}" ]; then
+      url="https://github.com/$REPO/releases/download/$SESHI_VERSION/$1"
     else
       url="https://github.com/$REPO/releases/latest/download/$1"
     fi
@@ -49,7 +49,7 @@ fetch() {
   fi
 }
 
-say "Downloading hydra for ${target}..."
+say "Downloading seshi for ${target}..."
 fetch "$asset"
 fetch sha256sums.txt
 
@@ -64,22 +64,22 @@ fi
 
 tar -xzf "$tmp/$asset" -C "$tmp"
 mkdir -p "$DIR"
-# A running hydra keeps working: the new file replaces the old one in one step.
-cp "$tmp/hydra-$target/hydra" "$DIR/.hydra.new"
-chmod 755 "$DIR/.hydra.new"
-mv -f "$DIR/.hydra.new" "$DIR/hydra"
+# A running seshi keeps working: the new file replaces the old one in one step.
+cp "$tmp/seshi-$target/seshi" "$DIR/.seshi.new"
+chmod 755 "$DIR/.seshi.new"
+mv -f "$DIR/.seshi.new" "$DIR/seshi"
 if [ "$(uname -s)" = Darwin ]; then
-  xattr -d com.apple.quarantine "$DIR/hydra" 2>/dev/null || true
+  xattr -d com.apple.quarantine "$DIR/seshi" 2>/dev/null || true
 fi
-say "Installed $("$DIR/hydra" --version) to $DIR/hydra"
+say "Installed $("$DIR/seshi" --version) to $DIR/seshi"
 
-# Another `hydra` (THC-Hydra, the password tool) found first on PATH?
-found="$(command -v hydra 2>/dev/null || true)"
-if [ -n "$found" ] && [ "$found" != "$DIR/hydra" ]; then
+# Another `seshi` (THC-Seshi, the password tool) found first on PATH?
+found="$(command -v seshi 2>/dev/null || true)"
+if [ -n "$found" ] && [ "$found" != "$DIR/seshi" ]; then
   say ""
-  say "Note: '$found' comes first on your PATH (likely THC-Hydra, a different tool)."
+  say "Note: '$found' comes first on your PATH (likely THC-Seshi, a different tool)."
   say "Give this one its own name, e.g. add to your shell's rc file:"
-  say "  alias hy='$DIR/hydra'"
+  say "  alias hy='$DIR/seshi'"
 fi
 
 case ":$PATH:" in
@@ -92,5 +92,5 @@ case ":$PATH:" in
 esac
 
 say ""
-say "Next: run 'hydra doctor' to check your setup, then 'hydra'."
-say "If hydra was already running, restart it: hydra kill-server, then hydra."
+say "Next: run 'seshi doctor' to check your setup, then 'seshi'."
+say "If seshi was already running, restart it: seshi kill-server, then seshi."

@@ -231,7 +231,7 @@ mod open_tests {
 mod sniff_tests {
     #[test]
     fn only_the_start_of_a_file_is_read() {
-        let dir = std::env::temp_dir().join(format!("hydra-sniff-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("seshi-sniff-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (text, bin) = (dir.join("a.txt"), dir.join("b.bin"));
         // A NUL past the first 8 KB isn't looked at.

@@ -3,7 +3,7 @@
 //! sounds through PowerShell's media player, `afplay`, or `paplay` / `pw-play`.
 //!
 //! Everything runs on a short-lived thread and failures are ignored: an alert that can't be
-//! shown must never get in the way. A notification can carry a `hydra://` link (see
+//! shown must never get in the way. A notification can carry a `seshi://` link (see
 //! `reveal`): clicking it takes you to the session.
 
 use std::path::PathBuf;
@@ -48,15 +48,15 @@ pub fn notify(title: &str, body: &str, link: Option<&str>) {
         const TOAST: &str = "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; \
 $x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); \
 $t = $x.GetElementsByTagName('text'); \
-$t.Item(0).AppendChild($x.CreateTextNode($env:HYDRA_TITLE)) > $null; \
-$t.Item(1).AppendChild($x.CreateTextNode($env:HYDRA_BODY)) > $null; \
+$t.Item(0).AppendChild($x.CreateTextNode($env:SESHI_TITLE)) > $null; \
+$t.Item(1).AppendChild($x.CreateTextNode($env:SESHI_BODY)) > $null; \
 $a = $x.CreateElement('audio'); $a.SetAttribute('silent', 'true'); $x.DocumentElement.AppendChild($a) > $null; \
-if ($env:HYDRA_LINK) { $x.DocumentElement.SetAttribute('activationType', 'protocol'); $x.DocumentElement.SetAttribute('launch', $env:HYDRA_LINK) }; \
+if ($env:SESHI_LINK) { $x.DocumentElement.SetAttribute('activationType', 'protocol'); $x.DocumentElement.SetAttribute('launch', $env:SESHI_LINK) }; \
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe').Show([Windows.UI.Notifications.ToastNotification]::new($x))";
         let _ = quiet(Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command", TOAST]))
-            .env("HYDRA_TITLE", title)
-            .env("HYDRA_BODY", body)
-            .env("HYDRA_LINK", link.unwrap_or_default())
+            .env("SESHI_TITLE", title)
+            .env("SESHI_BODY", body)
+            .env("SESHI_LINK", link.unwrap_or_default())
             .status();
     } else if cfg!(target_os = "macos") {
         // macOS's own notifications can't run anything when clicked; terminal-notifier can.
@@ -77,7 +77,7 @@ if ($env:HYDRA_LINK) { $x.DocumentElement.SetAttribute('activationType', 'protoc
         // With a link: an action the notification runs when clicked, and wait to hear it.
         // notify-send before 0.7.9 doesn't know --action; then a plain one.
         if let (Some(link), Ok(exe)) = (link, std::env::current_exe()) {
-            let out = crate::proc::quiet(Command::new("notify-send").args(["--app-name=hydra", "--action=default=Open", "--wait", "--", title, body]))
+            let out = crate::proc::quiet(Command::new("notify-send").args(["--app-name=seshi", "--action=default=Open", "--wait", "--", title, body]))
                 .stdin(Stdio::null())
                 .stderr(Stdio::null())
                 .output();
@@ -90,7 +90,7 @@ if ($env:HYDRA_LINK) { $x.DocumentElement.SetAttribute('activationType', 'protoc
                 return;
             }
         }
-        let _ = quiet(Command::new("notify-send").args(["--app-name=hydra", "--", title, body])).status();
+        let _ = quiet(Command::new("notify-send").args(["--app-name=seshi", "--", title, body])).status();
     }
 }
 
@@ -148,9 +148,9 @@ pub fn play(name: &str) {
     if cfg!(windows) {
         // MediaPlayer handles wav, mp3 and wma; it plays asynchronously, so wait a moment.
         const PLAY: &str = "Add-Type -AssemblyName PresentationCore; $p = New-Object System.Windows.Media.MediaPlayer; \
-$p.Open([Uri]$env:HYDRA_SOUND); $p.Volume = 1; $p.Play(); Start-Sleep -Milliseconds 2500";
+$p.Open([Uri]$env:SESHI_SOUND); $p.Volume = 1; $p.Play(); Start-Sleep -Milliseconds 2500";
         let _ = quiet(Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command", PLAY]))
-            .env("HYDRA_SOUND", &file)
+            .env("SESHI_SOUND", &file)
             .status();
     } else if cfg!(target_os = "macos") {
         let _ = quiet(Command::new("afplay").arg(&file)).status();

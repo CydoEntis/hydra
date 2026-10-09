@@ -30,7 +30,7 @@ pub enum ClientMsg {
     Command(Command),
     Input { term: TermId, #[serde(with = "serde_bytes")] data: Vec<u8> },
     Resize { term: TermId, cols: u16, rows: u16 },
-    /// Lifecycle event reported by an agent's hook (`hydra hook ...`).
+    /// Lifecycle event reported by an agent's hook (`seshi hook ...`).
     Hook {
         term: TermId,
         agent: String,
@@ -47,7 +47,7 @@ pub enum ClientMsg {
         event: String,
         /// The reporting process; only reports from inside the pane's own process tree count.
         pid: u32,
-        /// The pane's secret (HYDRA_PANE_TOKEN), for when the process chain can't be traced
+        /// The pane's secret (SESHI_PANE_TOKEN), for when the process chain can't be traced
         /// (Git Bash on Windows hands each command to a fresh process).
         #[serde(default)]
         token: String,
@@ -63,7 +63,7 @@ pub enum ClientMsg {
     Query(Query),
 }
 
-/// Work in hydra's queue: an agent starts on it, in its own worktree, once fewer than
+/// Work in seshi's queue: an agent starts on it, in its own worktree, once fewer than
 /// `queue.at_once` are running.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QueueItem {
@@ -140,17 +140,17 @@ pub enum Command {
     ClosePane { term: TermId },
     /// Focus a pane anywhere: switches workspace and tab as needed.
     FocusPane { term: TermId },
-    /// Focus a pane and bring the windows showing hydra to the front (a notification for it
+    /// Focus a pane and bring the windows showing seshi to the front (a notification for it
     /// was clicked).
     Reveal { term: TermId },
     /// You've seen a finished agent (the cursor rested on it): done → idle.
     MarkSeen { term: TermId },
     /// Name a pane yourself (empty: back to the automatic name).
     RenamePane { term: TermId, name: String },
-    /// A checkout's dev server (from its `.hydra.toml`): start, stop or restart it.
+    /// A checkout's dev server (from its `.seshi.toml`): start, stop or restart it.
     Dev { dir: PathBuf, action: DevAction },
     /// The agent in `term` moves into a new worktree of its repo: made now, and when its turn
-    /// ends it restarts there, resumed (the agent runs `hydra worktree --move`).
+    /// ends it restarts there, resumed (the agent runs `seshi worktree --move`).
     MoveToWorktree { term: TermId, branch: Option<String> },
     /// Grow (positive) or shrink the pane along `dir`'s axis by `delta` (fraction of parent).
     ResizePane { term: TermId, dir: Dir, delta: f32 },
@@ -175,7 +175,7 @@ pub enum Command {
     MovePane { term: TermId, to: Option<WsId>, name: Option<String> },
     /// Put back the pane the last automatic workspace took.
     UndoAutoWorkspace,
-    /// Put work in hydra's queue (its id and state are the server's to set).
+    /// Put work in seshi's queue (its id and state are the server's to set).
     Enqueue { item: QueueItem },
     /// Take work out of the queue (an agent already on it keeps going).
     Dequeue { id: u64 },
@@ -201,7 +201,7 @@ pub enum Command {
     AskHuman { term: TermId, text: String, options: Vec<String> },
     /// Your answer (index into its options) to question `id`.
     AnswerHuman { id: u64, choice: usize },
-    /// What a pane may do through hydra (read, write, start, respond, admin); None goes back
+    /// What a pane may do through seshi (read, write, start, respond, admin); None goes back
     /// to the default from config. Only you can (not from inside a pane).
     Grant { term: TermId, grants: Option<Vec<String>> },
     /// `forget`: also discard the saved session, so the next start is a clean slate.
@@ -315,16 +315,16 @@ pub struct Snapshot {
     pub workspaces: Vec<WorkspaceInfo>,
     pub active_ws: Option<WsId>,
     pub terms: BTreeMap<TermId, TermInfo>,
-    /// Questions agents asked you (`hydra ask-human`), waiting for an answer.
+    /// Questions agents asked you (`seshi ask-human`), waiting for an answer.
     #[serde(default)]
     pub questions: Vec<HumanQuestion>,
     /// Plan limits by agent ("claude", "codex"), as last reported.
     #[serde(default)]
     pub limits: Vec<(String, Vec<Limit>)>,
-    /// What Claude sessions in hydra have cost today (local day), at list price.
+    /// What Claude sessions in seshi have cost today (local day), at list price.
     #[serde(default)]
     pub spent_today: f64,
-    /// Hydra's queue of work, in order.
+    /// Seshi's queue of work, in order.
     #[serde(default)]
     pub queue: Vec<QueueItem>,
 }
@@ -347,7 +347,7 @@ pub struct WorkspaceInfo {
     pub tabs: Vec<TabInfo>,
     pub active_tab: TabId,
     pub git: Option<GitInfo>,
-    /// A worktree hydra created; offered for removal when closed.
+    /// A worktree seshi created; offered for removal when closed.
     pub worktree: bool,
     /// Palette index for this workspace's colour (tint, borders, sidebar marker).
     pub color: u8,
@@ -367,7 +367,7 @@ pub struct GitInfo {
     pub linked: bool,
     /// The repository's main checkout; workspaces sharing it are one repo.
     pub root: PathBuf,
-    /// Every worktree of the repository, open in hydra or not.
+    /// Every worktree of the repository, open in seshi or not.
     pub worktrees: Vec<WorktreeEntry>,
     /// For a linked worktree: commits on its branch that the main checkout's branch lacks.
     pub ahead: u32,
@@ -409,7 +409,7 @@ pub struct TermInfo {
     /// The machine an ssh (or mosh, …) client in the pane is connected to.
     #[serde(default)]
     pub remote: Option<String>,
-    /// A floating pane over everything (`hydra popup`); gone when its command exits.
+    /// A floating pane over everything (`seshi popup`); gone when its command exits.
     #[serde(default)]
     pub popup: bool,
     /// Detected or hook-reported agent name.
@@ -420,7 +420,7 @@ pub struct TermInfo {
     pub summary: String,
     /// What to call it: the name you gave it in the agent (/rename), else its first prompt.
     pub name: String,
-    /// The name you gave the pane in hydra (Rename pane), which wins over everything.
+    /// The name you gave the pane in seshi (Rename pane), which wins over everything.
     #[serde(default)]
     pub label: String,
     /// The model it's using, short ("opus 4.5"), if known.
@@ -455,7 +455,7 @@ pub struct TermInfo {
     /// Context and cost, when the agent reports them.
     #[serde(default)]
     pub usage: Usage,
-    /// It hit a plan limit; hydra says "continue" at this time (unix seconds).
+    /// It hit a plan limit; seshi says "continue" at this time (unix seconds).
     #[serde(default)]
     pub resume_at: Option<u64>,
 }

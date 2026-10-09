@@ -1,4 +1,4 @@
-//! The Hydra layout, from the design handoff: projects (git repos) in the sidebar, each
+//! The Seshi layout, from the design handoff: projects (git repos) in the sidebar, each
 //! project's worktrees with the sessions running in them, and the focused session full size
 //! (optionally split with a second). Everything else is a centred overlay over a dimmed
 //! screen: jump, open a folder, new pane, talk, settings and keys.
@@ -34,7 +34,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 // ---- state ---------------------------------------------------------------------------------
 
 /// What the user chose that the daemon doesn't track: the colour order, folded rows.
-/// Saved to `hydra-ui.json` in the data folder.
+/// Saved to `seshi-ui.json` in the data folder.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub(super) struct Saved {
@@ -76,7 +76,7 @@ pub(super) struct Hy {
     pub tabs: Vec<HyTab>,
     /// Shown alone for now, out of its split (Zoom).
     pub zoom: Option<TermId>,
-    /// Panes whose program gets right-clicks (no hydra menu there; Shift+right-click for it).
+    /// Panes whose program gets right-clicks (no seshi menu there; Shift+right-click for it).
     pub right_clicks: HashSet<TermId>,
     /// Which way the next "split" goes.
     pub split_dir: Option<crate::layout::Dir>,
@@ -308,10 +308,10 @@ pub(super) const SIDE_MIN: u16 = 24;
 pub(super) const SIDE_MAX: u16 = 60;
 
 fn saved_path() -> PathBuf {
-    // Per server, like the saved session: a test server (HYDRA_SOCKET) keeps its own.
-    let name = match std::env::var("HYDRA_SOCKET") {
-        Ok(l) if l != "default" => format!("hydra-ui-{l}.json"),
-        _ => "hydra-ui.json".into(),
+    // Per server, like the saved session: a test server (SESHI_SOCKET) keeps its own.
+    let name = match std::env::var("SESHI_SOCKET") {
+        Ok(l) if l != "default" => format!("seshi-ui-{l}.json"),
+        _ => "seshi-ui.json".into(),
     };
     crate::config::data_dir().join(name)
 }
@@ -333,7 +333,7 @@ impl Hy {
         if let Ok(s) = serde_json::to_string_pretty(&self.saved)
             && let Err(e) = crate::config::write_atomic(&saved_path(), s)
         {
-            tracing::warn!("couldn't save hydra's state: {e}");
+            tracing::warn!("couldn't save seshi's state: {e}");
         }
     }
 }
@@ -404,7 +404,7 @@ pub(super) struct Session {
     pub bell: bool,
     /// How full its context is, 0–100, when it says.
     pub context: Option<f32>,
-    /// Stopped by a plan limit: hydra says "continue" then (unix seconds).
+    /// Stopped by a plan limit: seshi says "continue" then (unix seconds).
     pub resume_at: Option<u64>,
 }
 
@@ -908,7 +908,7 @@ fn row_name(t: &TermInfo, root: &Path, top: &Path, main: bool, git: bool) -> Str
         return folder_name(top);
     }
     let cwd = if t.cwd.as_os_str().is_empty() { top } else { t.cwd.as_path() };
-    // An agent by its name; a program (vim, a harness hydra doesn't know) by its own.
+    // An agent by its name; a program (vim, a harness seshi doesn't know) by its own.
     let kind = t.agent.clone().unwrap_or_else(|| if t.is_shell() || t.process.is_empty() { "shell".into() } else { t.process.clone() });
     match cwd.strip_prefix(root) {
         Ok(rel) if !rel.as_os_str().is_empty() => rel.display().to_string().replace('\\', "/"),
@@ -1022,7 +1022,7 @@ pub(super) enum HyHit {
     MenuPick(usize),
     /// The sidebar's edge (drag to resize).
     SideEdge,
-    /// Install the newer hydra (in Settings › General).
+    /// Install the newer seshi (in Settings › General).
     Update,
     /// The sidebar's "a actions".
     Actions,

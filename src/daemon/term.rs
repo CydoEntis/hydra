@@ -74,7 +74,7 @@ pub struct Term {
     writer: std::sync::mpsc::SyncSender<Vec<u8>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
     pub pid: Option<u32>,
-    /// The daemon's own view of the screen, for status patterns and `hydra read`.
+    /// The daemon's own view of the screen, for status patterns and `seshi read`.
     pub parser: vt100::Parser<Callbacks>,
     ring: VecDeque<u8>,
     ring_cap: usize,
@@ -85,7 +85,7 @@ pub struct Term {
     pub process: String,
     /// The machine an ssh-like client in the pane is connected to.
     pub remote: Option<String>,
-    /// A floating pane (`hydra popup`), in no workspace.
+    /// A floating pane (`seshi popup`), in no workspace.
     pub popup: bool,
     pub agent: Option<String>,
     pub status: Status,
@@ -128,9 +128,9 @@ pub struct Term {
     pub blocked_at: Option<Instant>,
     /// Processes known to run inside this pane (trusted to report its status).
     pub trusted: std::collections::HashSet<u32>,
-    /// A secret only this pane's processes have (HYDRA_PANE_TOKEN).
+    /// A secret only this pane's processes have (SESHI_PANE_TOKEN).
     pub token: String,
-    /// What it may do through hydra, if you set it for this pane (else `[mcp] grants`).
+    /// What it may do through seshi, if you set it for this pane (else `[mcp] grants`).
     pub grants: Option<Vec<String>>,
     /// Finished and not seen before a restart: stays "done" once it's back.
     pub restore_unseen: bool,
@@ -142,7 +142,7 @@ pub struct Term {
     pub usage: crate::protocol::Usage,
     /// Stopped by a plan limit: "continue" goes at this time (unix seconds).
     pub resume_at: Option<u64>,
-    /// When hydra last said "continue" to it.
+    /// When seshi last said "continue" to it.
     pub continued: Option<Instant>,
     /// A worktree this agent moves into when its turn ends.
     pub pending_move: Option<PathBuf>,
@@ -285,10 +285,10 @@ fn worktree_agents(cfg: &Config) -> Vec<String> {
 }
 
 fn hydra_exe() -> String {
-    std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "hydra".into())
+    std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "seshi".into())
 }
 
-/// For each agent, a shell function that asks hydra for the folder to start in (`hydra
+/// For each agent, a shell function that asks seshi for the folder to start in (`seshi
 /// agent-dir`), goes there, then runs the real agent. PowerShell's has no double quotes
 /// (see `PWSH_CWD_HOOK`).
 fn agent_functions(shell: &str, agents: &[String], exe: &str) -> String {
@@ -319,9 +319,9 @@ fn agent_functions(shell: &str, agents: &[String], exe: &str) -> String {
 /// The rc file a plain bash pane starts with: yours, then the agent functions. Rewritten
 /// when it changes.
 fn bash_rc(agents: &[String]) -> Option<PathBuf> {
-    let path = crate::config::data_dir().join("shell").join("hydra.bashrc");
+    let path = crate::config::data_dir().join("shell").join("seshi.bashrc");
     let text = format!(
-        "# Written by hydra for its bash panes: your ~/.bashrc, then agents started in their own worktrees.\n\
+        "# Written by seshi for its bash panes: your ~/.bashrc, then agents started in their own worktrees.\n\
 [ -f ~/.bashrc ] && . ~/.bashrc\n{}",
         agent_functions("bash", agents, &hydra_exe())
     );
@@ -401,13 +401,13 @@ impl Term {
         ] {
             cmd.env_remove(k);
         }
-        cmd.env("TERM_PROGRAM", "hydra");
+        cmd.env("TERM_PROGRAM", "seshi");
         cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
-        cmd.env("HYDRA", "1");
-        cmd.env("HYDRA_TERM_ID", spec.id.to_string());
-        cmd.env("HYDRA_PANE_TOKEN", &token);
-        if let Ok(sock) = std::env::var("HYDRA_SOCKET") {
-            cmd.env("HYDRA_SOCKET", sock);
+        cmd.env("SESHI", "1");
+        cmd.env("SESHI_TERM_ID", spec.id.to_string());
+        cmd.env("SESHI_PANE_TOKEN", &token);
+        if let Ok(sock) = std::env::var("SESHI_SOCKET") {
+            cmd.env("SESHI_SOCKET", sock);
         }
         for (k, v) in cfg.env.iter().chain(spec.env.iter().map(|(k, v)| (k, v))) {
             cmd.env(k, v);
@@ -611,7 +611,7 @@ impl Term {
         seed.extend_from_slice(b"\x1b[0m\x1b[?1049l\x1b[r\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?25h");
         seed.extend_from_slice(format!("\x1b[{};1H", self.rows).as_bytes());
         seed.extend(std::iter::repeat_n(b"\r\n".as_slice(), self.rows as usize).flatten());
-        seed.extend_from_slice(b"\x1b[2m-- hydra restarted here: what's above is from before --\x1b[0m\r\n");
+        seed.extend_from_slice(b"\x1b[2m-- seshi restarted here: what's above is from before --\x1b[0m\r\n");
         seed.extend(self.ring.drain(..));
         let excess = seed.len().saturating_sub(self.ring_cap);
         self.ring = seed.into_iter().skip(excess).collect();
@@ -755,8 +755,8 @@ mod tests {
     #[test]
     fn a_pane_shell_starts_agents_through_hydra() {
         let cfg = crate::config::Config::default();
-        let ps = super::agent_functions("pwsh", &["claude".into()], r"C:\it's\hydra.exe");
-        assert!(ps.contains("function global:claude") && ps.contains("& 'C:\\it''s\\hydra.exe' agent-dir claude @args"), "{ps}");
+        let ps = super::agent_functions("pwsh", &["claude".into()], r"C:\it's\seshi.exe");
+        assert!(ps.contains("function global:claude") && ps.contains("& 'C:\\it''s\\seshi.exe' agent-dir claude @args"), "{ps}");
         assert!(!ps.contains('"'), "no double quotes: they don't survive Windows argument quoting");
         let names = super::worktree_agents(&cfg);
         assert!(names.contains(&"claude".to_string()) && names.contains(&"codex".to_string()));
@@ -765,11 +765,11 @@ mod tests {
         assert!(super::worktree_agents(&off).is_empty(), "off: agents start where they're typed");
     }
 
-    /// The bash function really goes to the folder hydra names, then runs the real agent.
+    /// The bash function really goes to the folder seshi names, then runs the real agent.
     #[cfg(unix)]
     #[test]
     fn the_bash_function_starts_the_agent_where_hydra_says() {
-        let tmp = std::env::temp_dir().join(format!("hydra-fn-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("seshi-fn-{}", std::process::id()));
         let bin = tmp.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         let fake = |name: &str, body: &str| {
@@ -779,7 +779,7 @@ mod tests {
             std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
             p
         };
-        let hydra = fake("hydra", &format!("echo {}", tmp.display()));
+        let hydra = fake("seshi", &format!("echo {}", tmp.display()));
         fake("claude", "echo \"ran in $PWD with $*\"");
         let script = format!("{}claude hi there", super::agent_functions("bash", &["claude".into()], &hydra.display().to_string()));
         let out = std::process::Command::new("bash").arg("-c").arg(script).env("PATH", format!("{}:/usr/bin:/bin", bin.display())).output().unwrap();

@@ -59,7 +59,12 @@ pub struct Theme {
 #[serde(default)]
 pub struct ThemeOverrides(pub BTreeMap<String, String>);
 
+/// The theme when none is chosen.
+pub const DEFAULT: &str = "seshi-night";
+
 pub const BUILTIN: &[&str] = &[
+    "seshi-night",
+    "seshi-day",
     "hydra",
     "papercolor-dark",
     "tango-dark",
@@ -73,9 +78,11 @@ pub const BUILTIN: &[&str] = &[
     "mono",
 ];
 
-/// The themes from the design handoff, in its order (shown as chips in Settings).
+/// The themes shown by name in Settings, Seshi's own first.
 pub const DESIGN: &[(&str, &str)] = &[
-    ("hydra", "Default"),
+    ("seshi-night", "Seshi Night"),
+    ("seshi-day", "Seshi Day"),
+    ("hydra", "Hydra"),
     ("papercolor-dark", "PaperColor Dark"),
     ("tango-dark", "Tango Dark"),
     ("monokai", "Monokai"),
@@ -231,7 +238,29 @@ impl Theme {
 
     pub fn named(name: &str) -> Theme {
         match name {
-            // The design handoff's palette ("drover" is the app's old name).
+            // Golden hour after the session: warm driftwood dark, sunset peach for focus, sun
+            // for what needs you, sea glass (ws[1]) for leader mode.
+            "seshi-night" => Theme::design(
+                [
+                    "#191411", "#e6d8ca", "#221b17", "#261e19", "#30261f", "#33291f", "#9b8a7c", "#d9cbbd",
+                    "#fff6ec", "#ff9e7a", "#2a1208", "#d9cbbd", "#8bd17c", "#ffd25e", "#372b23", "#43352b",
+                ],
+                ["#c3a6ff", "#6fd3c4", "#ff9fb8", "#7fd8c0"],
+                ["#f2777a", "#9fd27f", "#f0c66b", "#7fb4e6", "#d4a5f5", "#6fd3c4", "#9b8a7c"],
+            )
+            .with_err("#ff5d73"),
+            // The same beach in daylight: sand, deep coral for focus, gold for what needs you.
+            "seshi-day" => Theme::design(
+                [
+                    "#fbf3eb", "#4a3c33", "#f4e7da", "#fffaf5", "#f6ebdf", "#e2cfbd", "#8f7b6c", "#5a4a3f",
+                    "#2a1f18", "#b8492c", "#fff7f0", "#5a4a3f", "#3f8f45", "#a06a00", "#efdfcf", "#e7d2bf",
+                ],
+                ["#7b5cd6", "#13867c", "#c2477a", "#1d8f86"],
+                ["#c0392b", "#3f8f45", "#a06a00", "#2f6fb0", "#8e4dbf", "#13867c", "#8f7b6c"],
+            )
+            .with_err("#c73a55"),
+            // The design handoff's palette, the default before the rename ("drover" is the
+            // app's first name).
             "hydra" | "drover" => Theme::design(
                 [
                     "#070b10", "#c9d1d9", "#0c131b", "#0f1821", "#18242f", "#1f2c3a", "#71808f", "#a7b4c2",
@@ -319,8 +348,14 @@ impl Theme {
                 ws: None,
                 ansi: None,
             },
-            _ => Theme::named("hydra"),
+            _ => Theme::named(DEFAULT),
         }
+    }
+
+    /// Destructive red apart from what needs you (the design palettes share one colour).
+    fn with_err(mut self, c: &str) -> Theme {
+        self.err = hex(c);
+        self
     }
 
     pub fn apply(&mut self, o: &ThemeOverrides) {
@@ -363,11 +398,6 @@ impl Theme {
             _ if !fallback.is_empty() => fallback[i % fallback.len()],
             _ => self.accent,
         }
-    }
-
-    /// The colour the splash gradients run to (teal).
-    pub fn teal(&self) -> Color {
-        self.ws.map(|w| w[3]).unwrap_or(self.done)
     }
 
     /// Leader mode's colour (sky), and nothing else's: the armed pill, its border, the key map.
@@ -416,7 +446,7 @@ mod audit {
     /// different things look different.
     #[test]
     fn every_theme_reads_well() {
-        let names = ["hydra", "papercolor-dark", "tango-dark", "monokai", "tokyo-night", "catppuccin-mocha", "catppuccin-latte", "gruvbox", "nord", "dracula"];
+        let names = ["seshi-night", "seshi-day", "hydra", "papercolor-dark", "tango-dark", "monokai", "tokyo-night", "catppuccin-mocha", "catppuccin-latte", "gruvbox", "nord", "dracula"];
         let mut bad = Vec::new();
         for n in names {
             let t = Theme::named(n);

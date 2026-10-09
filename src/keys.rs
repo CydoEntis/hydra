@@ -209,7 +209,7 @@ pub enum Action {
     Files,
     /// GitHub pull requests and issues, Linear tickets.
     Inbox,
-    /// Hydra's queue of work (the Tickets view's Queue tab).
+    /// Seshi's queue of work (the Tickets view's Queue tab).
     Queue,
     /// The focused session's checkpoints (roll its folder back).
     Checkpoints,
@@ -280,7 +280,7 @@ pub enum Action {
     PaneInfo,
     SendPrefix,
     KillServer,
-    /// Install the newest hydra and restart this window into it.
+    /// Install the newest seshi and restart this window into it.
     Update,
     /// Every command with its key, as a list (the sidebar's "a actions").
     Actions,
@@ -383,7 +383,7 @@ impl Action {
             Action::PaneInfo => "Pane info (scrolling, mouse)".into(),
             Action::SendPrefix => "send prefix key".into(),
             Action::KillServer => "kill server".into(),
-            Action::Update => "Update hydra".into(),
+            Action::Update => "Update seshi".into(),
             Action::Actions => "Actions".into(),
             Action::Worktrees => "Worktrees…".into(),
             Action::None => "unbound".into(),
@@ -670,7 +670,7 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("M", "map"),
     ("V", "paste-image"),
     ("ctrl+v", "paste-image"),
-    // Hydra
+    // Seshi
     (",", "settings"),
     ("?", "help"),
     ("U", "memory"),

@@ -49,7 +49,7 @@ pub fn ref_for(top: &Path) -> String {
 /// through a scratch index so yours isn't touched.
 fn tree_now(top: &Path) -> Result<String> {
     let real = PathBuf::from(git(top, &["rev-parse", "--path-format=absolute", "--git-path", "index"], None)?);
-    let scratch = std::env::temp_dir().join(format!("hydra-checkpoint-{}-{}", std::process::id(), rand_suffix()));
+    let scratch = std::env::temp_dir().join(format!("seshi-checkpoint-{}-{}", std::process::id(), rand_suffix()));
     // Starting from yours makes `add` quick (its file stats are already known).
     if real.is_file() {
         std::fs::copy(&real, &scratch)?;
@@ -79,7 +79,7 @@ pub fn take(top: &Path, what: &str) -> Result<Option<String>> {
     // The first one hangs off HEAD, so even it shows what the agent changed.
     let parent = last.clone().or_else(|| git(top, &["rev-parse", "--verify", "--quiet", "HEAD"], None).ok().filter(|s| !s.is_empty()));
     let msg = if what.trim().is_empty() { "agent turn".to_string() } else { what.trim().chars().take(200).collect() };
-    let mut args = vec!["-c", "user.name=hydra", "-c", "user.email=hydra@localhost", "commit-tree", tree.as_str(), "-m", msg.as_str()];
+    let mut args = vec!["-c", "user.name=seshi", "-c", "user.email=seshi@localhost", "commit-tree", tree.as_str(), "-m", msg.as_str()];
     if let Some(p) = &parent {
         args.extend(["-p", p.as_str()]);
     }
@@ -95,8 +95,8 @@ pub fn list(top: &Path) -> Result<Vec<Checkpoint>> {
         return Ok(Vec::new());
     }
     let n = SHOWN.to_string();
-    // Only hydra's own commits: the chain ends at the branch it started from.
-    let log = git(top, &["log", "--author=hydra", "--format=%H%x09%ct%x09%s", "--shortstat", "-n", &n, &r], None)?;
+    // Only seshi's own commits: the chain ends at the branch it started from.
+    let log = git(top, &["log", "--author=seshi", "--format=%H%x09%ct%x09%s", "--shortstat", "-n", &n, &r], None)?;
     let mut out: Vec<Checkpoint> = Vec::new();
     for line in log.lines().filter(|l| !l.trim().is_empty()) {
         let mut parts = line.splitn(3, '\t');
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn a_folder_goes_back_to_how_it_was_after_a_turn() {
-        let dir = std::env::temp_dir().join(format!("hydra-cp-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("seshi-cp-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let g = |args: &[&str]| git(&dir, args, None).unwrap();
         g(&["init", "-q"]);

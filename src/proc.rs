@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn errors_are_the_first_thing_it_said() {
         let dir = std::env::temp_dir();
-        let e = git(&dir.join("hydra-no-such-repo"), &["status"]).unwrap_err();
+        let e = git(&dir.join("seshi-no-such-repo"), &["status"]).unwrap_err();
         assert!(!e.is_empty() && !e.contains('\n'), "{e}");
     }
 }

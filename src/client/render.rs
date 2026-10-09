@@ -12,7 +12,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-/// The smallest window hydra draws into (below it, a note to make it bigger).
+/// The smallest window seshi draws into (below it, a note to make it bigger).
 const MIN_WIDTH: u16 = 40;
 const MIN_HEIGHT: u16 = 10;
 

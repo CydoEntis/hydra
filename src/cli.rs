@@ -19,7 +19,7 @@ pub(crate) fn block_on<T>(f: impl std::future::Future<Output = Result<T>>) -> Re
 
 /// Send one message and wait for the reply.
 pub(crate) async fn request(msg: ClientMsg) -> Result<Reply> {
-    let (mut r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the hydra server" })?;
+    let (mut r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the seshi server" })?;
     ipc::send(&mut w, &msg).await?;
     loop {
         match ipc::recv_server(&mut r).await? {
@@ -50,7 +50,7 @@ fn resolve_pane(pane: Option<TermId>) -> Result<TermId> {
     if let Some(p) = pane {
         return Ok(p);
     }
-    if let Some(p) = std::env::var("HYDRA_TERM_ID").ok().and_then(|s| s.parse().ok()) {
+    if let Some(p) = std::env::var("SESHI_TERM_ID").ok().and_then(|s| s.parse().ok()) {
         return Ok(p);
     }
     let snap = snapshot()?;
@@ -72,22 +72,22 @@ pub(crate) fn starts_new_work(args: &[String]) -> bool {
     !sub && !args.iter().any(|a| NOT_NEW_WORK.contains(&a.as_str()) || a.starts_with("--resume=") || a.starts_with("--worktree="))
 }
 
-/// `hydra agent-dir <agent> [args…]`, run by a pane's shell just before it starts an agent:
+/// `seshi agent-dir <agent> [args…]`, run by a pane's shell just before it starts an agent:
 /// prints the folder to start in (a new worktree), or nothing to start where it is. Never
 /// fails: the agent starts either way.
 pub fn agent_dir(cmd: &[String]) {
     let args = cmd.get(1..).unwrap_or_default();
-    if std::env::var_os("HYDRA_TERM_ID").is_none() || !starts_new_work(args) {
+    if std::env::var_os("SESHI_TERM_ID").is_none() || !starts_new_work(args) {
         return;
     }
     let Ok(dir) = std::env::current_dir() else { return };
     match block_on(request(ClientMsg::Command(Command::AgentWorktree { dir }))) {
         Ok(Reply::Text(path)) if !path.is_empty() => {
-            eprintln!("hydra: {} gets its own worktree: {path}", cmd.first().map(String::as_str).unwrap_or("the agent"));
+            eprintln!("seshi: {} gets its own worktree: {path}", cmd.first().map(String::as_str).unwrap_or("the agent"));
             println!("{path}");
         }
         Ok(_) => {}
-        Err(e) => eprintln!("hydra: no worktree for it ({e:#}), so it starts here"),
+        Err(e) => eprintln!("seshi: no worktree for it ({e:#}), so it starts here"),
     }
 }
 
@@ -254,7 +254,7 @@ pub fn wait(pane: Option<TermId>, regex: Option<String>, timeout: u64) -> Result
     wait_print(resolve_pane(pane)?, regex, timeout, false)
 }
 
-/// `hydra wait` / `hydra send --wait`: wait, then print the reply (or the screen's end).
+/// `seshi wait` / `seshi send --wait`: wait, then print the reply (or the screen's end).
 fn wait_print(term: TermId, regex: Option<String>, timeout: u64, just_sent: bool) -> Result<()> {
     match wait_on(term, regex.as_deref(), Duration::from_secs(timeout), just_sent)? {
         Waited::Matched(l) => println!("{l}"),
@@ -285,7 +285,7 @@ fn wait_print(term: TermId, regex: Option<String>, timeout: u64, just_sent: bool
 pub fn send(pane: Option<TermId>, text: String, enter: bool) -> Result<()> {
     let term = resolve_pane(pane)?;
     block_on(async move {
-        let (_r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the hydra server" })?;
+        let (_r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the seshi server" })?;
         let data = if text.contains('\n') { format!("\x1b[200~{text}\x1b[201~") } else { text };
         ipc::send(&mut w, &ClientMsg::Input { term, data: data.into_bytes() }).await?;
         if enter {
@@ -308,7 +308,7 @@ pub fn send_keys(pane: Option<TermId>, keys: Vec<String>) -> Result<()> {
         chunks.push(crate::keys::encode(&ev, false));
     }
     block_on(async move {
-        let (_r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the hydra server" })?;
+        let (_r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the seshi server" })?;
         for data in chunks {
             ipc::send(&mut w, &ClientMsg::Input { term, data }).await?;
             // One key per beat, like a person typing; lets modes change between keys.
@@ -343,27 +343,27 @@ pub fn focused_pane() -> Option<TermId> {
     s.workspaces.iter().find(|w| Some(w.id) == s.active_ws)?.tab().map(|t| t.focus)
 }
 
-/// `hydra popup -- <command>`: a floating pane in the folder you're in.
+/// `seshi popup -- <command>`: a floating pane in the folder you're in.
 pub fn popup(cmd: Vec<String>) -> Result<()> {
-    let cmd = join_command(cmd).ok_or_else(|| anyhow!("what to run: hydra popup -- fzf"))?;
+    let cmd = join_command(cmd).ok_or_else(|| anyhow!("what to run: seshi popup -- fzf"))?;
     command(Command::Popup { cmd, cwd: std::env::current_dir().ok() })
 }
 
-/// `hydra grant <pane> read,write,…|default`.
+/// `seshi grant <pane> read,write,…|default`.
 pub fn grant(term: TermId, grants: &str) -> Result<()> {
     let list = (grants.trim() != "default").then(|| grants.split(',').map(|g| g.trim().to_lowercase()).filter(|g| !g.is_empty()).collect::<Vec<_>>());
     command(Command::Grant { term, grants: list.clone() })?;
     match list {
-        Some(l) if l.is_empty() => println!("pane {term} may do nothing through hydra but its own work"),
+        Some(l) if l.is_empty() => println!("pane {term} may do nothing through seshi but its own work"),
         Some(l) => println!("pane {term} may: {}", l.join(", ")),
         None => println!("pane {term} is back to the default grants ([mcp] grants in config)"),
     }
     Ok(())
 }
 
-/// `hydra ask-human "…?" -o Yes -o No`: ask the person, wait, print the answer.
+/// `seshi ask-human "…?" -o Yes -o No`: ask the person, wait, print the answer.
 pub fn ask_human(text: String, options: Vec<String>) -> Result<()> {
-    let term = resolve_pane(None).context("run it in a hydra pane (the question shows there)")?;
+    let term = resolve_pane(None).context("run it in a seshi pane (the question shows there)")?;
     match block_on(request(ClientMsg::Command(Command::AskHuman { term, text, options })))? {
         Reply::Text(answer) => {
             println!("{answer}");
@@ -373,15 +373,15 @@ pub fn ask_human(text: String, options: Vec<String>) -> Result<()> {
     }
 }
 
-/// `hydra teach [pane]`: the program running there is an agent.
+/// `seshi teach [pane]`: the program running there is an agent.
 pub fn teach(pane: Option<TermId>) -> Result<()> {
     let term = resolve_pane(pane)?;
     command(Command::TeachAgent { term })?;
-    println!("hydra knows it as an agent now (see [[agents]] in {})", crate::config::config_path().display());
+    println!("seshi knows it as an agent now (see [[agents]] in {})", crate::config::config_path().display());
     Ok(())
 }
 
-/// Focus a pane and bring hydra's window forward (what clicking a notification does).
+/// Focus a pane and bring seshi's window forward (what clicking a notification does).
 pub fn reveal(pane: TermId) -> Result<()> {
     command(Command::Reveal { term: pane })
 }
@@ -390,7 +390,7 @@ pub fn close(pane: Option<TermId>) -> Result<()> {
     command(Command::ClosePane { term: resolve_pane(pane)? })
 }
 
-/// Whether a hydra server is running (for this socket).
+/// Whether a seshi server is running (for this socket).
 pub(crate) fn server_running() -> bool {
     block_on(async { ipc::connect().await.map(|_| ()) }).is_ok()
 }
@@ -400,7 +400,7 @@ pub fn kill_server(forget: bool) -> Result<()> {
         if forget {
             crate::daemon::forget_session();
         }
-        println!("no hydra server is running; nothing to stop");
+        println!("no seshi server is running; nothing to stop");
         return Ok(());
     }
     match command(Command::KillServer { forget }) {
@@ -410,7 +410,7 @@ pub fn kill_server(forget: bool) -> Result<()> {
             if forget {
                 crate::daemon::forget_session();
             }
-            println!("stopped the server (another hydra version, process {pid})");
+            println!("stopped the server (another seshi version, process {pid})");
             Ok(())
         }
         r => r,
@@ -421,7 +421,7 @@ pub fn kill_server(forget: bool) -> Result<()> {
 /// to. Its saved session stays, as with `kill-server`.
 fn stop_server_process() -> Result<u32> {
     let pid = server_pid().ok_or_else(|| {
-        anyhow!("couldn't find the server's process; stop it yourself (on Linux/macOS: pkill -f \"hydra daemon\"; on Windows: end hydra.exe in Task Manager)")
+        anyhow!("couldn't find the server's process; stop it yourself (on Linux/macOS: pkill -f \"seshi daemon\"; on Windows: end seshi.exe in Task Manager)")
     })?;
     let killed = if cfg!(windows) {
         crate::proc::run(std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]))
@@ -441,14 +441,14 @@ fn stop_server_process() -> Result<u32> {
 }
 
 /// This socket's server process: from the id it noted, or (servers too old to note it) the
-/// one running `hydra daemon` for this socket.
+/// one running `seshi daemon` for this socket.
 fn server_pid() -> Option<u32> {
     if let Some(pid) = std::fs::read_to_string(ipc::pid_file()).ok().and_then(|s| s.trim().parse().ok()) {
         return Some(pid);
     }
     #[cfg(target_os = "linux")]
     {
-        let label = std::env::var("HYDRA_SOCKET").unwrap_or_else(|_| "default".into());
+        let label = std::env::var("SESHI_SOCKET").unwrap_or_else(|_| "default".into());
         let me = std::process::id();
         for entry in std::fs::read_dir("/proc").ok()?.flatten() {
             let Some(pid) = entry.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else { continue };
@@ -457,15 +457,15 @@ fn server_pid() -> Option<u32> {
             }
             let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else { continue };
             let args: Vec<&[u8]> = cmdline.split(|b| *b == 0).collect();
-            let is_daemon = args.first().is_some_and(|a| a.ends_with(b"hydra")) && args.get(1) == Some(&b"daemon".as_slice());
+            let is_daemon = args.first().is_some_and(|a| a.ends_with(b"seshi")) && args.get(1) == Some(&b"daemon".as_slice());
             if !is_daemon {
                 continue;
             }
-            // Its socket: HYDRA_SOCKET in its environment, else the default one.
+            // Its socket: SESHI_SOCKET in its environment, else the default one.
             let env = std::fs::read(entry.path().join("environ")).unwrap_or_default();
             let theirs = env
                 .split(|b| *b == 0)
-                .find_map(|kv| kv.strip_prefix(b"HYDRA_SOCKET="))
+                .find_map(|kv| kv.strip_prefix(b"SESHI_SOCKET="))
                 .map(|v| String::from_utf8_lossy(v).into_owned())
                 .unwrap_or_else(|| "default".into());
             if theirs == label {
@@ -476,16 +476,16 @@ fn server_pid() -> Option<u32> {
     // Elsewhere a server's socket can't be read off its process: only when there's exactly
     // one, and it's the default server you mean.
     #[cfg(not(target_os = "linux"))]
-    if std::env::var("HYDRA_SOCKET").is_err() {
+    if std::env::var("SESHI_SOCKET").is_err() {
         let list = if cfg!(windows) {
             crate::proc::run(std::process::Command::new("powershell").args([
                 "-NoProfile",
                 "-NonInteractive",
                 "-Command",
-                "Get-CimInstance Win32_Process -Filter \"Name='hydra.exe'\" | Where-Object { $_.CommandLine -match '\\sdaemon\\s*$' } | ForEach-Object { $_.ProcessId }",
+                "Get-CimInstance Win32_Process -Filter \"Name='seshi.exe'\" | Where-Object { $_.CommandLine -match '\\sdaemon\\s*$' } | ForEach-Object { $_.ProcessId }",
             ]))
         } else {
-            crate::proc::run(std::process::Command::new("pgrep").args(["-f", "hydra daemon$"]))
+            crate::proc::run(std::process::Command::new("pgrep").args(["-f", "seshi daemon$"]))
         };
         let pids: Vec<u32> = list.unwrap_or_default().split_whitespace().filter_map(|p| p.parse().ok()).filter(|p| *p != std::process::id()).collect();
         if let [pid] = pids[..] {
@@ -501,7 +501,7 @@ fn resolve_ws(ws: Option<WsId>) -> Result<WsId> {
         return Ok(ws);
     }
     let snap = snapshot()?;
-    let here = std::env::var("HYDRA_TERM_ID").ok().and_then(|s| s.parse().ok());
+    let here = std::env::var("SESHI_TERM_ID").ok().and_then(|s| s.parse().ok());
     here.and_then(|t| snap.locate(t).map(|(w, _)| w.id))
         .or(snap.active_ws)
         .ok_or_else(|| anyhow!("no workspace to target"))
@@ -512,14 +512,14 @@ pub fn worktree(branch: String, base: Option<String>, ws: Option<WsId>, cmd: Vec
     command(Command::NewWorktree { ws, branch, base, cmd: join_command(cmd), split: None, from: None })
 }
 
-/// `hydra ext list | new <name> | run <name> <n> [--term id]`.
+/// `seshi ext list | new <name> | run <name> <n> [--term id]`.
 pub fn ext(action: &str, name: Option<String>, index: Option<usize>, term: Option<TermId>) -> Result<()> {
     match action {
         "list" | "ls" => {
             let (exts, errors) = crate::ext::load_all();
             println!("extensions in {}\n", crate::ext::dir().display());
             if exts.is_empty() && errors.is_empty() {
-                println!("none yet; `hydra ext new <name>` makes one to start from");
+                println!("none yet; `seshi ext new <name>` makes one to start from");
             }
             for e in &exts {
                 println!("{}  {}", e.name, e.description);
@@ -542,7 +542,7 @@ pub fn ext(action: &str, name: Option<String>, index: Option<usize>, term: Optio
             Ok(())
         }
         "new" => {
-            let name = name.ok_or_else(|| anyhow!("give it a name: hydra ext new <name>"))?;
+            let name = name.ok_or_else(|| anyhow!("give it a name: seshi ext new <name>"))?;
             let d = crate::ext::scaffold(&name)?;
             println!("made {}\nedit {} and it shows up in the palette (Ctrl+Space space)", d.display(), d.join(crate::ext::MANIFEST).display());
             Ok(())
@@ -559,7 +559,7 @@ pub fn ext(action: &str, name: Option<String>, index: Option<usize>, term: Optio
             let shell = cfg.shell_command();
             // In your terminal: it may ask you things.
             let mut cmd = crate::proc::shell(&shell, &crate::ext::resolve(&e.dir, &c.run), true);
-            cmd.env("HYDRA_EXT_DIR", &e.dir);
+            cmd.env("SESHI_EXT_DIR", &e.dir);
             for (k, v) in crate::ext::vars("command", &dir, info.as_ref()) {
                 cmd.env(k, v);
             }
@@ -570,7 +570,7 @@ pub fn ext(action: &str, name: Option<String>, index: Option<usize>, term: Optio
     }
 }
 
-/// `hydra doctor`: each thing hydra relies on, ✓ or what to do about it.
+/// `seshi doctor`: each thing seshi relies on, ✓ or what to do about it.
 pub fn doctor() -> Result<()> {
     let mut bad = 0;
     let mut line = |ok: Option<bool>, what: &str, detail: String| {
@@ -597,13 +597,13 @@ pub fn doctor() -> Result<()> {
         })
     };
 
-    println!("hydra {}  (protocol {})\n", env!("CARGO_PKG_VERSION"), PROTOCOL_VERSION);
+    println!("seshi {}  (protocol {})\n", env!("CARGO_PKG_VERSION"), PROTOCOL_VERSION);
 
     // Config
     let path = crate::config::config_path();
     match crate::config::Config::load() {
         Ok(_) if path.exists() => line(Some(true), "config", path.display().to_string()),
-        Ok(_) => line(None, "config", format!("none yet (defaults); `hydra config init` writes one at {}", path.display())),
+        Ok(_) => line(None, "config", format!("none yet (defaults); `seshi config init` writes one at {}", path.display())),
         Err(e) => line(Some(false), "config", format!("{e:#}  ({})", path.display())),
     }
     let (cfg, _) = crate::config::Config::load_or_default();
@@ -614,9 +614,9 @@ pub fn doctor() -> Result<()> {
         Ok(_) => line(Some(true), "server", format!("running ({})", ipc::socket_id())),
         Err(e) if format!("{e:#}").contains("protocol") => {
             line(Some(false), "server", format!("{e:#}"));
-            println!("{:27}fix: close hydra, `hydra kill-server`, start it again", "");
+            println!("{:27}fix: close seshi, `seshi kill-server`, start it again", "");
         }
-        Err(_) => line(None, "server", "not running (it starts with `hydra`)".into()),
+        Err(_) => line(None, "server", "not running (it starts with `seshi`)".into()),
     }
 
     // Tools
@@ -647,14 +647,14 @@ pub fn doctor() -> Result<()> {
         let hooked = settings.contains("hook claude");
         let stale = stale_claude_hooks();
         match (hooked, stale.first()) {
-            (false, _) => line(Some(false), "claude status hooks", "missing: `hydra integrate claude` (exact working / needs-you / done)".into()),
-            // Another hydra can't talk to this one's server: every agent would look idle.
-            (true, Some(other)) => line(Some(false), "claude status hooks", format!("they run another hydra ({other}); `hydra integrate claude` (or restart the server) fixes it")),
+            (false, _) => line(Some(false), "claude status hooks", "missing: `seshi integrate claude` (exact working / needs-you / done)".into()),
+            // Another seshi can't talk to this one's server: every agent would look idle.
+            (true, Some(other)) => line(Some(false), "claude status hooks", format!("they run another seshi ({other}); `seshi integrate claude` (or restart the server) fixes it")),
             (true, None) => line(Some(true), "claude status hooks", "installed".into()),
         }
         let home = directories::BaseDirs::new().map(|d| d.home_dir().join(".claude.json"));
-        let mcp = home.and_then(|p| std::fs::read_to_string(p).ok()).is_some_and(|s| s.contains("\"hydra\"") && s.contains("\"mcp\""));
-        line(if mcp { Some(true) } else { None }, "hydra MCP for claude", if mcp { "registered".into() } else { "not set up: `hydra integrate mcp` lets agents see each other (optional)".into() });
+        let mcp = home.and_then(|p| std::fs::read_to_string(p).ok()).is_some_and(|s| s.contains("\"seshi\"") && s.contains("\"mcp\""));
+        line(if mcp { Some(true) } else { None }, "seshi MCP for claude", if mcp { "registered".into() } else { "not set up: `seshi integrate mcp` lets agents see each other (optional)".into() });
     }
 
     // Terminal
@@ -662,7 +662,7 @@ pub fn doctor() -> Result<()> {
     let truecolor = std::env::var("COLORTERM").is_ok_and(|c| c.contains("truecolor") || c.contains("24bit")) || std::env::var("WT_SESSION").is_ok();
     line(if truecolor { Some(true) } else { None }, "terminal", format!("{term}{}", if truecolor { ", true colour" } else { " (colours may look off without true colour)" }));
     if let Ok((w, h)) = crossterm::terminal::size() {
-        line(Some(w >= 100 && h >= 30), "window size", format!("{w}×{h}{}", if w < 100 || h < 30 { " (hydra wants at least 100×30)" } else { "" }));
+        line(Some(w >= 100 && h >= 30), "window size", format!("{w}×{h}{}", if w < 100 || h < 30 { " (seshi wants at least 100×30)" } else { "" }));
     }
 
     // Data and sync
@@ -670,7 +670,7 @@ pub fn doctor() -> Result<()> {
     let writable = std::fs::create_dir_all(&data).is_ok() && std::fs::write(data.join(".doctor"), b"ok").is_ok();
     let _ = std::fs::remove_file(data.join(".doctor"));
     line(Some(writable), "data folder", data.display().to_string());
-    line(None, "sync", if crate::sync::enabled() { format!("on ({})", crate::sync::dir().display()) } else { "off (`hydra sync setup` shares config and ideas)".into() });
+    line(None, "sync", if crate::sync::enabled() { format!("on ({})", crate::sync::dir().display()) } else { "off (`seshi sync setup` shares config and ideas)".into() });
     if let Some(ed) = Some(cfg.editor.clone()).filter(|e| !e.is_empty()).or_else(|| std::env::var("VISUAL").ok()).or_else(|| std::env::var("EDITOR").ok()) {
         line(Some(true), "editor", ed);
     } else {
@@ -686,7 +686,7 @@ pub fn doctor() -> Result<()> {
     Ok(())
 }
 
-/// `hydra dev [start|stop|restart]`: this checkout's dev server.
+/// `seshi dev [start|stop|restart]`: this checkout's dev server.
 pub fn dev(action: &str, dir: Option<PathBuf>) -> Result<()> {
     let action = match action {
         "start" | "run" => DevAction::Start,
@@ -704,13 +704,13 @@ pub fn dev(action: &str, dir: Option<PathBuf>) -> Result<()> {
 
 /// Run by an agent inside a pane: make a worktree and move this agent into it.
 pub fn move_to_worktree(branch: String) -> Result<()> {
-    let term: TermId = std::env::var("HYDRA_TERM_ID")
+    let term: TermId = std::env::var("SESHI_TERM_ID")
         .ok()
         .and_then(|s| s.parse().ok())
-        .ok_or_else(|| anyhow!("run this from inside a hydra pane (an agent running in hydra)"))?;
+        .ok_or_else(|| anyhow!("run this from inside a seshi pane (an agent running in seshi)"))?;
     let branch = Some(branch.trim().to_string()).filter(|b| !b.is_empty());
     block_on(async move {
-        let (mut r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the hydra server" })?;
+        let (mut r, mut w) = ipc::open(false).await.context(if ipc::remote().is_some() { "over ssh" } else { "couldn't reach the seshi server" })?;
         ipc::send(&mut w, &ClientMsg::Command(Command::MoveToWorktree { term, branch })).await?;
         loop {
             match ipc::recv_server(&mut r).await? {
@@ -893,8 +893,8 @@ fn parse_status(s: &str) -> Option<HookStatus> {
 }
 
 pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<()> {
-    // Inert outside hydra, so global hooks don't bother other terminals.
-    let Some(term) = std::env::var("HYDRA_TERM_ID").ok().and_then(|s| s.parse::<TermId>().ok()) else {
+    // Inert outside seshi, so global hooks don't bother other terminals.
+    let Some(term) = std::env::var("SESHI_TERM_ID").ok().and_then(|s| s.parse::<TermId>().ok()) else {
         return Ok(());
     };
     let mut payload_json = Value::Null;
@@ -956,7 +956,7 @@ pub fn hook(agent: &str, status: Option<&str>, payload: Option<&str>) -> Result<
         sys.refresh_processes_specifics(ProcessesToUpdate::Some(&[me]), true, ProcessRefreshKind::nothing());
         sys.process(me).and_then(|p| p.parent()).map(|p| p.as_u32()).unwrap_or(0)
     };
-    let token = std::env::var("HYDRA_PANE_TOKEN").unwrap_or_default();
+    let token = std::env::var("SESHI_PANE_TOKEN").unwrap_or_default();
     let said = field(&["last_assistant_message", "last-assistant-message"])
         .or_else(|| transcript.as_deref().and_then(last_assistant_text))
         .map(|s| s.trim().chars().take(2000).collect::<String>())
@@ -992,22 +992,22 @@ fn home_settings(env: &str, dir: &str) -> PathBuf {
         .join("settings.json")
 }
 
-/// opencode has no command hooks: a plugin hands each event to `hydra hook opencode`.
+/// opencode has no command hooks: a plugin hands each event to `seshi hook opencode`.
 fn opencode_plugin(uninstall: bool) -> Result<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| directories::BaseDirs::new().map(|d| d.home_dir().join(".config")).unwrap_or_default());
-    let path = base.join("opencode").join("plugins").join("hydra.js");
+    let path = base.join("opencode").join("plugins").join("seshi.js");
     if uninstall {
         let _ = std::fs::remove_file(&path);
         return Ok(path);
     }
     let exe = this_exe()?;
     let js = format!(
-        "// Written by `hydra integrate opencode`: tells hydra what opencode is doing (inert outside hydra).\n\
-export const Hydra = async ({{ $, directory }}) => ({{\n\
+        "// Written by `seshi integrate opencode`: tells seshi what opencode is doing (inert outside seshi).\n\
+export const Seshi = async ({{ $, directory }}) => ({{\n\
   event: async ({{ event }}) => {{\n\
-    if (!process.env.HYDRA_TERM_ID) return\n\
+    if (!process.env.SESHI_TERM_ID) return\n\
     await $`{exe} hook opencode ${{JSON.stringify({{ ...event, cwd: directory }})}}`.quiet().nothrow()\n\
   }},\n\
 }})\n"
@@ -1033,7 +1033,7 @@ const CLAUDE_EVENTS: &[(&str, Option<&str>)] = &[
 ];
 
 fn is_ours(group: &Value) -> bool {
-    ["_hydra", "_drover"].iter().any(|tag| group.get(*tag).and_then(Value::as_bool) == Some(true))
+    ["_seshi", "_hydra", "_drover"].iter().any(|tag| group.get(*tag).and_then(Value::as_bool) == Some(true))
 }
 
 /// Claude Code's settings file, where its hooks live.
@@ -1044,7 +1044,7 @@ fn claude_settings() -> PathBuf {
         .join("settings.json")
 }
 
-/// This hydra, as hook commands name it.
+/// This seshi, as hook commands name it.
 fn this_exe() -> Result<String> {
     Ok(std::env::current_exe()?.to_string_lossy().replace('\\', "/"))
 }
@@ -1063,18 +1063,18 @@ pub(crate) fn statusline_facts(json: &str) -> (Usage, Vec<Limit>) {
     (usage, limits)
 }
 
-/// Where the status line you had before hydra's is kept (hydra's runs it after its own).
+/// Where the status line you had before seshi's is kept (seshi's runs it after its own).
 fn statusline_before() -> PathBuf {
     crate::config::data_dir().join("claude-statusline.txt")
 }
 
-/// Whether a status line command is hydra's.
+/// Whether a status line command is seshi's (or the hydra's it was renamed from).
 fn is_our_statusline(cmd: &str) -> bool {
-    cmd.contains("hydra") && cmd.trim_end().ends_with(" statusline")
+    (cmd.contains("seshi") || cmd.contains("hydra")) && cmd.trim_end().ends_with(" statusline")
 }
 
-/// Make Claude's status line hydra's (or with `uninstall`, put yours back). Yours keeps
-/// showing: hydra's runs it with the same input and prints what it prints.
+/// Make Claude's status line seshi's (or with `uninstall`, put yours back). Yours keeps
+/// showing: seshi's runs it with the same input and prints what it prints.
 fn statusline_setting(root: &mut Value, exe: &str, uninstall: bool, kept: &std::path::Path) -> Result<()> {
     let cur = root.get("statusLine").and_then(|s| s.get("command")).and_then(Value::as_str).map(String::from);
     let ours = cur.as_deref().is_some_and(is_our_statusline);
@@ -1106,14 +1106,14 @@ fn statusline_setting(root: &mut Value, exe: &str, uninstall: bool, kept: &std::
     Ok(())
 }
 
-/// `hydra statusline`, Claude Code's status line command: hands what the session has used
-/// to hydra (inside a hydra pane), then shows the status line you had before, if any.
+/// `seshi statusline`, Claude Code's status line command: hands what the session has used
+/// to seshi (inside a seshi pane), then shows the status line you had before, if any.
 pub fn statusline() {
     use std::io::Write;
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
-    let term = std::env::var("HYDRA_TERM_ID").ok().and_then(|s| s.parse::<TermId>().ok());
-    if let (Some(term), Ok(token)) = (term, std::env::var("HYDRA_PANE_TOKEN")) {
+    let term = std::env::var("SESHI_TERM_ID").ok().and_then(|s| s.parse::<TermId>().ok());
+    if let (Some(term), Ok(token)) = (term, std::env::var("SESHI_PANE_TOKEN")) {
         let (usage, limits) = statusline_facts(&input);
         let msg = ClientMsg::Usage { term, token, usage, limits };
         // Never hold up Claude's screen for it; a report that doesn't get there is skipped.
@@ -1170,13 +1170,13 @@ fn shell_line(line: &str) -> std::process::Command {
     }
 }
 
-/// Add (or with `uninstall`, remove) hydra's hooks in Claude Code's settings.
+/// Add (or with `uninstall`, remove) seshi's hooks in Claude Code's settings.
 fn claude_hooks(uninstall: bool) -> Result<PathBuf> {
     json_hooks(&claude_settings(), "claude", CLAUDE_EVENTS, 5, uninstall)
 }
 
-/// Add (or remove) hydra's hooks in a Claude-style settings.json (Claude Code, Gemini CLI,
-/// Qwen Code): one tagged group per event running `hydra hook <agent>`, `timeout` in the
+/// Add (or remove) seshi's hooks in a Claude-style settings.json (Claude Code, Gemini CLI,
+/// Qwen Code): one tagged group per event running `seshi hook <agent>`, `timeout` in the
 /// tool's own unit. The rest of the file is kept, with a backup beside it.
 fn json_hooks(path: &std::path::Path, agent: &str, events: &[(&str, Option<&str>)], timeout: u64, uninstall: bool) -> Result<PathBuf> {
     let exe = this_exe()?;
@@ -1188,7 +1188,7 @@ fn json_hooks(path: &std::path::Path, agent: &str, events: &[(&str, Option<&str>
         Err(e) => return Err(e.into()),
     };
     if path.exists() {
-        std::fs::copy(&path, path.with_extension("json.hydra-bak"))?;
+        std::fs::copy(&path, path.with_extension("json.seshi-bak"))?;
     }
     let hooks = root
         .as_object_mut()
@@ -1202,7 +1202,7 @@ fn json_hooks(path: &std::path::Path, agent: &str, events: &[(&str, Option<&str>
         arr.retain(|g| !is_ours(g));
         if !uninstall {
             let mut g = json!({
-                "_hydra": true,
+                "_seshi": true,
                 "hooks": [{ "type": "command", "command": format!("\"{exe}\" hook {agent}"), "timeout": timeout }],
             });
             if let Some(m) = matcher {
@@ -1222,7 +1222,7 @@ fn json_hooks(path: &std::path::Path, agent: &str, events: &[(&str, Option<&str>
     Ok(path)
 }
 
-/// The commands hydra's Claude hooks run that aren't this hydra (an older install, a copy
+/// The commands seshi's Claude hooks run that aren't this seshi (an older install, a copy
 /// that moved). Empty when they're right, or when there are none.
 pub fn stale_claude_hooks() -> Vec<String> {
     let (Ok(exe), Ok(text)) = (this_exe(), std::fs::read_to_string(claude_settings())) else { return Vec::new() };
@@ -1230,7 +1230,7 @@ pub fn stale_claude_hooks() -> Vec<String> {
     stale_in(&root, &format!("\"{exe}\" hook claude"))
 }
 
-/// Hydra's hook commands in Claude settings `root` other than `want`.
+/// Seshi's hook commands in Claude settings `root` other than `want`.
 fn stale_in(root: &Value, want: &str) -> Vec<String> {
     let mut stale: Vec<String> = root
         .get("hooks")
@@ -1251,7 +1251,7 @@ fn stale_in(root: &Value, want: &str) -> Vec<String> {
     stale
 }
 
-/// Hydra's Claude hooks are in, but not its status line (installed before there was one).
+/// Seshi's Claude hooks are in, but not its status line (installed before there was one).
 fn needs_statusline() -> bool {
     let Ok(text) = std::fs::read_to_string(claude_settings()) else { return false };
     let Ok(root) = serde_json::from_str::<Value>(&text) else { return false };
@@ -1260,21 +1260,21 @@ fn needs_statusline() -> bool {
     hooked && !is_our_statusline(cmd)
 }
 
-/// Point hydra's Claude hooks at this hydra if they name another one. A hook from a
+/// Point seshi's Claude hooks at this seshi if they name another one. A hook from a
 /// different version can't talk to this server, and hooks fail silently by design, so
 /// every agent would look idle. Run when the server starts.
 pub fn refresh_claude_hooks() {
-    // A side server (HYDRA_SOCKET) or a build in a source checkout mustn't take your
-    // hooks from the hydra you use.
-    let side = std::env::var("HYDRA_SOCKET").is_ok_and(|s| s != "default");
+    // A side server (SESHI_SOCKET) or a build in a source checkout mustn't take your
+    // hooks from the seshi you use.
+    let side = std::env::var("SESHI_SOCKET").is_ok_and(|s| s != "default");
     let dev_build = this_exe().is_ok_and(|e| e.contains("/target/debug/") || e.contains("/target/release/"));
     if side || dev_build {
         return;
     }
     if !stale_claude_hooks().is_empty() || needs_statusline() {
         match claude_hooks(false) {
-            Ok(p) => tracing::info!("pointed hydra's Claude hooks in {} at this hydra", p.display()),
-            Err(e) => tracing::warn!("couldn't update hydra's Claude hooks: {e:#}"),
+            Ok(p) => tracing::info!("pointed seshi's Claude hooks in {} at this seshi", p.display()),
+            Err(e) => tracing::warn!("couldn't update seshi's Claude hooks: {e:#}"),
         }
     }
 }
@@ -1294,7 +1294,7 @@ enum CodexNotify {
     Theirs(String),
 }
 
-/// Point Codex's top-level `notify` at hydra (or take hydra's out), keeping the rest of the
+/// Point Codex's top-level `notify` at seshi (or take seshi's out), keeping the rest of the
 /// file. Another program's notify is left alone.
 fn codex_notify(path: &std::path::Path, exe: &str, uninstall: bool) -> Result<CodexNotify> {
     let text = match std::fs::read_to_string(path) {
@@ -1303,7 +1303,7 @@ fn codex_notify(path: &std::path::Path, exe: &str, uninstall: bool) -> Result<Co
         Err(e) => return Err(e.into()),
     };
     let mut doc: toml_edit::DocumentMut = text.parse().with_context(|| format!("{} has a syntax error; not touching it", path.display()))?;
-    let ours = |v: &toml_edit::Item| v.as_array().is_some_and(|a| a.iter().any(|x| x.as_str() == Some("hook")) && a.iter().any(|x| x.as_str().is_some_and(|s| s.contains("hydra"))));
+    let ours = |v: &toml_edit::Item| v.as_array().is_some_and(|a| a.iter().any(|x| x.as_str() == Some("hook")) && a.iter().any(|x| x.as_str().is_some_and(|s| s.contains("seshi") || s.contains("hydra"))));
     if let Some(cur) = doc.get("notify")
         && !ours(cur)
     {
@@ -1320,7 +1320,7 @@ fn codex_notify(path: &std::path::Path, exe: &str, uninstall: bool) -> Result<Co
         doc.insert("notify", toml_edit::value(a));
     }
     if path.exists() {
-        std::fs::copy(path, path.with_extension("toml.hydra-bak"))?;
+        std::fs::copy(path, path.with_extension("toml.seshi-bak"))?;
     }
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -1335,27 +1335,27 @@ pub fn integrate(agent: &str, uninstall: bool) -> Result<()> {
         "claude" => {
             let path = claude_hooks(uninstall)?;
             if uninstall {
-                println!("removed hydra hooks from {}", path.display());
+                println!("removed seshi hooks from {}", path.display());
             } else {
-                println!("installed hydra hooks into {}", path.display());
-                println!("they only act inside hydra panes (HYDRA_TERM_ID), so other terminals are unaffected.");
+                println!("installed seshi hooks into {}", path.display());
+                println!("they only act inside seshi panes (SESHI_TERM_ID), so other terminals are unaffected.");
             }
             Ok(())
         }
         "mcp" => {
             // Claude Code: register for every project (user scope).
-            let args = ["mcp", "add", "--scope", "user", "hydra", "--", exe.as_str(), "mcp"];
+            let args = ["mcp", "add", "--scope", "user", "seshi", "--", exe.as_str(), "mcp"];
             let added = std::process::Command::new(if cfg!(windows) { "claude.cmd" } else { "claude" })
                 .args(args)
                 .status()
                 .or_else(|_| std::process::Command::new("claude").args(args).status());
             match added {
-                Ok(s) if s.success() => println!("added the hydra MCP server to Claude Code (all projects)"),
-                _ => println!("Claude Code: run  claude mcp add --scope user hydra -- \"{exe}\" mcp"),
+                Ok(s) if s.success() => println!("added the seshi MCP server to Claude Code (all projects)"),
+                _ => println!("Claude Code: run  claude mcp add --scope user seshi -- \"{exe}\" mcp"),
             }
-            println!("\nCodex: add to ~/.codex/config.toml\n\n[mcp_servers.hydra]\ncommand = \"{exe}\"\nargs = [\"mcp\"]\n");
+            println!("\nCodex: add to ~/.codex/config.toml\n\n[mcp_servers.seshi]\ncommand = \"{exe}\"\nargs = [\"mcp\"]\n");
             println!("Agents can then list, read, message and start sessions. Whether they may approve");
-            println!("prompts is up to you: hydra Settings → Agents (never, by default).");
+            println!("prompts is up to you: seshi Settings → Agents (never, by default).");
             Ok(())
         }
         "gemini" | "qwen" => {
@@ -1367,35 +1367,35 @@ pub fn integrate(agent: &str, uninstall: bool) -> Result<()> {
                 (home_settings("QWEN_HOME", ".qwen"), CLAUDE_EVENTS, 10)
             };
             let path = json_hooks(&path, agent, events, timeout, uninstall)?;
-            println!("{} hydra hooks {} {}", if uninstall { "removed" } else { "installed" }, if uninstall { "from" } else { "into" }, path.display());
+            println!("{} seshi hooks {} {}", if uninstall { "removed" } else { "installed" }, if uninstall { "from" } else { "into" }, path.display());
             Ok(())
         }
         "opencode" => {
             let path = opencode_plugin(uninstall)?;
-            println!("{} hydra's opencode plugin: {}", if uninstall { "removed" } else { "wrote" }, path.display());
+            println!("{} seshi's opencode plugin: {}", if uninstall { "removed" } else { "wrote" }, path.display());
             Ok(())
         }
         "codex" => {
             let path = codex_config();
             match codex_notify(&path, &exe, uninstall)? {
-                CodexNotify::Set => println!("set hydra as Codex's notify in {}: it reports finished turns", path.display()),
-                CodexNotify::Removed => println!("removed hydra's notify from {}", path.display()),
+                CodexNotify::Set => println!("set seshi as Codex's notify in {}: it reports finished turns", path.display()),
+                CodexNotify::Removed => println!("removed seshi's notify from {}", path.display()),
                 CodexNotify::Theirs(other) => println!(
-                    "{} already has notify = {other}; not touching it. To add hydra, make it run:\n  \"{exe}\" hook codex",
+                    "{} already has notify = {other}; not touching it. To add seshi, make it run:\n  \"{exe}\" hook codex",
                     path.display()
                 ),
             }
             println!("Working / needs-you come from Codex's screen.");
             Ok(())
         }
-        other => bail!("no integration for `{other}`; any agent can call `hydra hook {other} --status <working|blocked|done|idle>`"),
+        other => bail!("no integration for `{other}`; any agent can call `seshi hook {other} --status <working|blocked|done|idle>`"),
     }
 }
 
 /// Debugging: the colours a pane's program is drawing (rows with a background colour).
 pub fn debug_colors(pane: TermId) -> Result<()> {
     block_on(async move {
-        let (mut r, _w) = ipc::open(true).await.context("couldn't reach the hydra server")?;
+        let (mut r, _w) = ipc::open(true).await.context("couldn't reach the seshi server")?;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
         while let Ok(Ok(Some(msg))) = tokio::time::timeout_at(deadline, ipc::recv_server(&mut r)).await {
             if let ServerMsg::Replay { term, cols, rows, data } = msg
@@ -1433,7 +1433,7 @@ pub fn debug_colors(pane: TermId) -> Result<()> {
     })
 }
 
-/// `hydra allow`: show the repo's hook commands and let them run from now on.
+/// `seshi allow`: show the repo's hook commands and let them run from now on.
 pub fn allow(dir: Option<std::path::PathBuf>) -> Result<()> {
     let dir = match dir {
         Some(d) => d,
@@ -1459,19 +1459,19 @@ pub fn allow(dir: Option<std::path::PathBuf>) -> Result<()> {
 mod tests {
     #[test]
     fn hydras_status_line_keeps_yours() {
-        let kept = std::env::temp_dir().join(format!("hydra-statusline-{}.txt", std::process::id()));
+        let kept = std::env::temp_dir().join(format!("seshi-statusline-{}.txt", std::process::id()));
         let mut root = serde_json::json!({ "statusLine": { "type": "command", "command": "chm statusline", "padding": 1 } });
-        super::statusline_setting(&mut root, "C:/x/hydra.exe", false, &kept).unwrap();
-        assert_eq!(root["statusLine"]["command"], "\"C:/x/hydra.exe\" statusline");
+        super::statusline_setting(&mut root, "C:/x/seshi.exe", false, &kept).unwrap();
+        assert_eq!(root["statusLine"]["command"], "\"C:/x/seshi.exe\" statusline");
         assert_eq!(root["statusLine"]["padding"], 1, "your settings for it stay");
-        assert_eq!(std::fs::read_to_string(&kept).unwrap(), "chm statusline", "and yours still runs after hydra's");
-        super::statusline_setting(&mut root, "C:/y/hydra.exe", false, &kept).unwrap();
+        assert_eq!(std::fs::read_to_string(&kept).unwrap(), "chm statusline", "and yours still runs after seshi's");
+        super::statusline_setting(&mut root, "C:/y/seshi.exe", false, &kept).unwrap();
         assert_eq!(std::fs::read_to_string(&kept).unwrap(), "chm statusline", "installing again doesn't lose yours");
-        super::statusline_setting(&mut root, "C:/y/hydra.exe", true, &kept).unwrap();
+        super::statusline_setting(&mut root, "C:/y/seshi.exe", true, &kept).unwrap();
         assert_eq!(root["statusLine"]["command"], "chm statusline", "uninstalling puts yours back");
         let mut none = serde_json::json!({});
-        super::statusline_setting(&mut none, "C:/x/hydra.exe", false, &kept).unwrap();
-        super::statusline_setting(&mut none, "C:/x/hydra.exe", true, &kept).unwrap();
+        super::statusline_setting(&mut none, "C:/x/seshi.exe", false, &kept).unwrap();
+        super::statusline_setting(&mut none, "C:/x/seshi.exe", true, &kept).unwrap();
         assert!(none.get("statusLine").is_none(), "none before: none after");
     }
 
@@ -1526,26 +1526,26 @@ mod tests {
 
     #[test]
     fn codex_notify_is_set_and_others_kept() {
-        let file = std::env::temp_dir().join(format!("hydra-codex-{}.toml", std::process::id()));
+        let file = std::env::temp_dir().join(format!("seshi-codex-{}.toml", std::process::id()));
         std::fs::write(&file, "model = \"gpt-5\"\n\n[tui]\nnotifications = true\n").unwrap();
-        assert!(matches!(super::codex_notify(&file, "/bin/hydra", false).unwrap(), super::CodexNotify::Set));
+        assert!(matches!(super::codex_notify(&file, "/bin/seshi", false).unwrap(), super::CodexNotify::Set));
         let text = std::fs::read_to_string(&file).unwrap();
-        assert!(text.contains(r#"notify = ["/bin/hydra", "hook", "codex"]"#) && text.contains("[tui]") && text.contains("gpt-5"), "{text}");
+        assert!(text.contains(r#"notify = ["/bin/seshi", "hook", "codex"]"#) && text.contains("[tui]") && text.contains("gpt-5"), "{text}");
         assert!(text.find("notify") < text.find("[tui]"), "a top-level key, before the tables: {text}");
-        // Run again with hydra elsewhere: replaced (it's ours).
-        super::codex_notify(&file, "/usr/local/bin/hydra", false).unwrap();
-        assert!(std::fs::read_to_string(&file).unwrap().contains("/usr/local/bin/hydra"));
+        // Run again with seshi elsewhere: replaced (it's ours).
+        super::codex_notify(&file, "/usr/local/bin/seshi", false).unwrap();
+        assert!(std::fs::read_to_string(&file).unwrap().contains("/usr/local/bin/seshi"));
         // Someone else's notify stays.
         std::fs::write(&file, "notify = [\"my-notifier\"]\n").unwrap();
-        assert!(matches!(super::codex_notify(&file, "/bin/hydra", false).unwrap(), super::CodexNotify::Theirs(_)));
+        assert!(matches!(super::codex_notify(&file, "/bin/seshi", false).unwrap(), super::CodexNotify::Theirs(_)));
         assert!(std::fs::read_to_string(&file).unwrap().contains("my-notifier"));
         let _ = std::fs::remove_file(&file);
-        let _ = std::fs::remove_file(file.with_extension("toml.hydra-bak"));
+        let _ = std::fs::remove_file(file.with_extension("toml.seshi-bak"));
     }
 
     #[test]
     fn hooks_from_another_hydra_are_found() {
-        let want = "\"/home/me/.local/bin/hydra\" hook claude";
+        let want = "\"/home/me/.local/bin/seshi\" hook claude";
         let settings = |cmd: &str| {
             serde_json::json!({ "hooks": {
                 "Stop": [
@@ -1554,8 +1554,8 @@ mod tests {
                 ],
             }})
         };
-        assert!(super::stale_in(&settings(want), want).is_empty(), "this hydra's hooks are fine; others' aren't ours to judge");
-        let old = "\"/home/me/.cargo/bin/hydra\" hook claude";
+        assert!(super::stale_in(&settings(want), want).is_empty(), "this seshi's hooks are fine; others' aren't ours to judge");
+        let old = "\"/home/me/.cargo/bin/seshi\" hook claude";
         assert_eq!(super::stale_in(&settings(old), want), vec![old.to_string()]);
     }
 

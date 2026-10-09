@@ -4,40 +4,19 @@ use super::*;
 
 // ---- splash --------------------------------------------------------------------------------
 
+/// SESHI in block letters: five rows each, a column of space between letters.
 pub(in crate::client) const BIG: [(char, [&str; 5]); 5] = [
-    ('H', ["██  ██", "██  ██", "██████", "██  ██", "██  ██"]),
-    ('Y', ["██  ██", "██  ██", " ████ ", "  ██  ", "  ██  "]),
-    ('D', ["█████ ", "██  ██", "██  ██", "██  ██", "█████ "]),
-    ('R', ["█████ ", "██  ██", "█████ ", "██ ██ ", "██  ██"]),
-    ('A', [" ████ ", "██  ██", "██████", "██  ██", "██  ██"]),
+    ('S', ["███████", "██     ", "███████", "     ██", "███████"]),
+    ('E', ["███████", "██     ", "█████  ", "██     ", "███████"]),
+    ('S', ["███████", "██     ", "███████", "     ██", "███████"]),
+    ('H', ["██   ██", "██   ██", "███████", "██   ██", "██   ██"]),
+    ('I', ["██", "██", "██", "██", "██"]),
 ];
 
-pub(in crate::client) const ART: [&str; 22] = [
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡀⠀⠀⠀⠀⢠⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠻⣦⡀⠀⢸⣆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⣠⣦⣤⣀⣀⣤⣤⣀⡀⠀⣀⣠⡆⠀⠀⠀⠀⠀⠀⠤⠒⠛⣛⣛⣻⣿⣶⣾⣿⣦⣄⢿⣆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠸⠿⢿⣿⣿⣿⣯⣭⣿⣿⣿⣿⣋⣀⠀⠀⠀⠀⠀⠀⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣤⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠙⢿⣿⣿⡿⢿⣿⣿⣿⣿⣿⣓⠢⠄⢠⡾⢻⣿⣿⣿⣿⡟⠁⠀⠀⠈⠙⢿⣿⣿⣯⡻⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠀⠀⠀⠙⢿⣿⣿⣿⣷⣄⠁⠀⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣷⣄⡀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⣿⣿⣿⣷⣌⢧⠀⣿⣿⣿⣿⣿⣿⣄⠀⠀⠀⠀⢀⠉⠙⠛⠛⠿⣿⣿⣿⡆⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⡀⠠⢻⡟⢿⣿⣿⣿⣿⣧⣄⣀⠀⠘⢶⣄⣀⠀⠀⠈⢻⠿⠁⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣸⣿⣿⣿⣿⣾⠀⠀⠀⠻⣈⣙⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⣷⣦⡀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠈⠲⣄⠀⠀⣀⡤⠤⠀⠀⠀⢠⣿⣿⣿⡿⣿⠇⠀⠀⠐⠺⢉⣡⣴⣿⣿⣿⣿⣿⣿⣿⡿⢿⣿⣿⣿⣶⣿⣿⣿⣶⣶⡀⠀⠀⠀",
-    "⠀⠀⠀⠀⢠⣿⣴⣿⣷⣶⣦⣤⡀⠀⢸⣿⣿⣿⠇⠏⠀⠀⠀⢀⣴⣿⣿⣿⣿⣿⠟⢿⣿⣿⣿⣷⠀⠹⣿⣿⠿⠿⠛⠻⠿⣿⠇⠀⠀⠀",
-    "⠀⠀⠀⣠⣿⣿⣿⣿⣿⣿⣿⣷⣯⡂⢸⣿⣿⣿⠀⠀⠀⠀⢀⠾⣻⣿⣿⣿⠟⠀⠀⠈⣿⣿⣿⣿⡇⠀⠀⣀⣀⡀⠀⢠⡞⠉⠀⠀⠀⠀",
-    "⠀⠀⢸⣟⣽⣿⣯⠀⠀⢹⣿⣿⣿⡟⠼⣿⣿⣿⣇⠀⠀⠀⠠⢰⣿⣿⣿⣿⡄⠀⠀⠀⣸⣿⣿⣿⡇⠀⢀⣤⣼⣿⣷⣾⣷⡀⠀⠀⠀⠀",
-    "⠀⢀⣾⣿⡿⠟⠋⠀⠀⢸⣿⣿⣿⣿⡀⢿⣿⣿⣿⣦⠀⠀⠀⢺⣿⣿⣿⣿⣿⣄⠀⠀⣿⣿⣿⣿⡇⠐⣿⣿⣿⣿⠿⣿⣿⡿⣦⠀⠀⠀",
-    "⠀⢻⣿⠏⠀⠀⠀⠀⢠⣿⣿⣿⡟⡿⠀⠀⢻⣿⣿⣿⣷⣤⡀⠘⣷⠻⣿⣿⣿⣿⣷⣼⣿⣿⣿⣿⣇⣾⣿⣿⣿⠁⠀⢼⣿⣿⣿⣆⠀⠀",
-    "⠀⠀⠈⠀⠀⠀⠀⠀⢸⣿⣿⣿⡗⠁⠀⠀⠀⠙⢿⣿⣿⣿⣿⣷⣾⣆⡙⣿⣿⣿⣿⣿⣿⣿⣿⣿⠌⣾⣿⣿⣿⣆⠀⠀⠀⠉⠻⣿⡷⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣷⣄⠀⠀⠀⠀⠀⠈⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡏⠀⠘⣟⣿⣿⣿⡆⠀⠀⠀⠀⠙⠁⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠻⣿⣿⣿⣿⣿⣶⣤⣤⣤⣀⣠⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠀⠀⠀⢈⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣟⣠⣤⣤⣶⣿⣿⣿⠟⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⠀⠀⠀⠀⠀⠀⢀⣠⣤⣄⠀⠠⢶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣟⡁⠀⠀⠀⠀⠀⠀⠀⠀⠀",
-    "⢀⣀⠀⣠⣀⡠⠞⣿⣿⣿⣿⣶⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣴⣿⣷⣦⣄⣀⢿⡽⢻⣦",
-    "⠻⠶⠾⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠿⠋",
-];
+/// The tagline under the wordmark.
+const TAG: &str = "every session, one calm place · your agents keep going when you leave";
 
-/// The splash: the hydra, the wordmark, what happened while you were away, and buttons.
+/// The splash: the wordmark, what happened while you were away, and buttons.
 /// The splash's choices: (label, key shown, action key).
 pub(in crate::client) fn splash_options(app: &App) -> Vec<(String, String, char)> {
     let mut v = Vec::new();
@@ -55,48 +34,31 @@ pub(in crate::client) fn draw_splash(app: &mut App, f: &mut Frame, area: Rect, t
     fill(buf, area, t.bg);
     let all: Vec<&Session> = model.iter().flat_map(|p| p.sessions()).collect();
     let n = |st: Status| all.iter().filter(|s| s.status == st).count();
-    let art_w = ART[0].chars().count() as u16;
-    // The art needs 22 rows; small windows get the wordmark alone.
-    let show_art = area.height >= 22 + 16 && area.width >= art_w + 4;
-    let body_h = if show_art { 23 } else { 0 } + 18;
-    let mut y = area.y + area.height.saturating_sub(body_h) / 2;
+    let mut y = area.y + area.height.saturating_sub(18) / 2;
     let center = |w: u16| area.x + area.width.saturating_sub(w) / 2;
-    let teal = t.teal();
-    if show_art {
-        let ax = center(art_w);
-        for (r, line) in ART.iter().enumerate() {
-            let col = blend(t.accent, teal, r as f32 / (ART.len() - 1) as f32);
-            for (ci, ch) in line.chars().enumerate() {
-                if ch == '\u{2800}' || ch == ' ' {
-                    continue;
-                }
-                if let Some(px) = buf.cell_mut((ax + ci as u16, y + r as u16)) {
-                    px.set_char(ch).set_style(Style::default().fg(col).bg(t.bg));
-                }
-            }
-        }
-        y += ART.len() as u16 + 1;
-    }
-    // HYDRA in block letters, accent → teal left to right.
-    let lw = 5 * 6 + 4 * 2;
+    // SESHI, sunset into the sea: the accent shading to sea glass from left to right.
+    let sea = t.sky();
+    let lw: u16 = BIG.iter().map(|(_, rows)| rows[0].chars().count() as u16 + 1).sum::<u16>() - 1;
     let lx = center(lw);
-    for (k, (_, rows)) in BIG.iter().enumerate() {
+    let mut cx = 0u16;
+    for (_, rows) in BIG.iter() {
+        let w = rows[0].chars().count() as u16;
         for (r, row) in rows.iter().enumerate() {
             for (ci, ch) in row.chars().enumerate() {
                 if ch == ' ' {
                     continue;
                 }
-                let col = k as u16 * 8 + ci as u16;
-                let c = blend(t.accent, teal, col as f32 / lw as f32);
+                let col = cx + ci as u16;
+                let c = blend(t.accent, sea, col as f32 / lw.max(1) as f32);
                 if let Some(px) = buf.cell_mut((lx + col, y + r as u16)) {
                     px.set_char(ch).set_style(Style::default().fg(c).bg(t.bg));
                 }
             }
         }
+        cx += w + 1;
     }
     y += 6;
-    let tag = "many heads, one body · your agents keep going when you leave";
-    put(buf, center(tag.width() as u16), y, &[seg(tag, Style::default().fg(t.muted).bg(t.bg).add_modifier(Modifier::ITALIC))], area.right());
+    put(buf, center(TAG.width() as u16), y, &[seg(TAG, Style::default().fg(t.muted).bg(t.bg).add_modifier(Modifier::ITALIC))], area.right());
     y += 2;
     let away = vec![
         seg("while you were away   ", Style::default().fg(t.muted)),
@@ -137,9 +99,9 @@ pub(in crate::client) fn draw_splash(app: &mut App, f: &mut Frame, area: Rect, t
     let buf = f.buffer_mut();
     fill(buf, Rect { y: sy, height: 1, ..area }, t.sidebar_bg);
     let s = Style::default().bg(t.sidebar_bg);
-    let mut left = vec![seg(format!("hydra {}", env!("CARGO_PKG_VERSION")), s.fg(t.muted))];
+    let mut left = vec![seg(format!("seshi {}", env!("CARGO_PKG_VERSION")), s.fg(t.muted))];
     if let Some(v) = &app.update_available {
-        left.push(seg(format!("   {v} is out: Ctrl+Space p, then Update hydra"), s.fg(t.accent).add_modifier(Modifier::BOLD)));
+        left.push(seg(format!("   {v} is out: Ctrl+Space p, then Update seshi"), s.fg(t.accent).add_modifier(Modifier::BOLD)));
     }
     if let Some((pn, pc, wn, title)) = last {
         left.push(seg("   last: ", s.fg(t.muted)));

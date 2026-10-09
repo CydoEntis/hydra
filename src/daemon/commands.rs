@@ -455,7 +455,7 @@ impl Daemon {
                 crate::config::add_agent(&def)?;
                 let name = def.name.clone();
                 self.command(client, Command::ReloadConfig)?;
-                self.broadcast(|c| c.attach, ServerMsg::Notice(format!("{name} is an agent now: hydra shows when it's working, needs you or done")));
+                self.broadcast(|c| c.attach, ServerMsg::Notice(format!("{name} is an agent now: seshi shows when it's working, needs you or done")));
             }
             Command::AskHuman { term, text, options } => {
                 let options = if options.is_empty() { vec!["Yes".to_string(), "No".to_string()] } else { options };

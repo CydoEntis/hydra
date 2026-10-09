@@ -19,7 +19,7 @@ pub(super) fn repo_of(dir: &std::path::Path) -> Option<PathBuf> {
 
 /// Where the spare worktree is noted, so one left behind by a crash is cleaned up.
 pub(super) fn spare_file() -> PathBuf {
-    let label = std::env::var("HYDRA_SOCKET").unwrap_or_else(|_| "default".into());
+    let label = std::env::var("SESHI_SOCKET").unwrap_or_else(|_| "default".into());
     crate::config::data_dir().join(format!("spare-{label}.txt"))
 }
 
@@ -121,7 +121,7 @@ pub(super) fn trust_once(file: &std::path::Path, repo: &std::path::Path, worktre
     }
     // Write beside and swap, so a reader never sees half a file; check it's still the
     // version we read right before swapping.
-    let tmp = file.with_extension("json.hydra-tmp");
+    let tmp = file.with_extension("json.seshi-tmp");
     let Ok(s) = serde_json::to_string_pretty(&v) else { return Trust::Done };
     if std::fs::write(&tmp, s).is_err() {
         return Trust::Done;
@@ -206,7 +206,7 @@ impl Daemon {
         })
     }
 
-    /// A worktree hook (`on_create` / `on_remove` in the repo's .hydra.toml) as a job to run.
+    /// A worktree hook (`on_create` / `on_remove` in the repo's .seshi.toml) as a job to run.
     pub(super) fn hook_job(&self, dir: &std::path::Path, create: bool) -> Option<impl FnOnce() -> String + Send + 'static> {
         let proj = crate::project::load(dir);
         let cmd = if create { proj.hooks.on_create } else { proj.hooks.on_remove };
@@ -220,12 +220,12 @@ impl Daemon {
         Some(move || {
             let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             if !allowed {
-                return format!("{name}: this repo's {} wants to run `{cmd}`; run `hydra allow` in the repo to let it", crate::project::FILE);
+                return format!("{name}: this repo's {} wants to run `{cmd}`; run `seshi allow` in the repo to let it", crate::project::FILE);
             }
-            let mut vars = vec![("HYDRA_WORKTREE", dir.display().to_string())];
+            let mut vars = vec![("SESHI_WORKTREE", dir.display().to_string())];
             if let Some(h) = crate::gitfs::head(&dir) {
-                vars.push(("HYDRA_BRANCH", h.branch.clone()));
-                vars.push(("HYDRA_REPO", h.main_root.display().to_string()));
+                vars.push(("SESHI_BRANCH", h.branch.clone()));
+                vars.push(("SESHI_REPO", h.main_root.display().to_string()));
             }
             if let Some(b) = base {
                 vars.push(("PORT", crate::project::port_for(&dir, b).to_string()));
@@ -258,7 +258,7 @@ impl Daemon {
             .collect()
     }
 
-    /// After you close something: remove worktrees hydra made that nothing runs in any
+    /// After you close something: remove worktrees seshi made that nothing runs in any
     /// more. Git refuses if there are uncommitted changes, and the branch is always kept.
     pub(super) fn cleanup_worktrees(&mut self, client: ClientId, tops: Vec<PathBuf>) {
         if !self.cfg.worktree.delete_with_last {

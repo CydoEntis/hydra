@@ -1,4 +1,4 @@
-//! Right-click menus for the hydra layout: a pane, an agent row, a project, a branch or a
+//! Right-click menus for the seshi layout: a pane, an agent row, a project, a branch or a
 //! worktree. Short, hoverable, and every item does something.
 
 use super::design::{fill, put, seg};
@@ -17,7 +17,7 @@ use unicode_width::UnicodeWidthStr;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Act {
     Beside(TermId),
-    /// The program in this pane is an agent: hydra learns it.
+    /// The program in this pane is an agent: seshi learns it.
     TeachAgent(TermId),
     Talk(TermId),
     /// End these (stops what runs in them).
@@ -39,7 +39,7 @@ pub enum Act {
     Dev(PathBuf, crate::protocol::DevAction),
     /// Roll a checkout back to a checkpoint (its folder, the commit).
     Checkpoint(PathBuf, String),
-    /// Download the newest hydra and restart into it.
+    /// Download the newest seshi and restart into it.
     Update,
 }
 
@@ -150,7 +150,7 @@ impl App {
             if self.hy.right_clicks.contains(&term) { "Stop sending right-clicks to pane" } else { "Send right-clicks to pane" }.to_string(),
             Act::RightClicks(term),
         ));
-        // A program hydra doesn't know (an agent started by an alias, say): teach it.
+        // A program seshi doesn't know (an agent started by an alias, say): teach it.
         if let Some(t) = self.snap.terms.get(&term).filter(|t| t.agent.is_none() && !t.is_shell() && !t.process.is_empty() && t.remote.is_none()) {
             items.push((format!("{} is an agent…", t.process), Act::TeachAgent(term)));
         }
@@ -181,7 +181,7 @@ impl App {
             return Some(("dev server".into(), items));
         }
         let info = self.snap.terms.get(&term);
-        // An agent can be messaged; a program hydra doesn't know can be taught.
+        // An agent can be messaged; a program seshi doesn't know can be taught.
         let mut items = Vec::new();
         if s.is_agent {
             items.push((format!("Message {agent}…"), Act::Talk(term)));
@@ -408,7 +408,7 @@ impl App {
             Act::RightClicks(t) => {
                 if !self.hy.right_clicks.remove(&t) {
                     self.hy.right_clicks.insert(t);
-                    self.notify("right-clicks go to this pane now (Shift+right-click for hydra's menu)".into(), false);
+                    self.notify("right-clicks go to this pane now (Shift+right-click for seshi's menu)".into(), false);
                 }
             }
             Act::RenameProject(key, name) => self.mode = Mode::Prompt { kind: super::PromptKind::RenameProject(key), input: name },

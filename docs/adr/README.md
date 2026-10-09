@@ -31,3 +31,4 @@ supersedes it, and set the old one's status to `Superseded by NNNN`.
 | [0005](0005-herdr-compatible-keys.md) | Leader-key bindings follow herdr where they overlap | Superseded by 0006 |
 | [0006](0006-floating-design-keys.md) | Leader keys follow the floating design's key map | Accepted |
 | [0007](0007-floating-and-tiled-styles.md) | One layout, drawn floating or tiled | Accepted |
+| [0008](0008-rename-to-seshi.md) | The app is called Seshi | Accepted |

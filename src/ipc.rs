@@ -1,5 +1,5 @@
 //! Local-socket transport: named pipes on Windows, Unix domain sockets elsewhere. With
-//! `--remote host` the same messages go through `ssh host hydra proxy` instead, to the
+//! `--remote host` the same messages go through `ssh host seshi proxy` instead, to the
 //! server on that machine.
 
 use crate::protocol::{self, ClientMsg, ServerMsg};
@@ -20,7 +20,7 @@ type Halves = (RecvHalf, SendHalf);
 
 const MAX_FRAME: usize = 64 * 1024 * 1024;
 
-/// The running server is another hydra version: the two can't talk (see PROTOCOL_VERSION).
+/// The running server is another seshi version: the two can't talk (see PROTOCOL_VERSION).
 #[derive(Debug)]
 pub struct OtherVersion {
     pub daemon: u32,
@@ -30,7 +30,7 @@ impl std::fmt::Display for OtherVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "the running server is another hydra version (protocol v{}, this one v{}); `hydra kill-server` stops it, then run hydra again",
+            "the running server is another seshi version (protocol v{}, this one v{}); `seshi kill-server` stops it, then run seshi again",
             self.daemon,
             protocol::PROTOCOL_VERSION
         )
@@ -39,18 +39,18 @@ impl std::fmt::Display for OtherVersion {
 
 impl std::error::Error for OtherVersion {}
 
-/// Where the server notes its process id, so a hydra of another version can still stop it.
+/// Where the server notes its process id, so a seshi of another version can still stop it.
 pub fn pid_file() -> std::path::PathBuf {
     crate::config::data_dir().join(format!("{}.pid", socket_id()))
 }
 
-/// Server identity. `HYDRA_SOCKET` picks a separate server (like `tmux -L`).
+/// Server identity. `SESHI_SOCKET` picks a separate server (like `tmux -L`).
 pub fn socket_id() -> String {
-    let label = std::env::var("HYDRA_SOCKET").unwrap_or_else(|_| "default".into());
+    let label = std::env::var("SESHI_SOCKET").unwrap_or_else(|_| "default".into());
     let user = std::env::var("USERNAME")
         .or_else(|_| std::env::var("USER"))
         .unwrap_or_else(|_| "user".into());
-    format!("hydra-{user}-{label}.sock")
+    format!("seshi-{user}-{label}.sock")
 }
 
 /// Windows: a named pipe (its default security lets only this user and admins write).
@@ -69,7 +69,7 @@ fn name() -> Result<Name<'static>> {
     }
 }
 
-/// `$XDG_RUNTIME_DIR/hydra-<uid>` (or the temp folder's), created 0700 and checked to be
+/// `$XDG_RUNTIME_DIR/seshi-<uid>` (or the temp folder's), created 0700 and checked to be
 /// ours and private before use.
 #[cfg(unix)]
 fn socket_dir() -> Result<std::path::PathBuf> {
@@ -77,7 +77,7 @@ fn socket_dir() -> Result<std::path::PathBuf> {
     // SAFETY: getuid has no preconditions and can't fail.
     let uid = unsafe { libc::getuid() };
     let base = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).filter(|p| p.is_dir()).unwrap_or_else(std::env::temp_dir);
-    let dir = base.join(format!("hydra-{uid}"));
+    let dir = base.join(format!("seshi-{uid}"));
     match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -85,7 +85,7 @@ fn socket_dir() -> Result<std::path::PathBuf> {
     }
     let meta = std::fs::symlink_metadata(&dir).with_context(|| format!("checking {}", dir.display()))?;
     if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
-        anyhow::bail!("{} isn't a private folder of yours; remove it and start hydra again", dir.display());
+        anyhow::bail!("{} isn't a private folder of yours; remove it and start seshi again", dir.display());
     }
     Ok(dir)
 }
@@ -101,19 +101,19 @@ pub fn framed(stream: Stream) -> (Reader, Writer) {
 
 /// The machine whose server this talks to (`--remote`), if not this one.
 pub fn remote() -> Option<String> {
-    std::env::var("HYDRA_REMOTE").ok().filter(|s| !s.trim().is_empty())
+    std::env::var("SESHI_REMOTE").ok().filter(|s| !s.trim().is_empty())
 }
 
 /// What ssh said when it failed (shown instead of a bare "connection closed").
 static SSH_ERR: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
-/// `ssh host hydra proxy`, its stdio as the connection. HYDRA_SSH replaces `ssh` (e.g.
-/// "ssh -p 2222"), HYDRA_REMOTE_CMD the hydra on the far side (e.g. "~/.cargo/bin/hydra").
+/// `ssh host seshi proxy`, its stdio as the connection. SESHI_SSH replaces `ssh` (e.g.
+/// "ssh -p 2222"), SESHI_REMOTE_CMD the seshi on the far side (e.g. "~/.cargo/bin/seshi").
 async fn connect_remote(host: &str) -> Result<(Reader, Writer)> {
-    let ssh = std::env::var("HYDRA_SSH").unwrap_or_else(|_| "ssh".into());
+    let ssh = std::env::var("SESHI_SSH").unwrap_or_else(|_| "ssh".into());
     let mut words = ssh.split_whitespace();
     let prog = words.next().unwrap_or("ssh").to_string();
-    let remote_cmd = std::env::var("HYDRA_REMOTE_CMD").unwrap_or_else(|_| "hydra".into());
+    let remote_cmd = std::env::var("SESHI_REMOTE_CMD").unwrap_or_else(|_| "seshi".into());
     let mut cmd = tokio::process::Command::new(&prog);
     cmd.args(words)
         .arg("-T")
@@ -163,7 +163,7 @@ impl tokio::io::AsyncWrite for SshIn {
     }
 }
 
-/// `hydra proxy`, run by ssh on the far side: this machine's server (started if needed),
+/// `seshi proxy`, run by ssh on the far side: this machine's server (started if needed),
 /// over stdin and stdout.
 pub async fn proxy() -> Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -178,7 +178,7 @@ pub async fn proxy() -> Result<()> {
             }
         }
     }
-    let (mut sr, mut sw) = stream.context("couldn't reach or start the hydra server here")?.split();
+    let (mut sr, mut sw) = stream.context("couldn't reach or start the seshi server here")?.split();
     let up = async {
         let mut stdin = tokio::io::stdin();
         let mut buf = vec![0u8; 64 * 1024];
@@ -256,11 +256,11 @@ pub async fn open(attach: bool) -> Result<(Reader, Writer)> {
         None => framed(connect().await?),
     };
     // A command run inside a pane says which (with the pane's secret): what it may do is
-    // that pane's to say. hydra's own window is you.
+    // that pane's to say. seshi's own window is you.
     let from = (!attach)
         .then(|| {
-            let term = std::env::var("HYDRA_TERM_ID").ok()?.parse().ok()?;
-            Some((term, std::env::var("HYDRA_PANE_TOKEN").unwrap_or_default()))
+            let term = std::env::var("SESHI_TERM_ID").ok()?.parse().ok()?;
+            Some((term, std::env::var("SESHI_PANE_TOKEN").unwrap_or_default()))
         })
         .flatten();
     send(&mut w, &ClientMsg::Hello { version: protocol::PROTOCOL_VERSION, attach, from }).await?;
@@ -286,9 +286,9 @@ fn ssh_failure() -> String {
     let err = SSH_ERR.lock().unwrap().clone();
     let host = remote().unwrap_or_default();
     if err.contains("not found") || err.contains("not recognized") {
-        format!("{host} has no `hydra` on its PATH for ssh; install it there, or set HYDRA_REMOTE_CMD to its full path ({err})")
+        format!("{host} has no `seshi` on its PATH for ssh; install it there, or set SESHI_REMOTE_CMD to its full path ({err})")
     } else if err.is_empty() {
-        format!("couldn't reach hydra on {host} over ssh")
+        format!("couldn't reach seshi on {host} over ssh")
     } else {
         format!("ssh {host}: {err}")
     }

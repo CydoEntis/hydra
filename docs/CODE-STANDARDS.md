@@ -226,7 +226,7 @@ blocking calls inside async tasks or on the UI loop.
 
 Standard Rust: `snake_case` files, functions and modules; `PascalCase` types and
 enum variants; `SCREAMING_SNAKE_CASE` consts. Drawing functions are `draw_*`, key
-handlers `on_*_key`, hydra-layout methods on `App` are prefixed `hy_`. Config
+handlers `on_*_key`, seshi-layout methods on `App` are prefixed `hy_`. Config
 action names are `kebab-case` (`split-right`, `go-to`).
 
 ## Project-specific: formatting and linting

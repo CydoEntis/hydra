@@ -75,7 +75,7 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
     let col = Rect { y: g.tabs.y, height: g.panes.bottom().saturating_sub(g.tabs.y), ..g.tabs };
     draw_main(app, f, col, &model, t);
     app.hy.crumb_x = g.panes.x + 1;
-    // A popup (`hydra popup`) floats over everything, the rest dimmed.
+    // A popup (`seshi popup`) floats over everything, the rest dimmed.
     if let Some(term) = app.popup() {
         let whole = f.area();
         dim_all(f.buffer_mut(), whole, t);
@@ -867,7 +867,7 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
     app.pane_frames.push((term, r));
 
     // The terminal: 3 columns in, a row below the border, above a blank row and the footer.
-    // Answer buttons only for a question asked through hydra (ask-human), which has nowhere
+    // Answer buttons only for a question asked through seshi (ask-human), which has nowhere
     // else to be answered: an agent's own question is answered in its own prompt.
     let ask = st == Status::Blocked && info.agent.is_some() && app.pending_question(term).is_some();
     let below = 3 + if ask { 2 } else { 0 };
@@ -948,7 +948,7 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
         dim_inside(f.buffer_mut(), inside, look.dim, t);
     }
 
-    // Answer bar: the choices of the question asked through hydra, a full-width pill that
+    // Answer bar: the choices of the question asked through seshi, a full-width pill that
     // keeps its amber even when the card is faded.
     if ask && r.height >= 8 {
         let ay = r.bottom() - 5;

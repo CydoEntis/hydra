@@ -151,7 +151,7 @@ fn detaching_and_closing_prune_tabs_and_workspaces() {
 fn a_spare_fits_only_its_repo_and_its_agent() {
     let (mut d, _rx) = daemon();
     let t = pane(&mut d);
-    let repo = std::env::temp_dir().join("hydra-spare-repo");
+    let repo = std::env::temp_dir().join("seshi-spare-repo");
     d.cfg.worktree.prewarm = "claude".into();
     d.spare = Some((repo.clone(), repo.join("wt"), t));
     assert_eq!(d.spare_fits(&repo, "claude").as_deref(), Some(""), "the agent alone");
@@ -212,7 +212,7 @@ fn worktree_names_that_look_like_options_are_refused() {
 
 #[test]
 fn an_agent_typed_into_a_shell_gets_its_own_worktree() {
-    let tmp = std::env::temp_dir().join(format!("hydra-agent-wt-{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("seshi-agent-wt-{}", std::process::id()));
     let repo = tmp.join("shop");
     std::fs::create_dir_all(repo.join("web")).unwrap();
     let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success(), "git {args:?}");
@@ -310,7 +310,7 @@ fn claude_reports_what_its_session_used() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_queue_runs_so_many_at_once_and_moves_on() {
-    let tmp = std::env::temp_dir().join(format!("hydra-queue-{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("seshi-queue-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     let repo = tmp.join("shop");
     std::fs::create_dir_all(&repo).unwrap();
@@ -370,7 +370,7 @@ async fn the_queue_runs_so_many_at_once_and_moves_on() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agents_turn_ending_saves_a_checkpoint() {
-    let repo = std::env::temp_dir().join(format!("hydra-turn-cp-{}", std::process::id()));
+    let repo = std::env::temp_dir().join(format!("seshi-turn-cp-{}", std::process::id()));
     std::fs::create_dir_all(&repo).unwrap();
     let git = |args: &[&str]| assert!(std::process::Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success(), "git {args:?}");
     git(&["init", "-q"]);
@@ -414,7 +414,7 @@ fn a_panes_history_survives_the_server_restarting() {
     d2.restore(saved);
     let new = *d2.terms.keys().next().unwrap();
     let replay = String::from_utf8_lossy(&d2.terms[&new].replay()).into_owned();
-    assert!(replay.contains("line from before the restart") && replay.contains("hydra restarted here"), "{replay}");
+    assert!(replay.contains("line from before the restart") && replay.contains("seshi restarted here"), "{replay}");
     let mut p = vt100::Parser::new(24, 80, 1000);
     p.process(&d2.terms[&new].replay());
     p.screen_mut().set_scrollback(usize::MAX);
@@ -431,7 +431,7 @@ fn closing_the_last_pane_keeps_an_open_window() {
     let (tx, _crx) = mpsc::channel(64);
     d.handle(Ev::Connected(1, tx, true));
     d.close_term(t);
-    assert!(!d.should_exit(), "a window is still showing hydra");
+    assert!(!d.should_exit(), "a window is still showing seshi");
     d.handle(Ev::Disconnected(1));
     assert!(d.should_exit(), "everything closed and nobody's looking: exit");
 }
@@ -474,7 +474,7 @@ fn a_turn_waiting_on_background_agents_stays_working() {
 fn an_agent_asks_you_and_gets_your_answer() {
     let (mut d, _rx) = daemon();
     let t = pane(&mut d);
-    // The agent's `hydra ask-human` is a client waiting for the reply.
+    // The agent's `seshi ask-human` is a client waiting for the reply.
     let (tx, mut asker) = mpsc::channel(8);
     d.handle(Ev::Connected(5, tx, false));
     let ask = Command::AskHuman { term: t, text: "Deploy to staging?".into(), options: vec!["Yes".into(), "No".into()] };
@@ -546,7 +546,7 @@ fn an_agent_stays_in_the_folder_it_started_in() {
     let (mut d, _rx) = daemon();
     let t = pane(&mut d);
     let secret = d.terms[&t].token.clone();
-    let base = std::env::temp_dir().join(format!("hydra-pin-{}", std::process::id()));
+    let base = std::env::temp_dir().join(format!("seshi-pin-{}", std::process::id()));
     let (home, other) = (base.join("home"), base.join("other"));
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&other).unwrap();

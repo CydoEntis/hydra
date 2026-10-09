@@ -1,12 +1,12 @@
 [package]
-name = "hydra"
+name = "seshi"
 version = "0.13.0"
 edition = "2024"
-description = "A customizable, agent-aware terminal multiplexer (herdr-style) for Windows, macOS and Linux"
+description = "Seshi: run many coding agents side by side, see which need you, keep them running when you leave"
 license = "MIT"
 
 [[bin]]
-name = "hydra"
+name = "seshi"
 path = "src/main.rs"
 
 [dependencies]
