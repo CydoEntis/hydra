@@ -332,6 +332,32 @@ fn bash_rc(agents: &[String]) -> Option<PathBuf> {
     Some(path)
 }
 
+/// What seshi's zsh panes read first (as their `$ZDOTDIR/.zshenv`): your own `ZDOTDIR` put
+/// back (so zsh goes on to your `.zshrc` as usual), your `.zshenv`, then the agent functions.
+fn zsh_env(agents: &[String]) -> String {
+    format!(
+        "# Written by seshi for its zsh panes: your own startup files, then agents started in their own worktrees.
+if [ -n \"${{SESHI_ZDOTDIR+x}}\" ]; then ZDOTDIR=\"$SESHI_ZDOTDIR\"; else unset ZDOTDIR; fi
+unset SESHI_ZDOTDIR
+[ -f \"${{ZDOTDIR:-$HOME}}/.zshenv\" ] && . \"${{ZDOTDIR:-$HOME}}/.zshenv\"
+{}",
+        agent_functions("zsh", agents, &hydra_exe())
+    )
+}
+
+/// The folder a plain zsh pane gets as its `ZDOTDIR` (holding `zsh_env`). Rewritten when it
+/// changes.
+fn zsh_dir(agents: &[String]) -> Option<PathBuf> {
+    let dir = crate::config::data_dir().join("shell").join("zsh");
+    let path = dir.join(".zshenv");
+    let text = zsh_env(agents);
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
+        std::fs::create_dir_all(&dir).ok()?;
+        std::fs::write(&path, text).ok()?;
+    }
+    Some(dir)
+}
+
 fn argv(cfg: &Config, cmd: Option<&str>, once: bool) -> Vec<String> {
     let mut shell = cfg.shell_command();
     let cmd = cmd.filter(|c| !c.trim().is_empty());
@@ -408,6 +434,20 @@ impl Term {
         cmd.env("SESHI_PANE_TOKEN", &token);
         if let Ok(sock) = std::env::var("SESHI_SOCKET") {
             cmd.env("SESHI_SOCKET", sock);
+        }
+        // zsh has no flag for another rc file: a plain zsh pane starts from seshi's ZDOTDIR,
+        // whose .zshenv hands back to yours and adds the agent functions (as bash's --rcfile).
+        let stem = Path::new(&args[0]).file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        let agents = worktree_agents(cfg);
+        if stem == "zsh"
+            && args.len() == 1
+            && !agents.is_empty()
+            && let Some(dir) = zsh_dir(&agents)
+        {
+            if let Ok(own) = std::env::var("ZDOTDIR") {
+                cmd.env("SESHI_ZDOTDIR", own);
+            }
+            cmd.env("ZDOTDIR", dir);
         }
         for (k, v) in cfg.env.iter().chain(spec.env.iter().map(|(k, v)| (k, v))) {
             cmd.env(k, v);
@@ -752,6 +792,16 @@ pub fn same_secret(a: &str, b: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_zsh_pane_hands_back_to_your_files_then_wraps_agents() {
+        let env = super::zsh_env(&["claude".into()]);
+        let restore = env.find("ZDOTDIR=\"$SESHI_ZDOTDIR\"").expect("your ZDOTDIR put back");
+        let yours = env.find(".zshenv\" ] && .").expect("your .zshenv read");
+        let wrap = env.find("claude() {").expect("claude wrapped");
+        assert!(restore < yours && yours < wrap, "yours first, then the wrapper: {env}");
+        assert!(env.contains("agent-dir claude"), "it asks seshi where to start: {env}");
+    }
+
     #[test]
     fn a_pane_shell_starts_agents_through_hydra() {
         let cfg = crate::config::Config::default();
