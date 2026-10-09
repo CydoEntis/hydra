@@ -52,7 +52,9 @@ impl App {
                 let bracketed = self.parsers.get(&term).is_some_and(|p| p.screen().bracketed_paste());
                 let body = s.replace("\r\n", "\r").replace('\n', "\r");
                 let data = if bracketed { format!("\x1b[200~{body}\x1b[201~") } else { body };
-                self.scroll.remove(&term);
+                if let Some(p) = self.parsers.get_mut(&term) {
+                    p.screen_mut().set_scrollback(0);
+                }
                 self.send(ClientMsg::Input { term, data: data.into_bytes() });
             }
         }
@@ -310,7 +312,6 @@ impl App {
         if data.is_empty() {
             return;
         }
-        self.scroll.remove(&term);
         if let Some(p) = self.parsers.get_mut(&term) {
             p.screen_mut().set_scrollback(0);
         }
@@ -416,7 +417,6 @@ impl App {
                     self.cmd(Command::FocusPane { term });
                 }
                 // Clicking for the program brings its view back to the bottom.
-                self.scroll.remove(&term);
                 if let Some(p) = self.parsers.get_mut(&term) {
                     p.screen_mut().set_scrollback(0);
                 }
@@ -831,16 +831,9 @@ impl App {
 
     pub(super) fn scroll_by(&mut self, term: TermId, delta: i32) {
         let Some(p) = self.parsers.get_mut(&term) else { return };
-        let cur = self.scroll.get(&term).copied().unwrap_or(0) as i32;
-        let want = (cur + delta).max(0) as usize;
-        p.screen_mut().set_scrollback(want);
-        // vt100 clamps to the history it has.
-        let actual = p.screen().scrollback();
-        if actual == 0 {
-            self.scroll.remove(&term);
-        } else {
-            self.scroll.insert(term, actual);
-        }
+        // The parser's own offset: vt100 raises it as output arrives, to keep the view still.
+        let cur = p.screen().scrollback() as i32;
+        p.screen_mut().set_scrollback((cur + delta).max(0) as usize);
     }
 
     /// Clicks on chips and buttons. Returns true if handled.

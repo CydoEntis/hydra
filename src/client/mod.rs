@@ -354,7 +354,6 @@ pub struct App {
     copy_set: Vec<(TermId, String)>,
     /// Where commands started in each pane's history (see `marks`).
     marks: HashMap<TermId, marks::Marks>,
-    scroll: HashMap<TermId, usize>,
     sizes: HashMap<TermId, (u16, u16)>,
     mode: Mode,
     zoomed: HashSet<TabId>,
@@ -517,7 +516,6 @@ impl App {
             copy_set: Vec::new(),
             copy_term: None,
             pointer: "default",
-            scroll: HashMap::new(),
             sizes: HashMap::new(),
             mode: Mode::Normal,
             zoomed: HashSet::new(),
@@ -784,7 +782,6 @@ impl App {
             p.process(raw.make_contiguous());
         }
         self.parsers.insert(term, p);
-        self.scroll.remove(&term);
     }
 
     // ---- server messages -----------------------------------------------------------
@@ -841,9 +838,8 @@ impl App {
     }
 
     fn enter_copy(&mut self, term: TermId) -> bool {
-        let scroll = self.scroll.get(&term).copied().unwrap_or(0);
         let Some(p) = self.parsers.get_mut(&term) else { return false };
-        let mut c = copy::Copy::new(term, p, scroll);
+        let mut c = copy::Copy::new(term, p);
         if let Some((_, r)) = self.panes.iter().find(|(t, _)| *t == term) {
             c.height = r.height as usize;
             c.width = r.width as usize;
@@ -973,7 +969,7 @@ impl App {
     }
 
     pub(super) fn scroll_to(&mut self, term: TermId, offset: usize) {
-        let cur = self.scroll.get(&term).copied().unwrap_or(0) as i32;
+        let cur = self.history(term).0 as i32;
         self.scroll_by(term, offset as i32 - cur);
     }
 

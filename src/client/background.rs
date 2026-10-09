@@ -20,7 +20,6 @@ impl App {
         match msg {
             ServerMsg::State(s) => {
                 self.parsers.retain(|id, _| s.terms.contains_key(id));
-                self.scroll.retain(|id, _| s.terms.contains_key(id));
                 for (id, t) in &s.terms {
                     if !self.parsers.contains_key(id) {
                         let p = self.new_parser(t.rows, t.cols);

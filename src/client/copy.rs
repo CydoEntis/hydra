@@ -69,8 +69,9 @@ fn all_lines(parser: &mut vt100::Parser) -> Vec<String> {
 
 impl Copy {
     /// Snapshot `parser`, showing what the pane shows now (honouring its scroll offset).
-    pub fn new(term: TermId, parser: &mut vt100::Parser, scroll: usize) -> Copy {
+    pub fn new(term: TermId, parser: &mut vt100::Parser) -> Copy {
         let (rows, cols) = parser.screen().size();
+        let scroll = parser.screen().scrollback();
         let (crow, ccol) = parser.screen().cursor_position();
         let lines = all_lines(parser);
         let rows = rows as usize;
@@ -401,7 +402,7 @@ mod tests {
     fn copy_of(text: &str) -> Copy {
         let mut p = vt100::Parser::new(4, 20, 100);
         p.process(text.replace('\n', "\r\n").as_bytes());
-        let mut c = Copy::new(1, &mut p, 0);
+        let mut c = Copy::new(1, &mut p);
         c.height = 4;
         c
     }

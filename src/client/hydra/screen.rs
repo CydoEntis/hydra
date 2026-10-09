@@ -760,7 +760,8 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
     let ink = |c: Color| if focused { t.acc_ink } else { c };
     fill(f.buffer_mut(), Rect { height: 1, ..r }, bg);
     let mut right: Vec<Seg> = Vec::new();
-    if let Some(n) = app.scroll.get(&term) {
+    let scrolled = app.parsers.get(&term).map(|p| p.screen().scrollback()).filter(|n| *n > 0);
+    if let Some(n) = scrolled {
         right.push(seg(format!("↑{n}   "), Style::default().fg(ink(t.accent)).bg(bg)));
     }
     if info.agent.is_some() {
@@ -851,7 +852,7 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
         render_screen(screen, inner, f.buffer_mut(), t.bg);
         if focused
             && !screen.hide_cursor()
-            && !app.scroll.contains_key(&term)
+            && scrolled.is_none()
             && matches!(app.mode, Mode::Normal | Mode::Prefix { .. })
             && app.view.is_none()
         {
@@ -884,7 +885,7 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
     }
 
     // Scrolled up: say so, and how to get back.
-    if let Some(n) = app.scroll.get(&term).copied() {
+    if let Some(n) = scrolled {
         let note = vec![
             seg(format!(" ↑ {n} lines up "), Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)),
             seg(" type, or scroll down, to go back ", Style::default().bg(t.card2).fg(t.text)),

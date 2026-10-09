@@ -484,7 +484,7 @@ mod hydra_tests {
         }
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(!o.contains("line 100"), "scrolled up: {:?}", app.scroll.get(&1));
+        assert!(!o.contains("line 100"), "scrolled up: {:?}", app.history(1));
         assert!(o.contains("↑ 30 lines up"), "and it says so");
         app.on_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::SHIFT));
         app.on_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::SHIFT));
@@ -509,14 +509,13 @@ mod hydra_tests {
         for _ in 0..5 {
             app.on_mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: inner.x + 5, row: inner.y + 5, modifiers: KeyModifiers::NONE });
         }
-        assert_eq!(app.scroll.get(&1), Some(&15), "hydra scrolled its history");
+        assert_eq!(app.history(1).0, 15, "hydra scrolled its history");
         // A full-screen program (no history of its own here) gets the wheel itself.
         let mut p = vt100::Parser::new(40, 120, 1000);
         p.process(b"\x1b[?1049h\x1b[?1000h\x1b[?1006h");
         app.parsers.insert(1, p);
-        app.scroll.clear();
         app.on_mouse(MouseEvent { kind: MouseEventKind::ScrollUp, column: inner.x + 5, row: inner.y + 5, modifiers: KeyModifiers::NONE });
-        assert!(!app.scroll.contains_key(&1), "the program scrolls itself");
+        assert_eq!(app.history(1).0, 0, "the program scrolls itself");
     }
 
     #[test]
@@ -530,17 +529,17 @@ mod hydra_tests {
         draw(&mut app, 160, 45);
         // PageUp at a prompt scrolls history; a scrollbar shows where you are.
         app.on_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
-        assert!(app.scroll.get(&1).is_some_and(|n| *n > 10), "PageUp scrolled: {:?}", app.scroll.get(&1));
+        assert!(app.history(1).0 > 10, "PageUp scrolled: {:?}", app.history(1));
         let o = draw(&mut app, 160, 45);
         assert!(o.contains("┃"), "scrollbar thumb");
         app.on_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
-        assert!(!app.scroll.contains_key(&1), "typing goes back to the bottom");
+        assert_eq!(app.history(1).0, 0, "typing goes back to the bottom");
         // A full-screen program keeps PageUp for itself.
         if let Some(p) = app.parsers.get_mut(&1) {
             p.process(b"\x1b[?1049h");
         }
         app.on_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
-        assert!(!app.scroll.contains_key(&1), "PageUp went to the program");
+        assert_eq!(app.history(1).0, 0, "PageUp went to the program");
         // Synchronized output holds drawing until it ends.
         app.on_server(ServerMsg::Output { term: 1, data: b"\x1b[?2026hhalf a frame".to_vec() });
         assert!(app.sync_hold_until().is_some(), "held mid update");
@@ -814,7 +813,7 @@ mod hydra_tests {
         out.extend(b"\x1b[r");
         app.feed(term, &out);
         app.scroll_by(term, 20);
-        assert!(app.scroll.get(&term).is_some_and(|n| *n > 0), "lines pushed off the top are history");
+        assert!(app.history(term).0 > 0, "lines pushed off the top are history");
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains("line 10") && !o.contains("line 59"), "and show when scrolled back (20 lines up)");
@@ -1008,7 +1007,6 @@ mod hydra_tests {
         // A history that fills up and drops its oldest lines: still the right command.
         app.parsers.insert(term, vt100::Parser::new(20, 80, 50));
         app.marks.remove(&term);
-        app.scroll.remove(&term);
         for n in 1..=4 {
             app.feed(term, format!("\x1b]133;A\x07$ job{n}\r\n").as_bytes());
             for i in 0..30 {
@@ -1036,6 +1034,37 @@ mod hydra_tests {
         assert_ne!(app.focused(), Some(9), "the pane you're on stays yours underneath");
         app.snap.terms.remove(&9);
         assert_eq!(app.typing_to(), app.focused(), "closed: typing goes back");
+    }
+
+    #[test]
+    fn drag_copies_what_is_under_the_mouse_after_output_while_scrolled_up() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        draw(&mut app, 160, 45);
+        let term = app.focused().unwrap();
+        let (_, r) = *app.panes.iter().find(|(t, _)| *t == term).unwrap();
+        let mut p = vt100::Parser::new(r.height, r.width, 1000);
+        for i in 0..80 {
+            p.process(format!("line {i}\r\n").as_bytes());
+        }
+        app.parsers.insert(term, p);
+        draw(&mut app, 160, 45);
+        // Scrolled up, then the agent prints more: vt100 keeps the view where it was.
+        app.scroll_by(term, 10);
+        app.parsers.get_mut(&term).unwrap().process(b"more 1\r\nmore 2\r\nmore 3\r\n");
+        draw(&mut app, 160, 45);
+        let rows: Vec<String> = app.parsers[&term].screen().rows(0, r.width).collect();
+        let row_of = |s: &str| rows.iter().position(|l| l == s).unwrap() as u16;
+        let (from, to) = (row_of("line 61"), row_of("line 68"));
+        let mouse = |app: &mut App, kind: MouseEventKind, y: u16| {
+            app.on_mouse(MouseEvent { kind, column: r.x, row: r.y + y, modifiers: KeyModifiers::NONE });
+            draw(app, 160, 45);
+        };
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), from);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), from + 1);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), to);
+        let Mode::Copy(c) = &app.mode else { panic!("dragging selects") };
+        let picked = c.selected_text();
+        assert!(picked.starts_with("line 61\n") && picked.ends_with("\nl"), "{picked:?}");
     }
 
     #[test]
