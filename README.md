@@ -170,7 +170,7 @@ second step (`w` worktrees: new, switch, merge, delete; Backspace goes back).
 | `j` | **inbox**: what needs you (answer a question with its number, Enter goes there), then every session; type to find one |
 | `n` / `p` | a shell right where you are (cd and run what you like; it groups itself) / a shell beside this one |
 | `z` / `x` | zoom / close |
-| arrows | focus the pane that way (left past the edge: the sidebar) |
+| arrows | focus the pane that way (left past the edge: the sidebar). `Alt`+arrows do it without the leader (Settings → General turns that off) |
 | `v` / `-` / `H J K L` | split right / split down / resize |
 | `t` / `r` / `]` `[` / `X` | **tabs**: new tab (a shell where you are) / rename it in its pill (or double-click it) / next, previous / close it. `Alt+1`–`9` (no leader) goes to a tab |
 | `w` / `f` / `d` | worktrees › / files / changes |

@@ -570,6 +570,14 @@ pub const DEFAULT_GLOBAL_KEYS: &[(&str, &str)] = &[
     ("alt+9", "select-tab-9"),
 ];
 
+/// Moving between panes without the leader (`ui.alt_arrows`).
+pub const ALT_ARROW_KEYS: &[(&str, &str)] = &[
+    ("alt+left", "focus-left"),
+    ("alt+down", "focus-down"),
+    ("alt+up", "focus-up"),
+    ("alt+right", "focus-right"),
+];
+
 /// A mouse event as the bytes a program that turned on mouse reporting expects, at (col,
 /// row) inside its screen (0-based). None: the program didn't ask for this kind of event;
 /// empty: it's the program's, but there's nothing to send.

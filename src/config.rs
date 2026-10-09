@@ -80,6 +80,9 @@ pub struct Ui {
     pub splash: bool,
     /// Look for a newer seshi when the window opens (and every few hours) and say so.
     pub update_check: bool,
+    /// Alt+arrows move between panes without the leader (off: they go to the program, for
+    /// shells that jump words with them).
+    pub alt_arrows: bool,
     /// Where plain `seshi` opens its first shell (and the one after you close everything).
     /// Empty: wherever you run seshi. `~` is your home folder.
     pub start_dir: String,
@@ -445,6 +448,7 @@ impl Default for Ui {
                 .to_vec(),
             splash: true,
             update_check: true,
+            alt_arrows: true,
             start_dir: String::new(),
             attention_sort: true,
             panes: "floating".into(),
@@ -861,7 +865,8 @@ impl Config {
             (map, order)
         };
         let (prefixed, prefixed_order) = build(keys::DEFAULT_PREFIX_KEYS, &self.keys.prefix);
-        let (global, _) = build(keys::DEFAULT_GLOBAL_KEYS, &self.keys.global);
+        let globals: Vec<(&str, &str)> = keys::DEFAULT_GLOBAL_KEYS.iter().chain(if self.ui.alt_arrows { keys::ALT_ARROW_KEYS } else { &[] }).copied().collect();
+        let (global, _) = build(&globals, &self.keys.global);
         Keymap { prefix, prefixed, prefixed_order, global, warnings }
     }
 
@@ -1083,5 +1088,13 @@ shell = \"pwsh\"
         let km = c.keymap();
         assert!(!km.prefixed.contains_key(&"x".parse().unwrap()));
         assert_eq!(km.prefixed[&"q".parse().unwrap()], Action::ClosePane);
+    }
+
+    #[test]
+    fn alt_arrows_move_between_panes_unless_turned_off() {
+        let alt_left = "alt+left".parse().unwrap();
+        assert_eq!(Config::default().keymap().global[&alt_left], Action::Focus(crate::layout::Dir::Left));
+        let off: Config = toml::from_str("[ui]\nalt_arrows = false").unwrap();
+        assert!(!off.keymap().global.contains_key(&alt_left), "off: the program gets them");
     }
 }

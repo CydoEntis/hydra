@@ -88,6 +88,7 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "ui.splash", label: "Splash screen", kind: Kind::Bool, cat: Cat::General, help: "Show the seshi and what happened while you were away when you start." },
     Setting { path: "ui.update_check", label: "Check for updates", kind: Kind::Bool, cat: Cat::General, help: "When seshi opens (and every few hours while it's open), see whether a newer one is out; the Update button installs it." },
     Setting { path: "ui.mouse", label: "Mouse", kind: Kind::Bool, cat: Cat::General, help: "Click, hover, scroll and drag. Hold Shift to select text with your terminal instead." },
+    Setting { path: "ui.alt_arrows", label: "Alt+arrows move between panes", kind: Kind::Bool, cat: Cat::General, help: "Without the leader. Turn it off if your shell jumps words with Alt+arrows." },
     Setting { path: "ui.which_key", label: "Keys after a pause", kind: Kind::Bool, cat: Cat::General, help: "After the leader key, show every shortcut if you pause." },
     Setting { path: "ui.sidebar_position", label: "Sidebar side", kind: Kind::Choice(&["left", "right"]), cat: Cat::General, help: "Which edge the sidebar sits on." },
     Setting { path: "ui.start_dir", label: "Start folder", kind: Kind::Folder, cat: Cat::General, help: "Where plain `seshi` opens (and the shell after you close everything). Empty: wherever you run it. ~ is home." },
