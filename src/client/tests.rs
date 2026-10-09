@@ -174,7 +174,7 @@ mod hydra_tests {
         // tab pills one row down, the cards below a row of air.
         assert!(lines[0].trim().is_empty(), "a row of margin on top");
         assert!(lines[1].starts_with(" ╭─"), "the sidebar card, a column in: {}", lines[1]);
-        assert!(lines[2].contains(" 1 claude") && lines[2].contains(" + ") && !lines[2].contains('▯'), "tab pills and +, no layout switch: {}", lines[2]);
+        assert!(lines[2].contains(" 1 ") && !lines[2].contains("claude") && lines[2].contains(" + ") && !lines[2].contains('▯'), "an unnamed tab is its number; +; no layout switch: {}", lines[2]);
         assert!(lines[4].contains("╭─ claude ─ Fix flaky checkout test · shop-api · main") && lines[4].contains("● needs you ─ ✕ ─"), "title, project · branch, state and ✕ set into the card's border: {}", lines[4]);
         assert!(lines[6].contains("> fix the flaky checkout test"), "the terminal a row below the border, inset");
         assert!(text.contains("shop-api · ⎇ main"), "folder and branch in the card's footer");
@@ -757,7 +757,7 @@ mod hydra_tests {
         app.hy.tabs.clear();
         app.hy_place(1, None);
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains(" 1 claude") && o.contains(" + ") && app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::TabNew)), "the tab row, with +, even with one tab");
+        assert!(app.hits.iter().filter(|(_, h)| matches!(h, Hit::Hy(hydra::HyHit::TabPick(_)))).count() == 1 && app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::TabNew)), "the tab row, with +, even with one tab");
         // Ctrl+Space t in claude's session: a shell where you are, straight away, as a tab of
         // claude's (no card to fill in first).
         let key = |app: &mut App, c: KeyCode| app.on_key(KeyEvent::new(c, KeyModifiers::NONE));
@@ -770,22 +770,22 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert_eq!(app.session_tabs().len(), 2);
-        assert!(o.contains(" 1 claude") && o.contains(" 2 shell"), "claude's tabs, the new one named after what runs in it");
+        assert!(app.hits.iter().filter(|(_, h)| matches!(h, Hit::Hy(hydra::HyHit::TabPick(_)))).count() == 2 && !o.contains("2 shell"), "claude's two tabs, unnamed ones shown by number");
         // Renamed in its pill.
         app.act(Action::RenameTab);
         for c in "tests".chars() {
             key(&mut app, KeyCode::Char(c));
         }
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains(" 2 tests█"), "typed in its pill");
+        assert!(o.contains(" tests█"), "typed in its pill");
         key(&mut app, KeyCode::Enter);
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains(" 2 tests"), "renamed");
+        assert!(o.contains(" tests ") && !o.contains("2 tests"), "renamed: the pill is its name");
         // Another session: its own view, with its own rail.
         app.hy_place(2, Some(3));
         let o = draw(&mut app, 160, 45);
         assert_eq!(app.session_tabs().len(), 1);
-        assert!(o.contains(" 1 rate") && !o.contains(" 2 shell"), "codex (in rate) has one tab");
+        assert!(app.hits.iter().filter(|(_, h)| matches!(h, Hit::Hy(hydra::HyHit::TabPick(_)))).count() == 1, "codex has one tab");
         // Back to claude: the tab you were last on there (the shell).
         app.hy_place(1, Some(2));
         assert_eq!(app.hy.tabs[app.hy.tab].focus, 3, "back on the shell tab");

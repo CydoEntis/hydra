@@ -591,7 +591,7 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         tab.used = tick;
     }
     let look = Look::of(&app.cfg.ui);
-    draw_tab_bar(app, f.buffer_mut(), Rect { height: 1, ..area }, model, t);
+    draw_tab_bar(app, f.buffer_mut(), Rect { height: 1, ..area }, t);
     let skip = if look.tiled { 1 } else { 2 };
     let area = Rect { y: area.y + skip, height: area.height.saturating_sub(skip), ..area };
     // Between cards: `gap` rows stacked, as many columns side by side.
@@ -691,18 +691,12 @@ fn tab_state(app: &App, tab: &HyTab) -> Option<Status> {
         .min_by_key(|s| rank(*s))
 }
 
-/// What a tab is called: its own name, else what runs in it.
-pub(in crate::client) fn tab_name(app: &App, model: &[Proj], tab: &HyTab) -> String {
-    if !tab.name.is_empty() {
-        return tab.name.clone();
-    }
-    find(model, tab.focus).map(|(_, _, s)| s.name.clone()).unwrap_or_else(|| {
-        app.snap.terms.get(&tab.focus).map(|i| match &i.agent {
-            Some(a) => a.clone(),
-            None if i.is_shell() => "shell".into(),
-            None => i.display_name(),
-        }).unwrap_or_else(|| "…".into())
-    })
+/// The name you gave a tab, if any. "tab 2" (what an earlier version named new tabs) isn't
+/// one: the pill shows the number already.
+pub(in crate::client) fn tab_name(tab: &HyTab) -> Option<String> {
+    let n = tab.name.trim();
+    let generic = n.strip_prefix("tab ").is_some_and(|d| d.chars().all(|c| c.is_ascii_digit()));
+    (!n.is_empty() && !generic).then(|| n.to_string())
 }
 
 /// Leader mode is on: waiting for the key, or showing the key map.
@@ -712,7 +706,7 @@ pub(in crate::client) fn armed(app: &App) -> bool {
 
 /// The tab row: a pill per tab (number, name, its most urgent state; the current one in the
 /// accent), a + pill, and the leader pill at the far right while leader mode is on.
-pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
+pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, t: &Theme) {
     let look = Look::of(&app.cfg.ui);
     let pb = pane_bg(t);
     fill(buf, r, t.bg);
@@ -750,17 +744,12 @@ pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, 
         } else if small && !on {
             String::new()
         } else {
-            tab_name(app, model, tab)
+            tab_name(tab).unwrap_or_default()
         };
+        // Its name if you gave it one (or are typing one), else its number.
         let fg = if on { t.acc_ink } else { t.text };
-        let mut segs = vec![seg(" ", Style::default()), seg(format!("{}", n + 1), Style::default().fg(fg).add_modifier(Modifier::BOLD))];
-        if !name.is_empty() || editing {
-            let mut ns = Style::default().fg(fg);
-            if on {
-                ns = ns.add_modifier(Modifier::BOLD);
-            }
-            segs.push(seg(format!(" {}", truncate(&name, 24)), ns));
-        }
+        let label = if name.is_empty() && !editing { format!("{}", n + 1) } else { truncate(&name, 24) };
+        let mut segs = vec![seg(" ", Style::default()), seg(label, Style::default().fg(fg).add_modifier(Modifier::BOLD))];
         if editing {
             segs.push(seg("█", Style::default().fg(fg)));
         }
