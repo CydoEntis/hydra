@@ -84,6 +84,10 @@ enum Mode {
     Confirm(Box<menu::Confirm>),
     /// The switcher: projects and sessions, typed to filter.
     GoTo { query: String, sel: usize },
+    /// Writing a quick follow-up to an agent (beside its row, or in its Inbox row).
+    Compose(Box<hydra::Compose>),
+    /// Why a session has its status (beside its row); `side`: back to the sidebar after.
+    Why { term: TermId, side: bool },
     /// The leader's key map (or its second step), typed to search.
     KeyMap(Box<hydra::KeyMap>),
     /// Every command with its key (the sidebar's "a actions").

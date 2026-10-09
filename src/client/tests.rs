@@ -28,6 +28,11 @@ mod design_tests {
     fn term(id: TermId, agent: Option<&str>, status: Status, cwd: &str) -> TermInfo {
         TermInfo {
             status_why: String::new(),
+            why_hook: String::new(),
+            why_hook_at: 0,
+            why_screen: String::new(),
+            why_screen_at: 0,
+            pid: 0,
             name: String::new(),
             label: String::new(),
             model: String::new(),
@@ -1543,6 +1548,47 @@ mod hydra_tests {
         show(&o);
         assert!(o.contains("╭─ Changes") && o.contains("╭─ claude"), "Changes docks beside the panes");
         let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn a_follow_up_and_why_open_beside_the_row() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let key = |app: &mut App, c: KeyCode, m: KeyModifiers| app.on_key(KeyEvent::new(c, m));
+        // claude's row (it needs you): m writes to it from the sidebar.
+        app.mode = Mode::Side;
+        app.hy.cursor = Some(1);
+        key(&mut app, KeyCode::Char('m'), KeyModifiers::NONE);
+        assert!(matches!(&app.mode, Mode::Compose(c) if c.term == 1 && c.side), "m: a follow-up to the row's agent");
+        for ch in "use the fake clock".chars() {
+            key(&mut app, KeyCode::Char(ch), KeyModifiers::NONE);
+        }
+        key(&mut app, KeyCode::Enter, KeyModifiers::SHIFT);
+        key(&mut app, KeyCode::Char('x'), KeyModifiers::NONE);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("message claude") && o.contains("Run npm test -- checkout?") && o.contains("use the fake clock") && o.contains("5 words"), "the question, then the text, its word count");
+        assert!(o.contains("◂"), "it points at the row");
+        key(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert!(app.mode == Mode::Side, "sent: back on the sidebar");
+        assert!(app.notice.as_ref().is_some_and(|(m, ..)| m.contains("Sent to claude")), "{:?}", app.notice);
+        // i: why it has its status.
+        let info = app.snap.terms.get_mut(&1).unwrap();
+        (info.status_why, info.why_hook, info.why_hook_at) = ("hook: Notification".into(), "Notification".into(), 1);
+        key(&mut app, KeyCode::Char('i'), KeyModifiers::NONE);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("why ") && o.contains("hook     Notification") && o.contains("most specific source wins"), "the evidence, the winner marked");
+        key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        assert!(app.mode == Mode::Side);
+        // In the Inbox, m opens the box inside the row.
+        app.mode = Mode::Normal;
+        app.act(Action::Jump);
+        key(&mut app, KeyCode::Char('m'), KeyModifiers::NONE);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(matches!(&app.mode, Mode::Compose(c) if c.inbox.is_some()) && o.contains("╭─ Inbox") && o.contains("Next prompt for claude"), "the box in the Inbox row");
+        key(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        assert!(matches!(app.mode, Mode::GoTo { .. }), "Esc: back in the Inbox");
     }
 
     #[test]

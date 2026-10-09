@@ -93,6 +93,10 @@ pub struct Term {
     pub status_since: u64,
     /// What set the status: a hook's event, a pattern on screen, you.
     pub status_why: String,
+    /// The last hook it reported (its event) and the last thing the screen showed that
+    /// changed its status, each with when (unix seconds): the evidence "why" lays out.
+    pub last_hook: Option<(String, u64)>,
+    pub last_screen: Option<(String, u64)>,
     /// The status (by when it began) a phone alert went out for, so it goes once.
     pub phoned: u64,
     /// Hooks reported for this agent session: trust them over heuristics.
@@ -512,6 +516,8 @@ impl Term {
             status: Status::None,
             status_since: unix_now(),
             status_why: String::new(),
+            last_hook: None,
+            last_screen: None,
             phoned: 0,
             hooked: false,
             last_output: now,

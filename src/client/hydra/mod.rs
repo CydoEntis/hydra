@@ -965,11 +965,12 @@ mod card;
 mod dialogs;
 mod leader;
 mod popups;
+mod popover;
 mod screen;
 mod sheet;
 mod splash;
 
-pub(in crate::client) use self::{card::*, dialogs::*, leader::*, popups::*, screen::*, splash::*, sheet::*};
+pub(in crate::client) use self::{card::*, dialogs::*, leader::*, popups::*, screen::*, splash::*, sheet::*, popover::*};
 
 
 #[cfg(test)]

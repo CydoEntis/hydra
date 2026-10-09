@@ -381,6 +381,14 @@ impl App {
                 self.hy_new_session(dir, None, false);
             }
             // One place: what needs you on top, and type to go anywhere.
+            Action::Message | Action::Why => {
+                let side = self.mode == Mode::Side || self.hy.cursor.is_some();
+                match self.hy.cursor.or(self.focused()) {
+                    Some(term) if *a == Action::Message => self.start_compose(term, side, None),
+                    Some(term) => self.mode = Mode::Why { term, side },
+                    None => self.notify("no session to ask about".into(), true),
+                }
+            }
             // It opens the Inbox, and closes it again.
             Action::Jump if matches!(self.mode, Mode::GoTo { .. }) => self.mode = Mode::Normal,
             Action::Jump => self.open_goto(),
@@ -573,7 +581,10 @@ impl App {
                     self.menu_act(act);
                 }
             }
-            // A letter from the row's menu does that (x close, r rename, m message, …).
+            // m: a follow-up to this row's agent; i: why it has its status.
+            KeyCode::Char('m') if plain && self.hy.cursor.is_some() => self.act(Action::Message),
+            KeyCode::Char('i') if plain && self.hy.cursor.is_some() => self.act(Action::Why),
+            // A letter from the row's menu does that (x close, r rename, …).
             KeyCode::Char(c) if plain && crate::client::menu::menu_keys(&self.cursor_items()).contains(&Some(c)) => {
                 let items = self.cursor_items();
                 if let Some(i) = crate::client::menu::menu_keys(&items).iter().position(|k| *k == Some(c))
@@ -825,6 +836,13 @@ impl App {
                 }
             }
             // Seen: a finished one leaves the list.
+            // m: a follow-up, inside the row.
+            KeyCode::Char('m') if query.is_empty() && matches!(sel_row, Some(GoRow::Ask(_) | GoRow::Done(_))) => {
+                if let Some(GoRow::Ask(term) | GoRow::Done(term)) = sel_row {
+                    self.start_compose(term, false, Some((query, sel)));
+                }
+                return;
+            }
             KeyCode::Delete if matches!(sel_row, Some(GoRow::Done(_))) => {
                 if let Some(GoRow::Done(term)) = sel_row {
                     self.cmd(Command::MarkSeen { term });

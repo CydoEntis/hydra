@@ -129,6 +129,11 @@ impl Daemon {
 
     pub(super) fn hook(&mut self, term: TermId, agent: String, status: HookStatus, event: &str) {
         tracing::debug!("hook for pane {term}: {event} -> {status:?}");
+        if let Some(t) = self.terms.get_mut(&term) {
+            let name = if event.is_empty() { "status report".to_string() } else { event.to_string() };
+            t.last_hook = Some((name, term::unix_now()));
+            self.dirty = true;
+        }
         let focused = self.focused_term() == Some(term) && self.has_viewer();
         if matches!(status, HookStatus::Done | HookStatus::Idle)
             && let Some(dest) = self.terms.get_mut(&term).and_then(|t| t.pending_move.take())
@@ -201,6 +206,9 @@ impl Daemon {
             return;
         }
         t.status_why = why.to_string();
+        if let Some(seen) = why.strip_prefix("screen: ") {
+            t.last_screen = Some((seen.to_string(), term::unix_now()));
+        }
         let turn = (t.status == Status::Working && t.agent.is_some())
             .then(|| (t.agent.clone().unwrap_or_default(), t.place(), term::unix_now().saturating_sub(t.status_since)));
         t.blocked_at = (new == Status::Blocked).then(Instant::now);

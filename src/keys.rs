@@ -209,6 +209,10 @@ pub enum Action {
     Changes,
     /// Interrupt the selected worktree's agent (Ctrl+C).
     StopAgent,
+    /// A quick follow-up to the agent you're on: its next prompt, without going there.
+    Message,
+    /// Why the session you're on has its status: the hook, screen and process evidence.
+    Why,
     /// Sessions that need you, then finished ones, across every project.
     Jump,
     /// A new agent session in the sidebar cursor's worktree.
@@ -298,6 +302,8 @@ impl Action {
             Action::NewPane => "New agent (task, agent, model, worktree)".into(),
             Action::Changes => "Changes (diff, review, commit)".into(),
             Action::StopAgent => "stop agent (Ctrl+C)".into(),
+            Action::Message => "Follow-up: the agent's next prompt".into(),
+            Action::Why => "Why this status".into(),
             Action::Jump => "Inbox: what needs you".into(),
             Action::NewSession => "+ new, beside this one".into(),
             Action::CloseSplit => "close the split".into(),
@@ -385,6 +391,8 @@ impl Action {
             Action::SideMove(_) => "side-down".into(),
             Action::Changes => "changes".into(),
             Action::StopAgent => "stop-agent".into(),
+            Action::Message => "message".into(),
+            Action::Why => "why".into(),
             Action::Detach => "detach".into(),
             Action::Help => "help".into(),
             Action::ReloadConfig => "reload-config".into(),
@@ -472,6 +480,8 @@ impl FromStr for Action {
             "side-down" => Action::SideMove(1),
             "changes" => Action::Changes,
             "stop-agent" => Action::StopAgent,
+            "message" | "follow-up" => Action::Message,
+            "why" => Action::Why,
             "detach" => Action::Detach,
             "help" => Action::Help,
             "reload-config" => Action::ReloadConfig,
@@ -491,6 +501,8 @@ impl FromStr for Action {
 pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     // Agents
     ("j", "jump"),
+    ("m", "message"),
+    ("i", "why"),
     ("n", "shell-here"),
     // Panes
     ("p", "split-right"),

@@ -399,6 +399,18 @@ pub struct TermInfo {
     /// What set its status ("hook: Stop", "screen: matched `esc to interrupt`", "you looked").
     #[serde(default)]
     pub status_why: String,
+    /// The last hook event and the last screen evidence, with when (unix seconds; 0: none).
+    #[serde(default)]
+    pub why_hook: String,
+    #[serde(default)]
+    pub why_hook_at: u64,
+    #[serde(default)]
+    pub why_screen: String,
+    #[serde(default)]
+    pub why_screen_at: u64,
+    /// The process running in it (0: not known).
+    #[serde(default)]
+    pub pid: u32,
     /// Put to sleep after sitting idle; focusing it (or typing) wakes it, resumed.
     pub asleep: bool,
     /// Windows' console layer asked for native key records (win32-input-mode), so keys

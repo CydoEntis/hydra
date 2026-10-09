@@ -35,8 +35,6 @@ pub enum Act {
     OpenWorktree(usize),
     /// Download the newest seshi and restart into it.
     Update,
-    /// Say what set this pane's status, and when.
-    Why(TermId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -178,9 +176,6 @@ impl App {
             items.push(("Open beside".into(), Act::Beside(term)));
         }
         items.push(("Rename".to_string(), Act::RenamePane(term)));
-        if s.is_agent {
-            items.push(("Why this status?".to_string(), Act::Why(term)));
-        }
         if let Some(d) = dir.filter(|d| crate::gitfs::head(d).is_some()) {
             items.push(("Changes".to_string(), Act::Changes(d)));
         }
@@ -366,13 +361,6 @@ impl App {
                 self.cmd(Command::NewWorkspace { cwd: Some(cwd), name: None, cmd: None });
             }
             Act::Update => self.start_update(),
-            Act::Why(term) => {
-                if let Some(t) = self.snap.terms.get(&term) {
-                    let why = if t.status_why.is_empty() { "nothing has changed it yet" } else { t.status_why.as_str() };
-                    let msg = format!("{} · {why}, {} ago", super::design::state_label(t.status), super::hydra::age(t.since));
-                    self.notify(msg, false);
-                }
-            }
             Act::GitInit(dir) => {
                 self.notify("making it a git repo…".into(), false);
                 self.spawn_bg(move || {

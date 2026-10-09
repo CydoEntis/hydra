@@ -17,9 +17,10 @@ const SHEET_W: u16 = 72;
 const SHEET_W_WIDE: u16 = 96;
 const WIDE_AT: u16 = 200;
 
-/// The sheet that's open, if any: the Inbox while you're in it, else Changes.
+/// The sheet that's open, if any: the Inbox while you're in it (or writing a follow-up in
+/// one of its rows), else Changes.
 pub(in crate::client) fn open_sheet(app: &App) -> Option<SheetKind> {
-    if matches!(app.mode, Mode::GoTo { .. }) {
+    if inbox_place(app).is_some() {
         Some(SheetKind::Inbox)
     } else if matches!(app.view, Some(crate::client::View::Changes(_))) {
         Some(SheetKind::Changes)
@@ -95,9 +96,21 @@ fn section(buf: &mut Buffer, x: u16, y: u16, w: u16, name: &str, n: Option<usize
     }
 }
 
-/// How many rows a row of the Inbox takes.
-fn row_height(row: &GoRow) -> u16 {
+/// Where the Inbox is (its query and row), while it's open.
+fn inbox_place(app: &App) -> Option<(String, usize)> {
+    match &app.mode {
+        Mode::GoTo { query, sel } => Some((query.clone(), *sel)),
+        Mode::Compose(c) => c.inbox.clone(),
+        _ => None,
+    }
+}
+
+/// How many rows a row of the Inbox takes; the one with a follow-up open grows by its box.
+fn row_height(row: &GoRow, compose: Option<&Compose>, box_rows: u16) -> u16 {
+    let writing = |term: &TermId| compose.is_some_and(|c| c.term == *term);
     match row {
+        GoRow::Ask(t) if writing(t) => 3 + box_rows,
+        GoRow::Done(t) if writing(t) => 3 + box_rows,
         GoRow::Ask(_) => 4,
         GoRow::Heads(_) => 3,
         GoRow::Done(_) => 3,
@@ -108,7 +121,11 @@ fn row_height(row: &GoRow) -> u16 {
 /// The Inbox: a search pill, then what needs you (with its answers), what two agents both
 /// changed, and what finished; typing finds any session instead.
 fn draw_inbox(app: &mut App, buf: &mut Buffer, inside: Rect, t: &Theme) {
-    let Mode::GoTo { query, sel } = app.mode.clone() else { return };
+    let Some((query, sel)) = inbox_place(app) else { return };
+    let compose = match &app.mode {
+        Mode::Compose(c) => Some((**c).clone()),
+        _ => None,
+    };
     let model = app.hy_model();
     let heads = heads_up(app);
     let rows = goto_rows(&model, &query, heads.len());
@@ -129,8 +146,10 @@ fn draw_inbox(app: &mut App, buf: &mut Buffer, inside: Rect, t: &Theme) {
     let bottom = inside.bottom().saturating_sub(2);
     // Scrolled so the selected row is whole on screen.
     let avail = bottom.saturating_sub(y);
+    let box_rows = compose.as_ref().map(|c| compose_rows(c, w.saturating_sub(1), INBOX_ROWS)).unwrap_or(0);
+    let height = |r: &GoRow| row_height(r, compose.as_ref(), box_rows);
     let mut start = 0;
-    while start < sel && rows[start..=sel.min(rows.len().saturating_sub(1))].iter().map(row_height).sum::<u16>() > avail {
+    while start < sel && rows[start..=sel.min(rows.len().saturating_sub(1))].iter().map(height).sum::<u16>() > avail {
         start += 1;
     }
     let empty_note = |buf: &mut Buffer, y: u16, text: &str, tick: bool| {
@@ -142,7 +161,7 @@ fn draw_inbox(app: &mut App, buf: &mut Buffer, inside: Rect, t: &Theme) {
         put(buf, x, y, &segs, x + w);
     };
     for (i, row) in rows.iter().enumerate().skip(start) {
-        let hgt = row_height(row);
+        let hgt = height(row);
         if y + hgt > bottom + 1 {
             break;
         }
@@ -191,7 +210,13 @@ fn draw_inbox(app: &mut App, buf: &mut Buffer, inside: Rect, t: &Theme) {
                 );
                 let q = s.question.clone().unwrap_or_else(|| "waiting on you".into());
                 put(buf, x + 3, y + 1, &[seg(truncate(&q, w.saturating_sub(4) as usize), c.fg(t.blocked).add_modifier(Modifier::ITALIC))], x + w);
-                // Its answers, as buttons: a number answers it.
+                // Writing a follow-up here: the box in place of the answers.
+                if let Some(cm) = compose.as_ref().filter(|cm| cm.term == *term) {
+                    compose_box(app, buf, Rect { x: x + 1, y: y + 2, width: w.saturating_sub(1), height: 0 }, cm, INBOX_ROWS, t.card, t);
+                    y += hgt;
+                    continue;
+                }
+                // Its answers, as buttons: a number answers it; m writes something else.
                 let mut ax = x + 3;
                 for (n, label) in app.answer_options(*term).iter().enumerate().take(4) {
                     let key = char::from(b'1' + n as u8);
@@ -204,6 +229,7 @@ fn draw_inbox(app: &mut App, buf: &mut Buffer, inside: Rect, t: &Theme) {
                     hit(app, Rect { x: ax, y: y + 2, width: bw, height: 1 }, HyHit::InboxAnswer(*term, key));
                     ax += bw + 1;
                 }
+                put(buf, ax + 1, y + 2, &cap_hints(t, t.card, &[("m", "follow-up")]), x + w);
             }
             GoRow::Heads(k) => {
                 let Some((_, o)) = heads.get(*k) else { continue };
@@ -233,6 +259,9 @@ fn draw_inbox(app: &mut App, buf: &mut Buffer, inside: Rect, t: &Theme) {
                 let said = app.snap.terms.get(term).map(|i| i.said.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or_default().trim().to_string()).unwrap_or_default();
                 let said = if said.is_empty() { "finished".to_string() } else { format!("“{said}”") };
                 put(buf, x + 3, y + 1, &[seg(truncate(&said, w.saturating_sub(4) as usize), c.fg(t.text).add_modifier(Modifier::ITALIC))], x + w);
+                if let Some(cm) = compose.as_ref().filter(|cm| cm.term == *term) {
+                    compose_box(app, buf, Rect { x: x + 1, y: y + 2, width: w.saturating_sub(1), height: 0 }, cm, INBOX_ROWS, t.card, t);
+                }
             }
             GoRow::Sess(pi, term) => {
                 let Some((_, _, s)) = find(&model, *term) else { continue };

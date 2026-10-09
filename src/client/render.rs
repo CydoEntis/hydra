@@ -74,6 +74,8 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::The
         }
         // The Inbox is a sheet beside the panes (drawn with the screen).
         Mode::GoTo { .. } => {}
+        // Popovers beside a sidebar row (drawn with the screen).
+        Mode::Compose(_) | Mode::Why { .. } => {}
         Mode::History { sel } => {
             let sel = *sel;
             super::hydra::draw_history(app, f, area, &t, sel);

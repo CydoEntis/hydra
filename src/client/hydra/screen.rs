@@ -86,6 +86,11 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
     }
     app.hy.crumb_x = g.panes.x + 1;
     // A popup (`seshi popup`) floats over everything, the rest dimmed.
+    match app.mode.clone() {
+        Mode::Compose(c) if c.inbox.is_none() => draw_compose_pop(app, f.buffer_mut(), area, g.side, &c, t),
+        Mode::Why { term, .. } => draw_why_pop(app, f.buffer_mut(), area, g.side, term, t),
+        _ => {}
+    }
     if let Some(term) = app.popup() {
         let whole = f.area();
         dim_all(f.buffer_mut(), whole, t);

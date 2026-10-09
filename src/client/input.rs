@@ -56,6 +56,7 @@ impl App {
             // Seshi's own text boxes take the paste, not the pane behind them.
             Mode::Find(v) => v.query.push_str(s.lines().next().unwrap_or("")),
             Mode::GoTo { query, .. } => query.push_str(s.lines().next().unwrap_or("").trim()),
+            Mode::Compose(c) => c.text.push_str(&s.replace("\r\n", "\n")),
             Mode::Branch(v) => v.query.push_str(s.lines().next().unwrap_or("").trim()),
             Mode::Finder(fd) => {
                 fd.q.push_str(s.lines().next().unwrap_or("").trim());
@@ -148,6 +149,8 @@ impl App {
             Mode::Branch(v) => self.on_branch_key(*v, &k),
             Mode::History { sel } => self.on_history_key(sel, &k),
             Mode::GoTo { query, sel } => self.on_goto_key(query, sel, &k),
+            Mode::Compose(c) => self.on_compose_key(*c, &k),
+            Mode::Why { side, .. } => self.on_why_key(side, &k),
             Mode::Confirm(c) => match k.code {
                 KeyCode::Enter | KeyCode::Char('y') => {
                     self.mode = Mode::Normal;
