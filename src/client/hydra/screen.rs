@@ -11,6 +11,8 @@ pub(in crate::client) fn side_w(width: u16) -> u16 {
 /// The narrowest the sidebar (sliding) or the sheet is drawn; below it, it's only space.
 const SIDE_DRAWN_FROM: u16 = 12;
 pub(in crate::client) const SHEET_DRAWN_FROM: u16 = 24;
+/// The narrowest a pane is drawn while it grows in.
+const PANE_DRAWN_FROM: u16 = 8;
 
 /// The Nerd Font cog (nf-fa-cog) at the sidebar's foot.
 const SETTINGS_COG: &str = "\u{f013}";
@@ -594,10 +596,22 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         }
         return;
     }
+    // A pane that has just opened grows out of its edge (the split's share eases to where it
+    // goes); one too thin to draw yet is only space.
+    let mut layout = layout;
+    let ratio = layout.ratio_at(&[]).unwrap_or(0.5);
+    let ids: Vec<u64> = leaves.iter().map(|l| u64::from(*l)).collect();
+    let on = app.motion_on();
+    let shown = app.motion.split(app.hy.tab as u64, &ids, ratio, on);
+    if (shown - ratio).abs() > f32::EPSILON {
+        layout.set_ratio(&[], shown);
+    }
     let rects = layout.rects(area);
     app.hy.leaf_rects = rects.clone();
     for (id, r) in rects {
-        draw_session(app, f, inset(r), id, id == focus, model, t);
+        if r.width >= PANE_DRAWN_FROM && r.height >= 3 {
+            draw_session(app, f, inset(r), id, id == focus, model, t);
+        }
     }
     for (i, (sa, horizontal, path)) in layout.splits(area).into_iter().enumerate() {
         let ratio = layout.ratio_at(&path).unwrap_or(0.5);

@@ -53,6 +53,9 @@ pub struct Motion {
     sheet_was: bool,
     /// Per highlight: what it marked last, the row it was on, and its glide.
     glides: HashMap<&'static str, (u64, u16, Option<Tween>)>,
+    /// Per tab: its panes last frame, and a new split's first-pane share as the new pane
+    /// grows in.
+    splits: HashMap<u64, (Vec<u64>, Option<Tween>)>,
 }
 
 impl Motion {
@@ -111,10 +114,30 @@ impl Motion {
         }
     }
 
+    /// The first pane's share of a two-pane split in tab `tab` (`leaves`, in order), heading for
+    /// `ratio`: when a second pane has just opened, it grows out of the edge it opened on.
+    pub fn split(&mut self, tab: u64, leaves: &[u64], ratio: f32, on: bool) -> f32 {
+        let now = Instant::now();
+        let entry = self.splits.entry(tab).or_insert((leaves.to_vec(), None));
+        if leaves.len() == 2 && entry.0.len() == 1 && on {
+            // The new one is whichever wasn't there: first means it opened left (or above).
+            let new_first = entry.0[0] != leaves[0];
+            entry.1 = Some(Tween::new(if new_first { 0.0 } else { 1.0 }, ratio, SLIDE));
+        }
+        entry.0 = leaves.to_vec();
+        match entry.1 {
+            Some(t) if leaves.len() == 2 && !t.done(now) => t.at(now),
+            _ => {
+                entry.1 = None;
+                ratio
+            }
+        }
+    }
+
     /// Something that changes the layout is moving (pane sizes wait for it to stop).
     pub fn layout_moving(&self) -> bool {
         let now = Instant::now();
-        self.side.is_some_and(|t| !t.done(now)) || self.sheet.is_some_and(|t| !t.done(now))
+        self.side.is_some_and(|t| !t.done(now)) || self.sheet.is_some_and(|t| !t.done(now)) || self.splits.values().any(|(_, t)| t.is_some_and(|t| !t.done(now)))
     }
 
     /// Anything at all is moving (keep drawing frames).
@@ -146,6 +169,17 @@ mod tests {
         let mut m = Motion::default();
         m.side(true, false);
         assert_eq!(m.side(false, false), 0.0, "motion off: gone at once");
+    }
+
+    #[test]
+    fn a_new_pane_grows_out_of_its_edge() {
+        let mut m = Motion::default();
+        assert_eq!(m.split(1, &[10], 0.5, true), 0.5);
+        let r = m.split(1, &[10, 11], 0.5, true);
+        assert!(r > 0.5 && m.layout_moving(), "opened right: the first pane starts wide ({r})");
+        let mut m = Motion::default();
+        m.split(1, &[10], 0.5, true);
+        assert!(m.split(1, &[11, 10], 0.5, true) < 0.5, "opened left: the first (new) one starts narrow");
     }
 
     #[test]
