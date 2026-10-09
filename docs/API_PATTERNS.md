@@ -100,8 +100,8 @@ entry point (handler / route / command / consumer)
 
 ## Project-specific: API style
 
-Not HTTP. A private IPC protocol between client and daemon over a local socket
-(or `ssh host seshi proxy`): length-delimited frames carrying msgpack-encoded
+Not HTTP. A private IPC protocol between client and daemon over a local socket:
+length-delimited frames carrying msgpack-encoded
 `ClientMsg` / `ServerMsg` enums (`src/protocol.rs`). The first exchange is
 `Hello { version }` → `Welcome { version }`; mismatched `PROTOCOL_VERSION`s are
 refused. The CLI subcommands and the MCP server (`seshi mcp`, JSON-RPC over stdio)

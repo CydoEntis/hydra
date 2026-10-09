@@ -99,115 +99,6 @@ pub fn framed(stream: Stream) -> (Reader, Writer) {
     (FramedRead::new(Box::new(r), codec()), FramedWrite::new(Box::new(w), codec()))
 }
 
-/// The machine whose server this talks to (`--remote`), if not this one.
-pub fn remote() -> Option<String> {
-    std::env::var("SESHI_REMOTE").ok().filter(|s| !s.trim().is_empty())
-}
-
-/// What ssh said when it failed (shown instead of a bare "connection closed").
-static SSH_ERR: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
-
-/// `ssh host seshi proxy`, its stdio as the connection. SESHI_SSH replaces `ssh` (e.g.
-/// "ssh -p 2222"), SESHI_REMOTE_CMD the seshi on the far side (e.g. "~/.cargo/bin/seshi").
-async fn connect_remote(host: &str) -> Result<(Reader, Writer)> {
-    let ssh = std::env::var("SESHI_SSH").unwrap_or_else(|_| "ssh".into());
-    let mut words = ssh.split_whitespace();
-    let prog = words.next().unwrap_or("ssh").to_string();
-    let remote_cmd = std::env::var("SESHI_REMOTE_CMD").unwrap_or_else(|_| "seshi".into());
-    let mut cmd = tokio::process::Command::new(&prog);
-    cmd.args(words)
-        .arg("-T")
-        .arg(host)
-        .arg(format!("{remote_cmd} proxy"))
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-    #[cfg(windows)]
-    {
-        cmd.creation_flags(crate::proc::CREATE_NO_WINDOW);
-    }
-    let mut child = cmd.spawn().with_context(|| format!("running {prog} (is OpenSSH installed?)"))?;
-    let stdin = child.stdin.take().context("ssh stdin")?;
-    let stdout = child.stdout.take().context("ssh stdout")?;
-    if let Some(mut err) = child.stderr.take() {
-        tokio::spawn(async move {
-            use tokio::io::AsyncReadExt;
-            let mut buf = Vec::new();
-            let _ = err.read_to_end(&mut buf).await;
-            *SSH_ERR.lock().unwrap() = String::from_utf8_lossy(&buf).trim().to_string();
-        });
-    }
-    // ssh lives as long as the connection's writing half.
-    Ok((FramedRead::new(Box::new(stdout), codec()), FramedWrite::new(Box::new(SshIn { stdin, _child: child }), codec())))
-}
-
-/// ssh's stdin, holding ssh itself: dropping the connection ends it (kill_on_drop), so
-/// nothing is left waiting on its pipes.
-struct SshIn {
-    stdin: tokio::process::ChildStdin,
-    _child: tokio::process::Child,
-}
-
-impl tokio::io::AsyncWrite for SshIn {
-    fn poll_write(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &[u8]) -> std::task::Poll<std::io::Result<usize>> {
-        std::pin::Pin::new(&mut self.stdin).poll_write(cx, buf)
-    }
-
-    fn poll_flush(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
-        std::pin::Pin::new(&mut self.stdin).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
-        std::pin::Pin::new(&mut self.stdin).poll_shutdown(cx)
-    }
-}
-
-/// `seshi proxy`, run by ssh on the far side: this machine's server (started if needed),
-/// over stdin and stdout.
-pub async fn proxy() -> Result<()> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let mut stream = connect().await;
-    if stream.is_err() {
-        spawn_daemon()?;
-        for _ in 0..60 {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            stream = connect().await;
-            if stream.is_ok() {
-                break;
-            }
-        }
-    }
-    let (mut sr, mut sw) = stream.context("couldn't reach or start the seshi server here")?.split();
-    let up = async {
-        let mut stdin = tokio::io::stdin();
-        let mut buf = vec![0u8; 64 * 1024];
-        loop {
-            let n = stdin.read(&mut buf).await?;
-            if n == 0 {
-                return anyhow::Ok(());
-            }
-            sw.write_all(&buf[..n]).await?;
-        }
-    };
-    let down = async {
-        let mut stdout = tokio::io::stdout();
-        let mut buf = vec![0u8; 64 * 1024];
-        loop {
-            let n = sr.read(&mut buf).await?;
-            if n == 0 {
-                return anyhow::Ok(());
-            }
-            stdout.write_all(&buf[..n]).await?;
-            stdout.flush().await?;
-        }
-    };
-    tokio::select! {
-        r = up => r,
-        r = down => r,
-    }
-}
-
 pub async fn connect() -> Result<Stream> {
     Ok(Stream::connect(name()?).await?)
 }
@@ -251,10 +142,7 @@ pub async fn recv_client(r: &mut Reader) -> Result<Option<ClientMsg>> {
 
 /// Connect and complete the handshake.
 pub async fn open(attach: bool) -> Result<(Reader, Writer)> {
-    let (mut r, mut w) = match remote() {
-        Some(host) => connect_remote(&host).await?,
-        None => framed(connect().await?),
-    };
+    let (mut r, mut w) = framed(connect().await?);
     // A command run inside a pane says which (with the pane's secret): what it may do is
     // that pane's to say. seshi's own window is you.
     let from = (!attach)
@@ -264,15 +152,7 @@ pub async fn open(attach: bool) -> Result<(Reader, Writer)> {
         })
         .flatten();
     send(&mut w, &ClientMsg::Hello { version: protocol::PROTOCOL_VERSION, attach, from }).await?;
-    let first = match recv_server(&mut r).await {
-        Ok(m) => m,
-        Err(e) if remote().is_some() => return Err(e.context(ssh_failure())),
-        Err(e) => return Err(e),
-    };
-    if first.is_none() && remote().is_some() {
-        bail!(ssh_failure());
-    }
-    match first {
+    match recv_server(&mut r).await? {
         Some(ServerMsg::Welcome { version }) if version == protocol::PROTOCOL_VERSION => Ok((r, w)),
         Some(ServerMsg::Welcome { version }) => Err(OtherVersion { daemon: version }.into()),
         Some(ServerMsg::Error(e)) => bail!(e),
@@ -280,26 +160,8 @@ pub async fn open(attach: bool) -> Result<(Reader, Writer)> {
     }
 }
 
-fn ssh_failure() -> String {
-    // Give ssh a moment to say why.
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    let err = SSH_ERR.lock().unwrap().clone();
-    let host = remote().unwrap_or_default();
-    if err.contains("not found") || err.contains("not recognized") {
-        format!("{host} has no `seshi` on its PATH for ssh; install it there, or set SESHI_REMOTE_CMD to its full path ({err})")
-    } else if err.is_empty() {
-        format!("couldn't reach seshi on {host} over ssh")
-    } else {
-        format!("ssh {host}: {err}")
-    }
-}
-
 /// Connect, starting the daemon in the background if none is running.
 pub async fn open_or_spawn(attach: bool) -> Result<(Reader, Writer)> {
-    // Over ssh the far side starts its own server.
-    if remote().is_some() {
-        return open(attach).await;
-    }
     if let Ok(c) = open(attach).await {
         return Ok(c);
     }

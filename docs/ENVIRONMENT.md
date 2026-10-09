@@ -73,8 +73,6 @@ it reads:
 | --- | --- | --- |
 | `SESHI_CONFIG` | use this config file instead of the default | user |
 | `SESHI_SOCKET` | name of a separate server (like `tmux -L`); used for nested test servers | user |
-| `SESHI_REMOTE` | the SSH host this client works on (from `--remote`) | seshi |
-| `SESHI_SSH`, `SESHI_REMOTE_CMD` | replace `ssh` / the remote `seshi` command | user |
 | `SESHI_TERM_ID`, `SESHI_PANE_TOKEN` | the pane's id and secret, set inside every pane | daemon |
 | `SESHI_SHOW` | tests print rendered frames | developer |
 | `EDITOR`, `VISUAL`, `SHELL`, `COMSPEC` | editor and shell defaults | OS / user |

@@ -71,7 +71,6 @@ Everything below is shipped on `dev` unless marked.
 - Daemon owns sessions; detach / reattach; many clients — shipped — `src/daemon/mod.rs`, ADR-0001
 - Sessions survive a daemon restart (agents resumed, commands re-run) — shipped — `src/daemon/persist.rs`, `restore` in `src/daemon/mod.rs`
 - Windows (ConPTY, named pipes, PowerShell folder tracking), macOS, Linux — shipped — `src/daemon/term.rs`, `src/ipc.rs`
-- SSH remotes (`--remote host`) — shipped — `src/ipc.rs` `connect_remote`
 
 **Agents**
 - Status detection: working / needs you / done (until seen) / idle, from screen patterns, OSC progress and agent hooks — shipped — `src/daemon/scan.rs`, `seshi hook` in `src/cli.rs`
@@ -116,7 +115,7 @@ Everything below is shipped on `dev` unless marked.
 
 ## Out
 
-- Features cut 2026-10-09 (the user's call: they repeated something else or weren't used): talk / reply / answer, open project, go to, next agent that needs you, arrange panes, undo automatic workspace, quick prompt, the map, ideas, races, the queue, run a preset (presets stay in the new-agent dialog), memory per session, checkpoints, past chats, agent tools, tickets (GitHub, Linear, Plane). Bringing one back needs a new decision.
+- Features cut 2026-10-09 (the user's call: they repeated something else or weren't used): talk / reply / answer, open project, go to, next agent that needs you, arrange panes, undo automatic workspace, quick prompt, the map, ideas, races, the queue, run a preset (presets stay in the new-agent dialog), memory per session, checkpoints, past chats, agent tools, tickets (GitHub, Linear, Plane); then SSH remotes (`--remote`), extensions, config sync, the dev-server runner, the pull-request view and Ship, and the tmux stand-in for Claude agent teams. Bringing one back needs a new decision.
 - Other UI layouts (workspaces, tree, dock, sidebar) — declined 2026-10-03: one layout to build and test (ADR-0004, now ADR-0007: floating and tiled are styles of it). Bringing them back needs a new decision.
 
 ## Later
