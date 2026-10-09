@@ -113,7 +113,7 @@ Everything below is shipped on `dev` unless marked.
 
 **Identity**
 - Renamed hydra → Seshi: command, folders, `SESHI_*`, `.seshi.toml`, MCP, releases; one-time move of an old install — done, unreleased — `config::migrate_old_names`, ADR-0008
-- Seshi Night (default) and Seshi Day themes; block SESHI wordmark on the splash — done, unreleased — `src/theme.rs`, `src/client/hydra/splash.rs`
+- Seshi Walnut (default), Seshi Night and Seshi Day themes; block SESHI wordmark on the splash — done, unreleased — `src/theme.rs`, `src/client/hydra/splash.rs`
 
 **Extras**
 - Desktop alerts and sounds, notification history — shipped — `src/alert.rs`

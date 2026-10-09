@@ -60,9 +60,10 @@ pub struct Theme {
 pub struct ThemeOverrides(pub BTreeMap<String, String>);
 
 /// The theme when none is chosen.
-pub const DEFAULT: &str = "seshi-night";
+pub const DEFAULT: &str = "seshi-walnut";
 
 pub const BUILTIN: &[&str] = &[
+    "seshi-walnut",
     "seshi-night",
     "seshi-day",
     "hydra",
@@ -80,6 +81,7 @@ pub const BUILTIN: &[&str] = &[
 
 /// The themes shown by name in Settings, Seshi's own first.
 pub const DESIGN: &[(&str, &str)] = &[
+    ("seshi-walnut", "Seshi Walnut"),
     ("seshi-night", "Seshi Night"),
     ("seshi-day", "Seshi Day"),
     ("hydra", "Hydra"),
@@ -238,6 +240,18 @@ impl Theme {
 
     pub fn named(name: &str) -> Theme {
         match name {
+            // A walnut-cased keyboard with chocolate keys: brown grounds, turquoise for focus,
+            // the red, orange and lemon-lime run for needs you, working and done, cream text,
+            // lemon (ws[1]) for leader mode.
+            "seshi-walnut" => Theme::design(
+                [
+                    "#1f140d", "#f1e4d4", "#281a12", "#2f2017", "#3b291e", "#4a3326", "#a68b77", "#e8d8c4",
+                    "#fff4e6", "#3fc6cc", "#0f2427", "#f58a32", "#c6d64c", "#ff5a3c", "#4a3326", "#533a2c",
+                ],
+                ["#3fc6cc", "#ece65a", "#f58a32", "#ff5a3c"],
+                ["#ff5a3c", "#b9d64a", "#ece65a", "#5cb8ea", "#e57fb8", "#3fc6cc", "#a68b77"],
+            )
+            .with_err("#ff4f6e"),
             // Golden hour after the session: warm driftwood dark, sunset peach for focus, sun
             // for what needs you, sea glass (ws[1]) for leader mode.
             "seshi-night" => Theme::design(
