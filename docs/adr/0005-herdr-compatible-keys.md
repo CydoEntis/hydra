@@ -1,6 +1,6 @@
 # 0005. Leader-key bindings follow herdr where they overlap
 
-- **Status:** Accepted
+- **Status:** Superseded by 0006
 - **Date:** 2026-10-03
 
 ## Context

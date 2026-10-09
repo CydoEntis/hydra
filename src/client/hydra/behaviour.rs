@@ -37,7 +37,8 @@ impl App {
         };
         if let Some(owner) = new_tab.filter(|o| *o != f) {
             take_out(&mut self.hy.tabs, f);
-            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner, used: 0 });
+            let name = self.hy.new_tab_name.take().unwrap_or_default();
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner, used: 0, name });
             self.hy.tab = self.hy.tabs.len() - 1;
             return;
         }
@@ -46,7 +47,7 @@ impl App {
             let i = match self.hy.tabs.iter().position(|t| t.layout.contains(p)) {
                 Some(i) => i,
                 None => {
-                    self.hy.tabs.push(HyTab { layout: Node::Leaf(p), focus: p, arrange: Arrange::Split, owner: p, used: 0 });
+                    self.hy.tabs.push(HyTab { layout: Node::Leaf(p), focus: p, arrange: Arrange::Split, owner: p, used: 0, name: String::new() });
                     self.hy.tabs.len() - 1
                 }
             };
@@ -75,7 +76,7 @@ impl App {
             return;
         }
         if self.hy.tabs.is_empty() {
-            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner: f, used: 0 });
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner: f, used: 0, name: String::new() });
             self.hy.tab = 0;
             return;
         }
@@ -96,7 +97,7 @@ impl App {
         // tab with nothing beside it is reused (this one first); a split or another session's
         // tabs stay as they are (pick its row to get them back).
         let lone = |tabs: &[HyTab], i: usize| tabs[i].layout.leaves().len() == 1 && tabs.iter().filter(|u| u.owner == tabs[i].owner).count() == 1;
-        let fresh = HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner: f, used: 0 };
+        let fresh = HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner: f, used: 0, name: String::new() };
         let reuse = if lone(&self.hy.tabs, self.hy.tab) { Some(self.hy.tab) } else { (0..self.hy.tabs.len()).find(|i| lone(&self.hy.tabs, *i)) };
         match reuse {
             Some(i) => {
@@ -128,7 +129,7 @@ impl App {
         let armed = self.hy.close_armed.take().is_some_and(|(at, when)| at == i && when.elapsed().as_secs() < 4);
         if !agents.is_empty() && !armed {
             self.hy.close_armed = Some((i, Instant::now()));
-            self.notify(format!("{} is running in this tab: click ✕ again to close it", agents.join(", ")), false);
+            self.notify(format!("{} is running in this tab: close it again to stop it", agents.join(", ")), false);
             return;
         }
         for term in leaves {
@@ -413,13 +414,12 @@ impl App {
                     self.cmd(Command::FocusPane { term: to });
                 }
             }
-            // A new tab in this session: a shell where you are.
-            Action::NewTab => {
-                if let Some(owner) = self.hy.tabs.get(self.hy.tab).map(|t| t.owner).or(self.focused()) {
-                    self.hy.new_tab = Some((Instant::now(), owner));
-                    self.hy_act(&Action::ShellHere);
-                }
-            }
+            // A new tab in this session: named in its pill, then what runs in it.
+            Action::NewTab => self.new_tab_start(),
+            Action::RenameTab => self.rename_tab_start(),
+            Action::Actions => self.mode = Mode::Actions { sel: 0 },
+            Action::Help => self.open_keymap(None),
+            Action::Worktrees => self.open_keymap(Some(Step::Worktrees)),
             Action::NextTab | Action::PrevTab => {
                 // This session's tabs, in order.
                 let seen = self.session_tabs();
@@ -1101,7 +1101,7 @@ impl App {
         match c {
             'n' => self.act(Action::ShellHere),
             ',' => self.hy_settings(),
-            '?' => self.mode = Mode::Help { scroll: 0 },
+            '?' => self.open_keymap(None),
             // r: resume, just the app as you left it.
             _ => {}
         }
@@ -1124,10 +1124,8 @@ impl App {
             }
             HyHit::Talk(t) => self.hy_talk(t, false),
             HyHit::Settings => self.hy_settings(),
-            HyHit::Jump => self.open_goto(),
             HyHit::Update => self.act(Action::Update),
             // The sidebar's "new": a shell where you are.
-            HyHit::NewPane => self.act(Action::ShellHere),
             // The ✕ on a pane: close it (after asking).
             HyHit::CloseSplit(t) => self.menu_act(crate::client::menu::Act::End(vec![t])),
             HyHit::Divider(i) => self.hy.drag = Some(Drag::Divider(i)),
@@ -1161,8 +1159,26 @@ impl App {
                     self.cmd(Command::FocusPane { term: to });
                 }
             }
-            HyHit::TabClose(i) => self.close_tab(i),
             HyHit::TabNew => self.act(Action::NewTab),
+            HyHit::Actions => self.act(Action::Actions),
+            HyHit::ActionRow(i) => self.actions_run(i),
+            HyHit::Layout => self.act(Action::Arrange),
+            HyHit::Leader => self.open_keymap(None),
+            HyHit::KeyRow(i) => {
+                if let Mode::KeyMap(km) = &self.mode {
+                    let km = (**km).clone();
+                    self.keymap_run(&km, i);
+                } else if matches!(self.mode, Mode::Prefix { .. }) {
+                    let km = KeyMap { query: String::new(), searching: false, step: None, sel: 0 };
+                    self.keymap_run(&km, i);
+                }
+            }
+            HyHit::NewTabPick(c) => {
+                if let Mode::NewTab(nt) = &self.mode {
+                    let nt = (**nt).clone();
+                    self.new_tab_pick(nt, c);
+                }
+            }
             HyHit::Close => self.mode = Mode::Normal,
             HyHit::Noop => {}
             HyHit::FinderPick(i) => {
@@ -1335,7 +1351,6 @@ impl App {
                     }
                 }
             }
-            HyHit::GoTo => self.mode = Mode::GoTo { query: String::new(), sel: 0 },
             HyHit::GoPick(i) => {
                 if let Mode::GoTo { query, sel } = &mut self.mode {
                     let again = *sel == i;

@@ -8,7 +8,7 @@
 //! that `cd`s into another repo moves to that project by itself.
 
 use super::design::{
-    BtnKind, SRow, Seg, SettingsView, button, cap_hints, fill, glyph, key_text, keycap, keycaps, path_key, put,
+    BtnKind, SRow, Seg, SettingsView, button, cap_hints, fill, glyph, key_text, keycaps, path_key, put,
     question, seg, segs_width, state_label, tilde,
 };
 use super::render::{blend, render_screen, truncate};
@@ -88,6 +88,8 @@ pub(super) struct Hy {
     /// The next session that opens goes in a new tab (Ctrl+Space w), until this time.
     /// A new tab was asked for in this session: the next session to show goes in it.
     pub new_tab: Option<(Instant, TermId)>,
+    /// What that new tab is called (named in its pill before anything runs in it).
+    pub new_tab_name: Option<String>,
     /// Counts frames, for `HyTab::used`.
     pub tick: u64,
     /// A tab's ✕ clicked once with an agent in it: a second click closes it.
@@ -160,6 +162,39 @@ pub(super) struct HyTab {
     pub owner: TermId,
     /// When it was last on screen (higher is later): a session's row brings that tab back.
     pub used: u64,
+    /// What you called it; empty: named after what runs in it.
+    pub name: String,
+}
+
+/// A tab being named in its pill: a new one (then what to run in it), or one renamed.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct NewTab {
+    /// The session the tab belongs to.
+    pub owner: TermId,
+    pub name: String,
+    /// Typing its name; after Enter, choosing what runs in it.
+    pub naming: bool,
+    /// Renaming this tab (no new one).
+    pub tab: Option<usize>,
+    /// "tab 4": what it's called if you don't type a name.
+    pub fallback: String,
+}
+
+/// The second step of a leader key that opens one (`w` worktrees).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Step {
+    Worktrees,
+}
+
+/// The key map: every leader key by what it acts on, filtered as you type.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct KeyMap {
+    pub query: String,
+    /// Typing searches (Tab); otherwise a key runs what it's bound to.
+    pub searching: bool,
+    pub step: Option<Step>,
+    /// The selected match while searching.
+    pub sel: usize,
 }
 
 /// How a tab lays out its panes (Ctrl+Space = goes to the next).
@@ -935,8 +970,6 @@ pub(super) enum HyHit {
     InboxAnswer(TermId, char),
     Talk(TermId),
     Settings,
-    Jump,
-    NewPane,
     CloseSplit(TermId),
     Divider(usize),
     /// The ⋯ on a hovered sidebar row: its menu.
@@ -947,7 +980,6 @@ pub(super) enum HyHit {
     ConfirmYes,
     ConfirmNo,
     TabPick(usize),
-    TabClose(usize),
     TabNew,
     /// Outside an overlay: closes it.
     Close,
@@ -990,8 +1022,20 @@ pub(super) enum HyHit {
     MenuPick(usize),
     /// The sidebar's edge (drag to resize).
     SideEdge,
-    /// Install the newer hydra (the button by the version).
+    /// Install the newer hydra (in Settings › General).
     Update,
+    /// The sidebar's "a actions".
+    Actions,
+    /// A row of the actions list.
+    ActionRow(usize),
+    /// The layout chip at the end of the tab row: the next arrangement.
+    Layout,
+    /// The leader pill (leader mode is on): the key map.
+    Leader,
+    /// A key in the key map (its row in the shown list).
+    KeyRow(usize),
+    /// A choice on the new tab's card: c claude, x codex, s shell, m move a pane here.
+    NewTabPick(char),
     /// A pane's scrollbar (click or drag).
     ScrollBar(TermId),
     FindTab(u8),
@@ -999,7 +1043,6 @@ pub(super) enum HyHit {
     BranchRow(usize),
     MemRow(usize),
     GoPick(usize),
-    GoTo,
     HistRow(usize),
     BranchChoice(usize),
 }
@@ -1034,13 +1077,15 @@ pub(super) fn k(app: &App, a: &Action) -> String {
 }
 
 mod behaviour;
+mod card;
 mod dialogs;
+mod leader;
 mod popups;
 mod screen;
 mod splash;
 mod pr_map;
 
-pub(in crate::client) use self::{dialogs::*, popups::*, screen::*, splash::*, pr_map::*};
+pub(in crate::client) use self::{card::*, dialogs::*, leader::*, popups::*, screen::*, splash::*, pr_map::*};
 
 
 #[cfg(test)]

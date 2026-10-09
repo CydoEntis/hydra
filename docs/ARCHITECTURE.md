@@ -77,9 +77,11 @@ src/
     actions.rs   what each action does
     background.rs server messages and background results
     view_keys.rs keys inside full-pane views and the remaining popups
-    hydra/       the layout: mod.rs (state, model, click targets), screen.rs (sidebar,
-                 panes, bars), popups.rs, dialogs.rs, splash.rs, behaviour.rs (its keys
-                 and clicks), pr_map.rs (pull request, ship, map views)
+    hydra/       the layout: mod.rs (state, model, click targets), screen.rs (grid, sidebar
+                 card, tab row, pane cards), card.rs (cards, pills, fading; the Look from
+                 settings), leader.rs (key map, actions list, new tab), popups.rs,
+                 dialogs.rs, splash.rs, behaviour.rs (its keys and clicks), pr_map.rs
+                 (pull request, ship, map views)
     render.rs, design.rs  drawing entry point and shared helpers
     menu.rs, views.rs, files.rs, find.rs, branch.rs, work.rs, pr.rs, toolbox.rs, …
     tests.rs     rendering and behaviour tests
@@ -231,8 +233,12 @@ config.example.toml
 - **Other programs** go through `proc.rs` (`proc::git`, `proc::run`, `proc::shell`,
   `proc::quiet`), never a hand-built `Command` with its own window flag or error parsing.
 - **Filterable popups** use `query_list` + `list_row` (client/hydra/popups.rs).
-- **Popups** use the shared `panel()` helper (accent title bar, card body,
-  `Esc close`), `dim_all` behind, and `hints()` for the key line.
+- **Cards and pills** come from `card.rs`: `card()` for every pane, the sidebar and popups
+  (title in the border, ✕ on the right), `pill()` / `row_pill()` for tabs, buttons and
+  selected rows. Colours follow the design's rule: accent = focus, amber = needs you, sky =
+  leader mode, red = destructive.
+- **Popups** use the shared `panel()` helper (a lit card with ✕), `dim_all` behind, and
+  `hints()` for the key line.
 
 
 Decisions: [0001 daemon owns sessions](adr/0001-daemon-owns-sessions.md),

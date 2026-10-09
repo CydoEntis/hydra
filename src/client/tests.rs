@@ -169,34 +169,37 @@ mod hydra_tests {
         let (text, mut app) = super::design_tests::render_with(160, 45);
         show(&text);
         let lines: Vec<&str> = text.lines().collect();
-        assert!(!text.contains(">_ hydra") && !text.contains("Ctrl+Space"), "no logo, no keys buttons");
-        let bottom = lines.iter().rev().find(|l| !l.trim().is_empty()).unwrap();
-        assert!(bottom.contains("● 1 needs you") && !bottom.contains("›"), "the bottom bar: what needs you, no path (the pane's title has it): {bottom}");
-        assert!(lines[1].contains("── Agents") && !lines[1].contains("+ open"), "the list starts at the top, with its first section: {}", lines[1]);
-        assert!(text.contains(" new    go to    , settings") && !text.contains("n new"), "quiet hints at the bottom of the sidebar, the key lit in the word");
+        assert!(!text.contains(">_ hydra"), "no logo");
+        // The floating grid: a row of margin, the sidebar card the full height two columns in,
+        // tab pills one row down, the cards below a row of air.
+        assert!(lines[0].trim().is_empty(), "a row of margin on top");
+        assert!(lines[1].starts_with("  ╭─"), "the sidebar card, two columns in: {}", lines[1]);
+        assert!(lines[2].contains(" 1 claude") && lines[2].contains(" + ") && lines[2].contains('▯'), "tab pills, + and the layout chip: {}", lines[2]);
+        assert!(lines[4].contains("╭─ claude ─ Fix flaky checkout test · shop-api · main") && lines[4].contains("● needs you ─ ✕ ─"), "title, project · branch, state and ✕ set into the card's border: {}", lines[4]);
+        assert!(lines[6].contains("> fix the flaky checkout test"), "the terminal a row below the border, inset");
+        assert!(text.contains("shop-api · ⎇ main"), "folder and branch in the card's footer");
+        assert!(!text.contains("needs you   a inbox"), "no app footer");
+        assert!(text.contains("a actions") && text.contains(", settings"), "the sidebar's foot: actions and settings");
         // Projects and their sessions, nothing in between.
-        assert!(text.contains("▾ ▌shop-api") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
+        assert!(text.contains("● shop-api") && text.contains("● 1"), "a project: its dot and name, what needs you on the right");
+        assert!(!text.contains("── Agents") && !text.contains("BRANCHES") && !text.contains("WORKTREES"));
         assert!(!text.contains("main folder"), "no 'main folder' wording");
         assert!(!text.contains("+ open a project"), "opening a project is in the header now");
-        // Rows: agent and state, then what it's on (or its question) underneath.
-        assert!(text.contains("● ✻ claude") && text.contains("main · 3m"), "status, then the agent's icon and name; branch · age on the right");
+        // Rows: state and name, branch · age on the right, its question underneath.
+        assert!(text.contains("● claude") && text.contains("main · 3m"), "state, then the name; branch · age on the right");
         assert!(text.contains("Run npm test -- checkout?"), "the question under the agent");
         assert!(text.contains("↳ Explore"), "subagents under their agent");
-        assert!(text.contains("⠋ ◇ rate") && text.contains("rate-limit · 2m"), "a worktree's session is named after it");
+        assert!(text.contains("⠋ rate") && text.contains("rate-limit · 2m"), "a worktree's session is named after it");
         assert!(!text.contains("Rate limit /login"), "under a session only its question, as in the redesign");
-        assert!(text.contains("\u{f489}   shell") && !text.contains("shell 2"), "a shell in the project's folder is just 'shell' (a terminal icon), no age");
+        assert!(text.contains("› shell") && !text.contains("shell 2"), "a shell in the project's folder is just 'shell', no age");
         assert!(!text.contains("session"), "no 'session' wording on screen");
         assert!(!text.contains("● answer") && !text.contains(" Yes 1 "), "an agent's own question is answered in its own prompt: no answer bar");
-        assert!(!text.contains("click or press T"), "no footer under the pane");
-        assert!(lines[0].contains(" 1 claude") && lines[0].contains("+ tab"), "the tab rail along the top: {}", lines[0]);
-        assert!(lines[1].contains("✻ claude  Fix flaky checkout test · shop-api · main") && lines[1].contains("● needs you"), "every pane has a title bar, under the rail: {}", lines[1]);
-        assert!(lines[3].contains("> fix the flaky checkout test"), "a blank row under the bar, then the output");
         // Overlays are centred over a dimmed screen.
         for (mode, needle) in [
             (Mode::GoTo { query: String::new(), sel: 1 }, "NEEDS YOU"),
             (Mode::HyPane(hydra::NewPaneHy::new(0, false)), "claude gets its own new worktree in shop-api"),
             (Mode::HyPane(hydra::NewPaneHy { place: Some(1), ..hydra::NewPaneHy::new(0, false) }), "Switches shop-api to a new branch"),
-            (Mode::Help { scroll: 0 }, "search code"),
+            (Mode::KeyMap(Box::new(hydra::KeyMap { query: String::new(), searching: false, step: None, sel: 0 })), "jump to waiting"),
             (Mode::Talk { term: 1, input: String::new() }, "Write to claude…"),
         ] {
             app.mode = mode;
@@ -211,7 +214,7 @@ mod hydra_tests {
         app.mode = Mode::HySettings(Box::new(design::SettingsView { cat: 2, sel: 0, editing: None, capturing: false, scroll: 0 }));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("● Default") && o.contains("○ Tokyo Night") && o.contains("needs you, done, error"), "a row per theme, with what the swatches are");
+        assert!(o.contains("Corners") && o.contains("PREVIEW") && o.contains("focused") && o.contains("dimmed"), "the pane settings, with a preview");
         // The splash: the braille hydra, the wordmark, what happened, buttons.
         app.mode = Mode::Normal;
         app.splash = true;
@@ -435,7 +438,7 @@ mod hydra_tests {
         // The sidebar: sessions right under their project, worktree sessions tagged.
         let o = draw(&mut app, 160, 45);
         assert!(!o.contains("WORKTREES") && !o.contains("BRANCHES"), "no folder headings");
-        assert!(o.contains("◇ rate"), "a worktree session is named after it");
+        assert!(o.contains("rate") && o.contains("rate-limit · "), "a worktree session is named after it");
 
         // Resizing the sidebar, within its limits.
         let before = app.hy.side_rect.width;
@@ -464,14 +467,16 @@ mod hydra_tests {
         let (_, inner) = app.panes[0];
         let buf = term.backend().buffer();
         assert_eq!(buf[(inner.x, inner.y)].bg, app.theme.card2, "not a light grey slab");
-        assert_eq!(buf[(inner.x + 13, inner.y)].bg, app.theme.bg);
+        assert_eq!(buf[(inner.x + 13, inner.y)].bg, hydra::pane_bg(&app.theme), "the rest on the card's ground");
     }
 
     #[test]
     fn wheel_scrolls_history() {
         use crossterm::event::{MouseEvent, MouseEventKind};
         let (_, mut app) = super::design_tests::render_with(160, 45);
-        let mut p = vt100::Parser::new(40, 120, 1000);
+        // The terminal is as big as the card's inside (hydra sizes it so).
+        let (_, inside) = app.panes[0];
+        let mut p = vt100::Parser::new(inside.height, inside.width, 1000);
         for i in 1..=100 {
             p.process(format!("line {i}
 ").as_bytes());
@@ -650,7 +655,7 @@ mod hydra_tests {
         app.hy_fresh();
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("✻ claude") && o.contains("shop-api · main · opus 4.5"), "status, icon and name on the row; the pane's title has the model");
+        assert!(o.contains("shop-api · main") && o.contains("opus 4.5"), "project · branch in the card's title, the model in its footer");
         assert!(o.contains("Fix the login flow"), "its name stays");
         assert!(!o.contains("› now add a test for it"), "one line under a row, no more");
     }
@@ -752,31 +757,51 @@ mod hydra_tests {
         app.hy.tabs.clear();
         app.hy_place(1, None);
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains(" 1 claude") && o.contains("+ tab") && app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::TabNew)), "the tab rail, with + tab, even with one tab");
-        assert!(!o.contains(" 1 claude ✕"), "and no ✕ on the only tab");
-        // Ctrl+Space c in claude's session: the next session to show is a tab of claude's.
+        assert!(o.contains(" 1 claude") && o.contains(" + ") && app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::TabNew)), "the tab row, with +, even with one tab");
+        // Ctrl+Space t in claude's session: the new tab is named in its pill, then a shell
+        // starts in it.
+        let key = |app: &mut App, c: KeyCode| app.on_key(KeyEvent::new(c, KeyModifiers::NONE));
         app.act(Action::NewTab);
-        assert!(matches!(app.hy.new_tab, Some((_, 1))), "a new tab for claude's session: {:?}", app.hy.new_tab);
+        assert!(matches!(&app.mode, Mode::NewTab(nt) if nt.owner == 1 && nt.naming), "naming a new tab of claude's");
+        for c in "tests".chars() {
+            key(&mut app, KeyCode::Char(c));
+        }
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains(" 2 tests█") && o.contains("New tab in shop-api") && o.contains("claude c"), "named in its pill, what to start below");
+        key(&mut app, KeyCode::Enter);
+        key(&mut app, KeyCode::Char('s'));
+        assert!(matches!(app.hy.new_tab, Some((_, 1))), "the next session is a tab of claude's: {:?}", app.hy.new_tab);
         app.hy_place(3, Some(1));
         app.hy_fresh();
         assert!(!rows(&app).contains(&3), "the shell is one of claude's tabs, not a row of its own: {:?}", rows(&app));
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert_eq!(app.session_tabs().len(), 2);
-        assert!(o.contains(" 1 claude") && o.contains(" 2 shell"), "claude's tab bar");
-        assert!(o.contains(" 1 claude ✕") || o.contains(" 2 shell ✕"), "the tab you're on can close now");
+        assert!(o.contains(" 1 claude") && o.contains(" 2 tests"), "claude's tabs, the new one by its name");
+        // Renamed in its pill.
+        app.act(Action::RenameTab);
+        for _ in 0.."tests".len() {
+            key(&mut app, KeyCode::Backspace);
+        }
+        for c in "shell".chars() {
+            key(&mut app, KeyCode::Char(c));
+        }
+        key(&mut app, KeyCode::Enter);
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains(" 2 shell"), "renamed");
         // Another session: its own view, with its own rail.
         app.hy_place(2, Some(3));
         let o = draw(&mut app, 160, 45);
         assert_eq!(app.session_tabs().len(), 1);
-        assert!(o.contains(" 1 codex") && !o.contains(" 2 shell"), "codex has one tab");
+        assert!(o.contains(" 1 rate") && !o.contains(" 2 shell"), "codex (in rate) has one tab");
         // Back to claude: the tab you were last on there (the shell).
         app.hy_place(1, Some(2));
         assert_eq!(app.hy.tabs[app.hy.tab].focus, 3, "back on the shell tab");
         // Closing claude's own tab while claude runs takes a second click.
         let mine = app.hy.tabs.iter().position(|t| t.layout.contains(1)).unwrap();
         app.close_tab(mine);
-        assert!(app.notice.as_ref().is_some_and(|(m, ..)| m.contains("click ✕ again")), "{:?}", app.notice);
+        assert!(app.notice.as_ref().is_some_and(|(m, ..)| m.contains("close it again")), "{:?}", app.notice);
     }
 
     #[test]
@@ -874,7 +899,7 @@ mod hydra_tests {
         app.hy_fresh();
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("◇ Doing something"), "the name is on the row itself");
+        assert!(o.contains("Doing something"), "the name is on the row itself");
         assert_eq!(o.matches("Doing something").count(), 1, "once: on the row, not in a second line");
     }
 
@@ -901,10 +926,10 @@ mod hydra_tests {
         assert!(app.hy.cursor_proj.is_some() && app.hy.cursor.is_none(), "← goes to its project");
         app.on_key(key(KeyCode::Down));
         assert_eq!(app.hy.cursor, Some(first));
-        // The bottom bar says what the keys do, the row's own included.
+        // The sidebar's foot says what the row's own keys do.
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("x  close") && o.contains("r  rename"), "the row's keys in the bottom bar");
+        assert!(o.contains("x close") && o.contains("Esc back"), "the row's keys that fit at the sidebar's foot");
         // A row's letter does what its menu says: x asks to close it.
         app.on_key(key(KeyCode::Char('x')));
         assert!(matches!(&app.mode, Mode::Confirm(c) if c.title == "Close pane"), "x closes (after asking)");
@@ -961,8 +986,13 @@ mod hydra_tests {
         app.on_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("THEME") && o.contains("● Default") && o.contains("○ Monokai") && o.contains("○ Tokyo Night"));
-        assert!(o.contains("Swatches: background, surface"));
+        assert!(o.contains("PANES") && o.contains("Corners") && o.contains("PREVIEW"), "the pane settings first, with their preview");
+        for _ in 0..10 {
+            app.on_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        }
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("THEME") && o.contains("○ Monokai") && o.contains("○ Tokyo Night"), "then a row per theme");
     }
 
     #[test]
@@ -1067,6 +1097,112 @@ mod hydra_tests {
         let Mode::Copy(c) = &app.mode else { panic!("dragging selects") };
         let picked = c.selected_text();
         assert!(picked.starts_with("line 61\n") && picked.ends_with("\nl"), "{picked:?}");
+    }
+
+    #[test]
+    fn the_leader_lights_up_and_its_key_map_runs_or_searches() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        app.cfg.ui.which_key = false;
+        let lead = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL);
+        let key = |app: &mut App, c: KeyCode| app.on_key(KeyEvent::new(c, KeyModifiers::NONE));
+        // Armed: the sky pill in the tab row, the focused card's border sky too.
+        app.on_key(lead);
+        let mut term = Terminal::new(TestBackend::new(160, 45)).unwrap();
+        term.draw(|f| render::draw(&mut app, f)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let y = (0..45).find(|&y| (0..160).any(|x| buf[(x, y)].symbol() == "✕")).unwrap();
+        let x = (0..160).rev().find(|&x| buf[(x, y)].symbol() == "✕").unwrap();
+        assert_eq!(buf[(x + 2, y)].fg, app.theme.sky(), "the focused border turns sky");
+        // ? opens the key map: groups, each key a cap, what needs you on j.
+        key(&mut app, KeyCode::Char('?'));
+        assert!(matches!(app.mode, Mode::KeyMap(_)));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        for g in ["AGENTS", "PANES", "TABS", "PROJECT", "HYDRA"] {
+            assert!(o.contains(g), "the key map has {g}");
+        }
+        assert!(o.contains("jump to waiting ● 1") && o.contains("worktrees  ›") && o.contains("1 2 3"), "counts on their keys, steps marked");
+        // Tab, then words: a search over every leader key.
+        key(&mut app, KeyCode::Tab);
+        for c in "zoom".chars() {
+            key(&mut app, KeyCode::Char(c));
+        }
+        let o = draw(&mut app, 160, 45);
+        assert!(matches!(&app.mode, Mode::KeyMap(km) if km.query == "zoom") && o.contains("Zoom"), "a search for zoom");
+        // A key with › opens its second step; Backspace goes back.
+        app.mode = Mode::Normal;
+        app.on_key(lead);
+        key(&mut app, KeyCode::Char('w'));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(matches!(&app.mode, Mode::KeyMap(km) if km.step == Some(hydra::Step::Worktrees)), "w opens the worktrees step");
+        assert!(o.contains("WORKTREES IN SHOP-API") && o.contains("new worktree") && o.contains("merge into main") && o.contains("the path so far"));
+        key(&mut app, KeyCode::Backspace);
+        assert!(matches!(&app.mode, Mode::KeyMap(km) if km.step.is_none()), "back to the key map");
+        key(&mut app, KeyCode::Esc);
+        assert_eq!(app.mode, Mode::Normal);
+    }
+
+    #[test]
+    fn actions_list_every_command_with_its_key() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains("a actions"));
+        let at = app.hits.iter().find_map(|(r, h)| (*h == Hit::Hy(hydra::HyHit::Actions)).then_some((r.x, r.y))).expect("a actions is clickable");
+        app.on_mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: at.0, row: at.1, modifiers: KeyModifiers::NONE });
+        assert!(matches!(app.mode, Mode::Actions { sel: 0 }));
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains("╭─ Actions") && o.contains("New pane") && o.contains("Jump to what needs you ● 1") && o.contains("+ key, anywhere"));
+        // Its key runs it.
+        app.on_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
+        assert!(matches!(app.mode, Mode::HyPane(_)), "p: new pane");
+    }
+
+    #[test]
+    fn tiled_square_and_faded() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        let a = app.focused().unwrap();
+        let b = app.snap.terms.keys().copied().find(|t| *t != a).unwrap();
+        app.hy.tabs.clear();
+        app.hy_place(a, None);
+        app.hy.pending_split = Some((a, Instant::now()));
+        app.hy_place(b, Some(a));
+        for t in [a, b] {
+            let mut p = vt100::Parser::new(20, 60, 0);
+            p.process(b"\x1b[31mred text\x1b[0m");
+            app.parsers.insert(t, p);
+        }
+        // The one you're not in fades toward its ground; the one you're in doesn't.
+        let mut term = Terminal::new(TestBackend::new(160, 45)).unwrap();
+        term.draw(|f| render::draw(&mut app, f)).unwrap();
+        let buf = term.backend().buffer().clone();
+        let focus = app.focused().unwrap();
+        let fg_at = |term: TermId| {
+            let (_, inner) = *app.panes.iter().find(|(t, _)| *t == term).unwrap();
+            buf[(inner.x, inner.y)].fg
+        };
+        let other = if focus == a { b } else { a };
+        assert_ne!(fg_at(focus), fg_at(other), "the unfocused pane's text is faded");
+        // Tiled: no margin, cards edge to edge; square corners when asked.
+        app.cfg.ui.panes = "tiled".into();
+        app.cfg.ui.corners = "square".into();
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.lines().next().unwrap().starts_with('┌'), "tiled starts at the very corner, square: {}", o.lines().next().unwrap());
+        assert!(!o.contains('╭'), "no rounded corners");
+    }
+
+    #[test]
+    fn a_small_window_tightens() {
+        let (o, _) = super::design_tests::render_with(100, 30);
+        show(&o);
+        let lines: Vec<&str> = o.lines().collect();
+        // A 26-column sidebar card, no right-hand meta or question lines.
+        assert!(lines[1].starts_with("  ╭────────────────────────╮"), "a slim sidebar: {}", lines[1]);
+        let side: String = lines.iter().map(|l| l.chars().take(30).collect::<String>() + "\n").collect();
+        assert!(!side.contains("main · 3m") && !side.contains("Run npm test"), "no meta or questions in the slim sidebar: {side}");
+        assert!(o.contains(", prefs"), "settings says prefs when narrow");
     }
 
     #[test]
@@ -1188,7 +1324,7 @@ mod hydra_tests {
         app.hy_focus(agent);
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("$4.20 today") && !o.contains("claude 5h"), "spend in the footer, not the plan limits");
+        assert!(!o.contains("claude 5h"), "no plan limits on screen");
         assert!(o.contains("ctx 76% · $1.20"), "context and cost on its bar");
         assert!(o.contains("76% "), "a filling context on its row");
         app.snap.terms.get_mut(&agent).unwrap().resume_at = Some(now + 600);
@@ -1226,7 +1362,6 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains("review") && o.contains("ENG-7 Checkout fails") && o.contains("waiting"), "the Queue tab lists it");
-        assert!(o.contains("queue 1 running · 1 waiting · 1 to review"), "and the footer counts it");
         // A task typed there joins the queue.
         for c in "tidy up".chars() {
             app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
@@ -1278,13 +1413,18 @@ mod hydra_tests {
     fn a_newer_hydra_has_an_update_button_that_asks_first() {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         let o = draw(&mut app, 160, 45);
-        assert!(!o.contains("Update now"), "no button without a newer version");
+        assert!(o.contains(", settings") && !o.contains(", settings ●"), "no dot without a newer version");
         app.update_available = Some("9.9.9".into());
         app.update_notes = vec!["Fixed: copying".into(), "New: an Update now button".into()];
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains(&format!("hydra {}   Update now", env!("CARGO_PKG_VERSION"))), "the button by the version");
+        assert!(o.contains(", settings ●"), "a dot after settings");
         assert!(app.palette_commands().contains(&Action::Update), "and it's in the palette");
+        // Settings: the version, the new one, and the button.
+        app.act(Action::Settings);
+        let o = draw(&mut app, 160, 45);
+        show(&o);
+        assert!(o.contains(&format!("hydra {} → 9.9.9", env!("CARGO_PKG_VERSION"))) && o.contains("Update now"), "the button by the version");
         // Clicking asks first: from this version to the new one, and what changed.
         let at = app.hits.iter().find_map(|(r, h)| (*h == Hit::Hy(hydra::HyHit::Update)).then_some((r.x + 1, r.y))).expect("it can be clicked");
         app.on_mouse(MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: at.0, row: at.1, modifiers: KeyModifiers::NONE });
@@ -1297,9 +1437,10 @@ mod hydra_tests {
         // Not confirmed here: that would download a release over the test program.
         app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(app.mode == Mode::Normal && !app.updating, "Cancel leaves it be");
-        // A narrow window (a slim sidebar) and a long version: the button still fits.
+        // A narrow window: the button still fits.
         let (_, mut app) = super::design_tests::render_with(100, 30);
         app.update_available = Some("10.12.10".into());
+        app.act(Action::Settings);
         let o = draw(&mut app, 100, 30);
         assert!(o.contains("Update now"), "the button fits a narrow window: {o}");
         assert!(app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::Update)), "and can be clicked");
@@ -1387,9 +1528,8 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         let at = |s: &str| o.find(s).unwrap_or_else(|| panic!("{s} in the sidebar"));
-        assert!(at("── Agents 2 ─") < at("── Terminals 1 ─") && at("── Terminals 1 ─") < at("── SSH 1 ─"), "a divider per section, in order");
-        assert!(at("build-box") > at("── SSH"));
-        assert!(!o.contains("SESSIONS"), "no heading over them");
+        assert!(at("● shop-api") < at("● notes") && at("● notes") < at("● build-box"), "agents, then terminals, then other machines");
+        assert!(!o.contains("── Agents") && !o.contains("SESSIONS"), "no headings over them");
     }
 
     #[test]
@@ -1523,12 +1663,12 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert!(o.contains("Split right") && !o.contains("Settings"), "typing narrows it");
-        app.mode = Mode::Help { scroll: 0 };
+        app.mode = Mode::KeyMap(Box::new(hydra::KeyMap { query: String::new(), searching: false, step: None, sel: 0 }));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        let a = o.lines().find(|l| l.contains("go to session")).unwrap();
-        let b = o.lines().find(|l| l.contains("palette")).unwrap();
-        assert_eq!(a.find("go to session"), b.find("palette"), "labels line up");
+        let a = o.lines().find(|l| l.contains("jump to waiting")).unwrap();
+        let b = o.lines().find(|l| l.contains("talk to an agent")).unwrap();
+        assert_eq!(a.find("jump to waiting"), b.find("talk to an agent"), "labels line up");
     }
 
     #[test]
@@ -1551,7 +1691,7 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         let line = o.lines().find(|l| l.contains("Editor")).unwrap();
-        assert!(line.contains(" default "), "a choice, not a text box: {line}");
+        assert!(line.contains("default"), "a choice, not a text box: {line}");
         let editor = modal::SETTINGS.iter().find(|s| s.path == "editor").unwrap();
         let opts = modal::program_options(modal::EDITORS, "");
         if opts.len() > 1 {
@@ -1635,21 +1775,24 @@ mod hydra_tests {
     #[test]
     fn only_the_part_with_the_keys_looks_focused() {
         let (_, mut app) = super::design_tests::render_with(120, 30);
-        let bar_bg = |app: &mut App| {
+        // The colour of the focused card's border just right of its ✕, and the sidebar
+        // card's left edge.
+        let borders = |app: &mut App| {
             let mut term = Terminal::new(TestBackend::new(120, 30)).unwrap();
             term.draw(|f| render::draw(app, f)).unwrap();
             let buf = term.backend().buffer().clone();
             let y = (0..30).find(|&y| (0..120).any(|x| buf[(x, y)].symbol() == "✕")).unwrap();
             let x = (0..120).rev().find(|&x| buf[(x, y)].symbol() == "✕").unwrap();
-            (buf[(x, y)].bg, buf[(0u16, 29u16)].symbol().to_string(), buf.clone())
+            let side = (1..29).filter(|&y| buf[(2u16, y)].fg == app.theme.accent).count();
+            (buf[(x + 2, y)].fg, side)
         };
-        let (bg, _, _) = bar_bg(&mut app);
-        assert_eq!(bg, app.theme.accent, "the focused pane's bar is the accent");
+        let (pane, side) = borders(&mut app);
+        assert_eq!(pane, app.theme.accent, "the focused pane's border is the accent");
+        assert_eq!(side, 0, "the sidebar's isn't");
         app.act(Action::BrowseTree);
-        let (bg, _, buf) = bar_bg(&mut app);
-        assert_ne!(bg, app.theme.accent, "not while the sidebar has the keys");
-        let side_left = (0..29).filter(|&y| buf[(0u16, y)].fg == app.theme.accent).count();
-        assert!(side_left > 10, "the sidebar is outlined: {side_left} rows");
+        let (pane, side) = borders(&mut app);
+        assert_ne!(pane, app.theme.accent, "not while the sidebar has the keys");
+        assert!(side > 10, "the sidebar card is lit instead: {side} rows");
     }
 
     #[test]
@@ -1662,8 +1805,7 @@ mod hydra_tests {
             app.on_key(lead);
             assert!(matches!(app.mode, Mode::Prefix { .. }), "leader waits");
             let o = draw(&mut app, 160, 45);
-            let footer: Vec<&str> = o.lines().rev().take(3).collect();
-            assert!(footer[0].is_empty() && footer[1].contains("then:") && o.contains("g go to"), "the bottom bar shows leader mode, with a row of air under it");
+            assert!(o.contains("⌨ CTRL+SPACE"), "the leader pill at the end of the tab row");
             app.on_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
             assert!(!matches!(app.mode, Mode::Normal | Mode::Prefix { .. }), "leader + {c} opens {what}: {:?}", std::mem::discriminant(&app.mode));
         }
@@ -1721,7 +1863,7 @@ mod hydra_tests {
             app.act(a);
             let o = draw(&mut app, 120, 34);
             show(&o);
-            assert!(o.contains("Esc close"), "{title}: a hydra panel (title bar with Esc close)");
+            assert!(o.contains("╭─ ") && o.contains(" ✕ ─"), "{title}: a hydra card (title in its border, ✕ to close)");
         }
     }
 
@@ -1741,7 +1883,7 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         let _ = row;
-        assert!(o.contains("Message claude") && o.contains(" run the tests█"), "a centered text area with what you typed");
+        assert!(o.contains("╭─ claude") && o.contains("› run the tests█"), "claude's card, with what you typed in a pill");
         assert!(o.contains("Run npm test -- checkout?"), "with the agent's question for context");
         app.on_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT));
         app.on_key(key(KeyCode::Char('x')));

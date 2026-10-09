@@ -4,22 +4,27 @@ use super::*;
 
 // ---- overlays ------------------------------------------------------------------------------
 
-/// Dim everything already drawn, gently: still readable behind a popup.
+/// What a popup does to everything behind it: text toward its ground, all of it toward black.
+const BEHIND_TEXT: f32 = 0.6;
+const BEHIND_DARK: f32 = 0.45;
+
+/// Dim everything already drawn behind a popup: text toward its ground and all of it darker.
+/// Pill ends keep their shape (their colour darkens like the pill's).
 pub(in crate::client) fn dim_all(buf: &mut Buffer, area: Rect, t: &Theme) {
     let black = Color::Rgb(0, 0, 0);
+    let area = area.intersection(buf.area);
     for y in area.top()..area.bottom() {
         for x in area.left()..area.right() {
             let c = &mut buf[(x, y)];
             let bg = if c.bg == Color::Reset { t.bg } else { c.bg };
             let fg = if c.fg == Color::Reset { t.fg } else { c.fg };
-            c.fg = blend(blend(fg, bg, 0.35), black, 0.2);
-            c.bg = blend(bg, black, 0.2);
+            let cap = c.symbol() == CAP_L || c.symbol() == CAP_R;
+            c.fg = if cap { blend(fg, black, BEHIND_DARK) } else { blend(blend(fg, bg, BEHIND_TEXT), black, BEHIND_DARK) };
+            c.bg = blend(bg, black, BEHIND_DARK);
         }
     }
 }
 
-/// A centred panel: `card` ground, accent title bar with "Esc close" on the right.
-#[allow(clippy::too_many_arguments)]
 /// The one size every tool window opens at (files, search, changes, pull requests).
 pub(in crate::client) fn tool_rect(area: Rect) -> Rect {
     let w = area.width.saturating_sub(8).min(170);
@@ -27,26 +32,24 @@ pub(in crate::client) fn tool_rect(area: Rect) -> Rect {
     Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h }
 }
 
+/// A centred popup: a rounded card on `card`, its title lit in the top border and a ✕ that
+/// closes it; anything in `right` sits in the border before the ✕.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::client) fn panel(app: &mut App, buf: &mut Buffer, area: Rect, w: u16, h: u16, title: &str, right: &[Seg], t: &Theme) -> Rect {
     let w = w.min(area.width.saturating_sub(2));
     let h = h.min(area.height.saturating_sub(2));
     let r = Rect { x: area.x + (area.width - w) / 2, y: area.y + (area.height - h) / 2, width: w, height: h };
     hit(app, area, HyHit::Close);
-    fill(buf, r, t.card);
     hit(app, r, HyHit::Noop);
-    let bar = Rect { height: 1, ..r };
-    fill(buf, bar, t.accent);
-    let ink = Style::default().fg(t.acc_ink).bg(t.accent);
-    put(buf, r.x + 2, r.y, &[seg(title, ink.add_modifier(Modifier::BOLD))], r.right());
-    let right: Vec<Seg> = if right.is_empty() {
-        vec![seg("Esc", ink.add_modifier(Modifier::BOLD)), seg(" close ", ink)]
-    } else {
-        right.iter().map(|(s, st)| (s.clone(), st.fg(t.acc_ink).bg(t.accent))).collect()
-    };
-    let rw = segs_width(&right);
-    put(buf, r.right().saturating_sub(rw + 1), r.y, &right, r.right());
-    hit(app, Rect { x: r.right().saturating_sub(rw.max(10) + 1), y: r.y, width: rw.max(10), height: 1 }, HyHit::Close);
+    let mut c = Card::new(t, title).lit(t.accent);
+    c.bg = t.card;
+    c.close = Some(HyHit::Close);
+    card(app, buf, r, &c, t);
+    if !right.is_empty() {
+        let segs: Vec<Seg> = right.iter().map(|(s, st)| (s.clone(), st.bg(t.bg))).collect();
+        let rw = segs_width(&segs);
+        put(buf, r.right().saturating_sub(rw + 9), r.y, &segs, r.right().saturating_sub(8));
+    }
     r
 }
 

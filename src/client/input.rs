@@ -163,7 +163,7 @@ impl App {
                     self.spawn_bg(move || Bg::Done(tasks::ship(&task), false));
                 }
             }
-            Mode::Prefix { .. } => {
+            Mode::Prefix { since } => {
                 self.mode = Mode::Normal;
                 if k.code == KeyCode::Esc {
                     return;
@@ -174,15 +174,16 @@ impl App {
                     if repeat && self.mode == Mode::Normal {
                         self.mode = Mode::Prefix { since: crate::clock::ago(Duration::from_secs(60)) };
                     }
+                } else if self.keymap_shown(since)
+                    && let KeyCode::Char(c) = k.code
+                {
+                    // The key map is up and this key does nothing: it starts a search.
+                    self.mode = Mode::KeyMap(Box::new(hydra::KeyMap { query: c.to_string(), searching: true, step: None, sel: 0 }));
                 }
             }
-            Mode::Help { scroll } => match k.code {
-                KeyCode::Down | KeyCode::Char('j') => self.mode = Mode::Help { scroll: scroll + 1 },
-                KeyCode::Up | KeyCode::Char('k') => self.mode = Mode::Help { scroll: scroll.saturating_sub(1) },
-                KeyCode::PageDown => self.mode = Mode::Help { scroll: scroll + 10 },
-                KeyCode::PageUp => self.mode = Mode::Help { scroll: scroll.saturating_sub(10) },
-                _ => self.mode = Mode::Normal,
-            },
+            Mode::KeyMap(km) => self.on_keymap_key(*km, &k),
+            Mode::Actions { sel } => self.on_actions_key(sel, &k),
+            Mode::NewTab(nt) => self.on_new_tab_key(*nt, &k),
             Mode::Picker { mut query, mut sel, commands } => {
                 let n = self.pick_items(&query, commands).len();
                 let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
@@ -607,7 +608,7 @@ impl App {
             if let Some(h @ Hit::Button(_)) = hit {
                 let double = self.last_click.is_some_and(|(prev, at)| prev == h && at.elapsed() < DOUBLE_CLICK);
                 self.last_click = Some((h, Instant::now()));
-                if matches!(self.mode, Mode::Prefix { .. } | Mode::Help { .. }) {
+                if matches!(self.mode, Mode::Prefix { .. } | Mode::KeyMap(_) | Mode::Actions { .. }) {
                     self.mode = Mode::Normal;
                 }
                 if self.on_button(h, double) {

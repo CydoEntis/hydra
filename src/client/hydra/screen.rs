@@ -1,20 +1,55 @@
-//! The main screen: sidebar, panes, tab bar, toast and bottom bar.
+//! The main screen: the sidebar card, the tab row, the pane cards and the toast.
 
 use super::*;
 
 // ---- main screen ---------------------------------------------------------------------------
 
 pub(in crate::client) fn side_w(width: u16) -> u16 {
-    match width {
-        0..140 => 30,
-        140..200 => 38,
-        _ => 44,
-    }
+    if width < NARROW { 26 } else { 34 }
 }
 
-/// Rows of air above and below the footer's line, and its height with them.
-const FOOTER_PAD: u16 = 1;
-const FOOTER_H: u16 = 1 + 2 * FOOTER_PAD;
+/// Below this many columns the layout tightens: a slimmer sidebar without its right-hand
+/// meta, and tabs other than the current one shrink to their number and state.
+pub(in crate::client) const NARROW: u16 = 140;
+
+/// Where everything goes: the sidebar card, the tab row and the pane area.
+pub(in crate::client) struct Grid {
+    pub side: Rect,
+    pub tabs: Rect,
+    pub panes: Rect,
+    /// Between the sidebar and the right column (drag it to resize).
+    pub edge: Rect,
+}
+
+/// The floating grid: a margin of 2 columns and 1 row, the sidebar card the full height, a
+/// 2-column gap, then the tab row one row down and the pane cards below a row of air. Tiled
+/// packs it all edge to edge.
+pub(in crate::client) fn grid(app: &App, area: Rect) -> Grid {
+    let look = Look::of(&app.cfg.ui);
+    let (mx, my, gx) = if look.tiled { (0, 0, 0) } else { (2, 1, 2) };
+    let inner = Rect { x: area.x + mx, y: area.y + my, width: area.width.saturating_sub(2 * mx), height: area.height.saturating_sub(2 * my) };
+    let sw = if app.sidebar {
+        app.hy.saved.side_w.unwrap_or_else(|| side_w(area.width)).clamp(SIDE_MIN, SIDE_MAX).min(inner.width / 2)
+    } else {
+        0
+    };
+    let right_side = app.cfg.ui.sidebar_position == "right";
+    let gap = if sw > 0 { gx } else { 0 };
+    let col_w = inner.width.saturating_sub(sw + gap);
+    let (side, col, edge) = if right_side {
+        let side = Rect { x: inner.right().saturating_sub(sw), width: sw, ..inner };
+        (side, Rect { width: col_w, ..inner }, Rect { x: side.x.saturating_sub(gap.max(1)), width: gap.max(1), ..inner })
+    } else {
+        let side = Rect { width: sw, ..inner };
+        (side, Rect { x: inner.x + sw + gap, width: col_w, ..inner }, Rect { x: side.right(), width: gap.max(1), ..inner })
+    };
+    // The tab row floats one row below the top, a row of air under it.
+    let (tab_dy, air) = if look.tiled { (0, 0) } else { (1, 1) };
+    let tabs = Rect { y: col.y + tab_dy, height: 1, ..col };
+    let top = tabs.y + 1 + air;
+    let panes = Rect { y: top, height: col.bottom().saturating_sub(top), ..col };
+    Grid { side, tabs, panes, edge }
+}
 
 /// Draw the main screen; returns the pane area.
 pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) -> Rect {
@@ -23,47 +58,23 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
     app.hy.branch_keys.clear();
     app.hy.pr_keys.clear();
     fill(f.buffer_mut(), area, t.bg);
-    let sw = if app.sidebar {
-        app.hy.saved.side_w.unwrap_or_else(|| side_w(area.width)).clamp(SIDE_MIN, SIDE_MAX).min(area.width / 2)
-    } else {
-        0
-    };
-    let right_side = app.cfg.ui.sidebar_position == "right";
-    // The panes get the full height; the sidebar sits under the logo.
-    // No top bar: the sidebar and panes start at the top; a bottom bar for what needs you.
-    let mid = Rect { x: area.x, y: area.y, width: area.width, height: area.height.saturating_sub(FOOTER_H) };
-    let (side, panes) = if sw == 0 {
-        (Rect { width: 0, ..mid }, mid)
-    } else if right_side {
-        (
-            Rect { x: mid.right() - sw, width: sw, ..mid },
-            Rect { width: mid.width - sw - 1, ..mid },
-        )
-    } else {
-        (Rect { width: sw, ..mid }, Rect { x: mid.x + sw + 1, width: mid.width.saturating_sub(sw + 1), ..mid })
-    };
-
-    if sw > 0 {
-        draw_side(app, f.buffer_mut(), side, &model, t);
-        if app.mode == Mode::Side {
-            outline_side(f.buffer_mut(), side, right_side, t);
-        }
-        // The edge between sidebar and panes: drag it.
-        let ex = if right_side { side.x.saturating_sub(1) } else { side.right() };
-        let edge = Rect { x: ex, y: side.y, width: 1, height: side.height };
-        let c = if app.hy.drag == Some(Drag::Side) || hovered(app, edge) || app.mode == Mode::Side { t.accent } else { t.line };
-        for yy in edge.top()..edge.bottom() {
-            if let Some(px) = f.buffer_mut().cell_mut((ex, yy)) {
-                px.set_symbol("│").set_style(Style::default().fg(c).bg(t.bg));
+    let g = grid(app, area);
+    if g.side.width > 0 {
+        draw_side(app, f.buffer_mut(), g.side, &model, t);
+        // The gap beside the sidebar: drag it. It lights up while you point at it.
+        if app.hy.drag == Some(Drag::Side) || hovered(app, g.edge) {
+            let ex = g.edge.x + g.edge.width / 2;
+            for yy in g.side.top() + 1..g.side.bottom().saturating_sub(1) {
+                if let Some(px) = f.buffer_mut().cell_mut((ex, yy)) {
+                    px.set_symbol("│").set_style(Style::default().fg(t.accent).bg(t.bg));
+                }
             }
         }
-        hit(app, edge, HyHit::SideEdge);
+        hit(app, g.edge, HyHit::SideEdge);
     }
-    // A cell of air on each side; every pane starts with its own title bar.
-    let panes = Rect { x: panes.x + 1, y: panes.y, width: panes.width.saturating_sub(2), height: panes.height };
-    draw_main(app, f, panes, &model, t);
-    app.hy.crumb_x = panes.x + 1;
-    draw_status(app, f.buffer_mut(), Rect { y: area.bottom().saturating_sub(FOOTER_H), height: FOOTER_H.min(area.height), ..area }, &model, t);
+    let col = Rect { y: g.tabs.y, height: g.panes.bottom().saturating_sub(g.tabs.y), ..g.tabs };
+    draw_main(app, f, col, &model, t);
+    app.hy.crumb_x = g.panes.x + 1;
     // A popup (`hydra popup`) floats over everything, the rest dimmed.
     if let Some(term) = app.popup() {
         let whole = f.area();
@@ -71,10 +82,9 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
         let w = (whole.width * 4 / 5).max(40).min(whole.width);
         let h = (whole.height * 3 / 4).max(12).min(whole.height);
         let r = Rect { x: whole.x + (whole.width - w) / 2, y: whole.y + (whole.height - h) / 2, width: w, height: h };
-        fill(f.buffer_mut(), r, t.bg);
         draw_session(app, f, r, term, true, &model, t);
     }
-    draw_toast(app, f.buffer_mut(), panes, t);
+    draw_toast(app, f.buffer_mut(), g.panes, t);
     // Files, diffs and pull requests open over everything in one tool-window size; Esc
     // closes.
     if matches!(app.view, Some(crate::client::View::Changes(_) | crate::client::View::Pr(_) | crate::client::View::Files(_)))
@@ -101,7 +111,7 @@ pub(in crate::client) fn draw(app: &mut App, f: &mut Frame, area: Rect, t: &Them
             other => app.view = Some(other),
         }
     }
-    panes
+    g.panes
 }
 
 pub(in crate::client) fn find(model: &[Proj], term: TermId) -> Option<(&Proj, &Wt, &Session)> {
@@ -142,8 +152,6 @@ pub(in crate::client) fn hline(buf: &mut Buffer, x: u16, y: u16, w: u16, t: &The
 /// A line of the sidebar tree.
 #[derive(Debug, Clone)]
 pub(in crate::client) enum Line {
-    /// A section's heading: AGENTS, TERMINALS, SSH (with how many sessions).
-    Section(Kind, usize),
     Proj(usize),
     /// A heading: BRANCHES or WORKTREES.
     /// An agent or shell (pi, wi, si).
@@ -173,10 +181,6 @@ pub(in crate::client) fn session_lines(s: &Session, t: &Theme, out: &mut Vec<Lin
 pub(in crate::client) fn side_lines(app: &App, model: &[Proj], t: &Theme) -> Vec<Line> {
     let mut out = Vec::new();
     for (pi, p) in model.iter().enumerate() {
-        if pi == 0 || model[pi - 1].kind != p.kind {
-            let n = model.iter().filter(|q| q.kind == p.kind).map(|q| q.sessions().count()).sum();
-            out.push(Line::Section(p.kind, n));
-        }
         out.push(Line::Proj(pi));
         if app.hy.saved.closed.contains(&format!("p:{}", p.key)) {
             out.push(Line::Gap);
@@ -218,54 +222,29 @@ pub(in crate::client) fn line_term(model: &[Proj], l: &Line) -> Option<TermId> {
     }
 }
 
-/// The sidebar has the keys: an accent line all the way round it (the edge to the panes is
-/// drawn by the caller). Rows' own markers win over the line.
-pub(in crate::client) fn outline_side(buf: &mut Buffer, r: Rect, right_side: bool, t: &Theme) {
-    if r.height < 2 {
-        return;
-    }
-    let bottom = r.bottom() - 1;
-    let outer = if right_side { r.right() - 1 } else { r.x };
-    let blank = |buf: &Buffer, x: u16, y: u16| buf[(x, y)].symbol() == " ";
-    for x in r.left()..r.right() {
-        if blank(buf, x, bottom) {
-            let bg = buf[(x, bottom)].bg;
-            if let Some(px) = buf.cell_mut((x, bottom)) {
-                px.set_symbol("▁").set_style(Style::default().fg(t.accent).bg(bg));
-            }
-        }
-    }
-    for y in r.top()..r.bottom() {
-        if blank(buf, outer, y) {
-            let bg = buf[(outer, y)].bg;
-            if let Some(px) = buf.cell_mut((outer, y)) {
-                px.set_symbol(if right_side { "▕" } else { "▏" }).set_style(Style::default().fg(t.accent).bg(bg));
-            }
-        }
-    }
-}
-
+/// The sidebar card: projects (● in their colour, bold), their sessions under them most urgent
+/// first, a question under a session that needs you; actions and settings at the foot.
 pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
-    let surf = t.sidebar_bg;
-    fill(buf, r, surf);
+    let look = Look::of(&app.cfg.ui);
+    let pb = pane_bg(t);
+    let focused_side = app.mode == Mode::Side;
+    let host = crate::ipc::remote().map(|h| format!("⇄ {h}")).unwrap_or_default();
+    let mut c = Card::new(t, &host);
+    if focused_side {
+        c = c.lit(t.accent);
+    }
+    card(app, buf, r, &c, t);
     app.hy.side_rect = r;
+    let small = buf.area.width < NARROW;
     let lines = side_lines(app, model, t);
     let shown: Vec<TermId> = app.hy.tabs.get(app.hy.tab).map(|t| t.layout.leaves()).unwrap_or_default();
     // In a split, the split's row (its first pane's) is the open one, whichever side you're on.
     let focus = app.focused().map(|f| if shown.len() > 1 && shown.contains(&f) { shown[0] } else { f });
-    let split = shown.iter().copied().find(|t| Some(*t) != focus && shown.len() > 1);
-    let focused_side = app.mode == Mode::Side;
-    if focused_side {
-        // The keys are here: an accent line along the sidebar's top too.
-        for xx in r.x..r.right() {
-            if let Some(px) = buf.cell_mut((xx, r.y)) {
-                px.set_symbol("▔").set_style(Style::default().fg(t.accent).bg(surf));
-            }
-        }
-    }
-    // The sections name themselves: the list starts at the top.
-    let r = Rect { y: r.y + 1, height: r.height.saturating_sub(1), ..r };
-    let list_h = r.height.saturating_sub(3) as usize;
+    // Rows: from 1 below the top border, inset 3; the foot takes the last 4 rows.
+    let (x0, w) = (r.x, r.width);
+    let top = r.y + 2;
+    let list_h = r.height.saturating_sub(6) as usize;
+    let right = r.right().saturating_sub(3);
     // Keep the focused (or cursor) row in view when it changes; otherwise the wheel rules.
     let mut scroll = app.hy.side_scroll as usize;
     if app.hy.follow {
@@ -294,101 +273,78 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
     app.hy.row_y.clear();
     app.hy.proj_keys = model.iter().map(|p| p.key.clone()).collect();
     let tk = k(app, &Action::Talk);
-    let (x0, w) = (r.x, r.width);
-    let right = r.right().saturating_sub(2);
 
-    // Two shades: the one that's open (a touch of accent) and the one under the mouse or
-    // cursor (a touch lighter), so you can tell them apart and the status colours still read.
-    let active = t.hov;
-    let hover = crate::client::render::blend(surf, t.text, 0.10);
-    // A session's highlight: focused (filled), in the split, under the cursor or mouse.
-    let look = |app: &App, term: TermId, row: Rect| -> (Color, Option<Color>, bool) {
-        let prim = Some(term) == focus;
-        let sel = !prim && (app.hy.cursor == Some(term) || hovered(app, row));
-        let bg = if prim {
-            active
-        } else if sel {
-            hover
-        } else if Some(term) == split || (shown.len() > 1 && shown.contains(&term) && Some(term) != focus) {
-            t.card2
+    // The open session (or the keyboard's row) is a full-width pill; the mouse's a lighter one.
+    let hover = blend(pb, t.text, 0.08);
+    let shade = |app: &App, term: TermId, row: Rect| -> Option<Color> {
+        if Some(term) == focus || (focused_side && app.hy.cursor == Some(term)) {
+            Some(t.hov)
+        } else if hovered(app, row) {
+            Some(hover)
         } else {
-            surf
-        };
-        (bg, None, sel)
+            None
+        }
     };
-    // The open one is marked by a bar on its left, not a fill.
-    let bar = |buf: &mut Buffer, term: TermId, y: u16, bg: Color| {
-        if Some(term) == focus
-            && let Some(px) = buf.cell_mut((x0, y)) {
-                px.set_symbol("▌").set_style(Style::default().fg(t.accent).bg(bg));
-            }
-    };
-
     for (i, line) in lines.iter().enumerate().skip(scroll).take(list_h) {
-        let y = r.y + (i - scroll) as u16;
-        let row = Rect { x: x0, y, width: w, height: 1 };
+        let y = top + (i - scroll) as u16;
+        let row = Rect { x: x0 + 2, y, width: w.saturating_sub(4), height: 1 };
         match line {
             Line::Proj(pi) => {
                 let p = &model[*pi];
                 let open = !app.hy.saved.closed.contains(&format!("p:{}", p.key));
-                let on = app.mode == Mode::Side && app.hy.cursor_proj.as_ref() == Some(&p.key);
+                let on = focused_side && app.hy.cursor_proj.as_ref() == Some(&p.key);
                 let hov = hovered(app, row) || on;
-                let bg = if hov { crate::client::render::blend(surf, t.text, 0.10) } else { surf };
-                fill(buf, row, bg);
+                let bg = if on { t.hov } else if hov { hover } else { pb };
+                if bg != pb {
+                    row_pill(look, buf, row.x, y, row.width, bg, pb);
+                }
                 let s = Style::default().bg(bg);
-                let mut left = vec![
-                    seg(if open { "▾ " } else { "▸ " }, s.fg(t.muted)),
-                    seg("▌", s.fg(p.color)),
-                    seg(p.name.clone(), s.fg(t.strong).add_modifier(Modifier::BOLD)),
-                ];
+                let mut left = vec![seg("● ", s.fg(p.color)), seg(p.name.clone(), s.fg(t.strong).add_modifier(Modifier::BOLD))];
                 if p.fresh {
                     left.push(seg(" ", s));
                     left.push(seg(" NEW ", Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)));
                 }
-                // Right: ● n needing you, "no git", and when folded what's inside.
+                // Right: ● n needing you, or "no git"; folded, what's inside.
                 let needs = p.sessions().filter(|x| x.status == Status::Blocked).count();
                 let mut c: Vec<Seg> = Vec::new();
                 if needs > 0 {
                     c.push(seg(format!("● {needs}"), s.fg(t.blocked).add_modifier(Modifier::BOLD)));
-                }
-                if !p.git && p.kind != Kind::Ssh {
-                    c.push(seg(format!("{}no git", if c.is_empty() { "" } else { "  " }), s.fg(t.muted)));
+                } else if !p.git && p.kind != Kind::Ssh {
+                    c.push(seg("no git", s.fg(t.muted)));
                 }
                 if !open {
                     let n = p.sessions().count();
-                    let what = if n == 0 {
-                        "empty".to_string()
-                    } else {
-                        let busy = p.sessions().filter(|x| x.status == Status::Working).count();
-                        if busy > 0 { format!("{busy} working") } else { format!("{n} idle") }
-                    };
+                    let what = if n == 0 { "empty".to_string() } else { format!("▸ {n}") };
                     c.push(seg(format!("{}{what}", if c.is_empty() { "" } else { "  " }), s.fg(t.muted)));
                 }
                 let cw = segs_width(&c);
-                put(buf, x0 + 2, y, &left, right.saturating_sub(cw + 1));
-                if !hov {
-                    put(buf, right.saturating_sub(cw) + 1, y, &c, r.right());
-                }
+                put(buf, x0 + 3, y, &left, right.saturating_sub(cw + 1));
                 hit(app, row, HyHit::ToggleProj(*pi));
-                if hov {
-                    row_menu_button(app, buf, Rect { x: r.right().saturating_sub(2), y, width: 2, height: 1 }, bg, t, HyHit::RowMenuProj(*pi));
-                    let plus = Rect { x: r.right().saturating_sub(5), y, width: 3, height: 1 };
+                if hov && !small {
+                    row_menu_button(app, buf, Rect { x: right.saturating_sub(1), y, width: 2, height: 1 }, bg, t, HyHit::RowMenuProj(*pi));
+                    let plus = Rect { x: right.saturating_sub(5), y, width: 3, height: 1 };
                     put(buf, plus.x, y, &[seg(" + ", Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD))], r.right());
                     hit(app, plus, HyHit::ShellIn(*pi));
+                } else {
+                    put(buf, right.saturating_sub(cw), y, &c, right);
                 }
             }
             Line::Sess(pi, wi, si) => {
                 let s = &model[*pi].wts[*wi].sessions[*si];
                 app.hy.row_y.insert(s.term, y);
-                let (bg, ink, sel) = look(app, s.term, row);
-                fill(buf, row, bg);
+                let lit = shade(app, s.term, row);
+                let bg = lit.unwrap_or(pb);
+                if lit.is_some() {
+                    row_pill(look, buf, row.x, y, row.width, bg, pb);
+                }
+                let sel = focused_side && app.hy.cursor == Some(s.term);
                 let st = Style::default().bg(bg);
                 let (gl, gc) = if s.asleep {
                     ("☾".to_string(), t.muted)
                 } else if s.is_agent || s.status != Status::None {
-                    (glyph(app, s.status), t.status(s.status))
+                    (glyph(app, s.status), state_color(t, s.status))
                 } else {
-                    (app.cfg.icons.shell.clone(), t.muted)
+                    ("›".to_string(), t.muted)
                 };
                 let (gl, gc) = match &s.dev {
                     Some(d) => ("▶".to_string(), if d.ready { t.done } else { t.muted }),
@@ -397,102 +353,93 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                     None if s.bell && !matches!(s.status, Status::Blocked | Status::Done) => ("♪".to_string(), t.blocked),
                     None => (gl, gc),
                 };
-                let mut gs = st.fg(ink.unwrap_or(gc));
+                let mut gs = st.fg(gc);
                 if s.status == Status::Blocked {
                     gs = gs.add_modifier(Modifier::BOLD);
                 }
-                // What it is (the icon, coloured by status) and its name; state on the right.
                 let wt = &model[*pi].wts[*wi];
                 let racing = !wt.main && app.hy.saved.races.iter().any(|r| r.entries.iter().any(|(_, b)| *b == wt.branch));
-                let mut left = vec![seg(format!("{gl} "), gs)];
-                // The agent's icon (shells have none), then its name.
-                left.push(seg(if s.is_agent { format!("{} ", kind_icon(app, &s.agent, true)) } else { "  ".to_string() }, st.fg(ink.unwrap_or(t.muted))));
-                if racing {
-                    left.push(seg("⚑ ", st.fg(ink.unwrap_or(t.accent))));
-                }
-                let focused_row = Some(s.term) == focus;
-                let needs = s.status == Status::Blocked && !s.asleep;
+                let open_row = Some(s.term) == focus;
                 // Finished and not looked at yet: green, like its dot.
-                let done = s.is_agent && s.status == Status::Done && !s.asleep;
-                let mut ns = st.fg(ink.unwrap_or(if needs { t.blocked } else if done { t.done } else if focused_row { t.strong } else { t.text }));
-                if focused_row || needs || done {
+                let unseen = s.is_agent && s.status == Status::Done && !s.asleep;
+                let mut ns = st.fg(if unseen { t.done } else if open_row || sel { t.strong } else { t.text });
+                if open_row || sel || unseen {
                     ns = ns.add_modifier(Modifier::BOLD);
                 }
-                if s.is_agent && s.status == Status::Working && ink.is_none() && !s.asleep {
-                    left.extend(shimmer(&s.name, app.spinner_frame(), t.working, t.strong, ns));
+                let mut left = vec![];
+                if racing {
+                    left.push(seg("⚑ ", st.fg(t.accent)));
+                }
+                if s.is_agent && s.status == Status::Working && !s.asleep {
+                    left.extend(shimmer(&s.name, app.spinner_frame(), t.text, t.strong, ns));
                 } else {
                     left.push(seg(s.name.clone(), ns));
                 }
                 if let Some(d) = &s.dev {
                     let port = d.port.map(|p| format!(" :{p}")).unwrap_or_default();
                     let state = if d.ready { "ready" } else { "starting…" };
-                    left.truncate(1);
-                    left.push(seg(format!("dev{port}"), st.fg(ink.unwrap_or(t.strong)).add_modifier(Modifier::BOLD)));
-                    left.push(seg(format!("  {state}"), st.fg(ink.unwrap_or(if d.ready { t.done } else { t.muted }))));
+                    left = vec![seg(format!("dev{port}"), st.fg(t.strong).add_modifier(Modifier::BOLD)), seg(format!("  {state}"), st.fg(if d.ready { t.done } else { t.muted }))];
                 }
-                // The branch's pull request, on its first session.
+                // Right: branch · age (amber when it needs you); a pull request, a limit, asleep.
                 let pr = (*si == 0).then(|| model[*pi].prs.iter().find(|p| p.branch == wt.branch)).flatten();
-                let tail: Vec<Seg> = if sel {
+                let tail: Vec<Seg> = if small {
+                    vec![]
+                } else if sel {
                     vec![seg(format!(" {tk} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD))]
                 } else if let Some(p) = pr {
                     let k2 = app.hy.pr_keys.len();
                     app.hy.pr_keys.push((wt.path.clone(), p.number.to_string()));
                     let tg: Vec<Seg> = pr_tag(t, p).into_iter().map(|(x, s2)| (x, s2.bg(bg))).collect();
                     let tw = segs_width(&tg);
-                    hit(app, Rect { x: right.saturating_sub(tw) + 1, y, width: tw, height: 1 }, HyHit::Pr(k2));
+                    hit(app, Rect { x: right.saturating_sub(tw), y, width: tw, height: 1 }, HyHit::Pr(k2));
                     tg
                 } else if s.asleep {
-                    vec![seg("asleep", st.fg(ink.unwrap_or(t.muted)))]
+                    vec![seg("asleep", st.fg(t.muted))]
                 } else if let Some(at) = s.resume_at {
-                    vec![seg(format!("⏸ limit · resumes in {}", until(at)), st.fg(ink.unwrap_or(t.working)))]
+                    vec![seg(format!("⏸ resumes in {}", until(at)), st.fg(t.working))]
                 } else if s.is_agent {
-                    // branch · age (in a repo), state · age (outside one); amber when it needs you.
-                    let first = if model[*pi].git && !wt.branch.is_empty() && wt.branch != s.name { wt.branch.clone() } else { state_label(s.status).to_string() };
-                    let col = match s.status {
-                        Status::Blocked => t.blocked,
-                        Status::Done => t.done,
-                        _ => t.muted,
-                    };
-                    let mut tail = context_tag(s, st, ink, t);
-                    tail.push(seg(format!("{} · {}", truncate(&first, 18), age(s.since)), st.fg(ink.unwrap_or(col))));
+                    let col = if s.status == Status::Blocked { t.blocked } else { t.muted };
+                    let first = if model[*pi].git && !wt.branch.is_empty() && wt.branch != s.name { format!("{} · ", truncate(&wt.branch, 16)) } else { String::new() };
+                    let mut tail = context_tag(s, st, t);
+                    tail.push(seg(format!("{first}{}", age(s.since)), st.fg(col)));
                     tail
                 } else {
                     vec![]
                 };
                 // The name comes first: when it doesn't fit, the branch gives way (the age stays).
-                let room = right.saturating_sub(x0 + 6) as usize;
-                let tail = if s.is_agent && !sel && pr.is_none() && !s.asleep && s.resume_at.is_none() && segs_width(&left) as usize + segs_width(&tail) as usize + 2 > room {
+                let name_x = x0 + 5;
+                let room = right.saturating_sub(name_x) as usize;
+                let tail = if s.is_agent && !sel && pr.is_none() && !s.asleep && s.resume_at.is_none() && !small && segs_width(&left) as usize + segs_width(&tail) as usize + 2 > room {
                     let col = if s.status == Status::Blocked { t.blocked } else { t.muted };
-                    let mut tail = context_tag(s, st, ink, t);
-                    tail.push(seg(age(s.since), st.fg(ink.unwrap_or(col))));
-                    tail
+                    vec![seg(age(s.since), st.fg(col))]
                 } else {
                     tail
                 };
                 let tw = segs_width(&tail);
-                put(buf, x0 + 6, y, &left, right.saturating_sub(tw + 1));
-                put(buf, right.saturating_sub(tw) + 1, y, &tail, r.right());
+                put(buf, x0 + 3, y, &[seg(gl, gs)], name_x);
+                put(buf, name_x, y, &left, right.saturating_sub(tw + 1));
+                put(buf, right.saturating_sub(tw), y, &tail, right);
                 hit(app, row, HyHit::Session(s.term));
-                bar(buf, s.term, y, bg);
-                if hovered(app, row) {
-                    row_menu_button(app, buf, Rect { x: r.right().saturating_sub(2), y, width: 2, height: 1 }, bg, t, HyHit::RowMenuSess(s.term));
+                if hovered(app, row) && !sel {
+                    row_menu_button(app, buf, Rect { x: right, y, width: 2, height: 1 }, bg, t, HyHit::RowMenuSess(s.term));
                 }
                 if sel {
-                    hit(app, Rect { x: right.saturating_sub(tw) + 1, y, width: tw, height: 1 }, HyHit::Talk(s.term));
+                    hit(app, Rect { x: right.saturating_sub(tw), y, width: tw, height: 1 }, HyHit::Talk(s.term));
                 }
             }
             Line::Note(text, c, term) => {
-                let (bg, ink, _) = look(app, *term, row);
-                // Notes follow their session's highlight, not the mouse.
-                let bg = if bg == t.hov && app.hy.cursor != Some(*term) { surf } else { bg };
-                fill(buf, row, bg);
-                put(buf, x0 + 10, y, &[seg(truncate(text, w.saturating_sub(12) as usize), Style::default().bg(bg).fg(ink.unwrap_or(*c)).add_modifier(Modifier::ITALIC))], r.right() - 1);
+                if small {
+                    continue;
+                }
+                put(buf, x0 + 5, y, &[seg(truncate(text, w.saturating_sub(9) as usize), Style::default().bg(pb).fg(*c).add_modifier(Modifier::ITALIC))], right);
                 hit(app, row, HyHit::Session(*term));
             }
             Line::Race(id) => {
                 let Some(race) = app.hy.saved.races.iter().find(|r| r.id == *id).cloned() else { continue };
-                let bg = if hovered(app, row) { t.hov } else { surf };
-                fill(buf, row, bg);
+                let bg = if hovered(app, row) { hover } else { pb };
+                if bg != pb {
+                    row_pill(look, buf, row.x, y, row.width, bg, pb);
+                }
                 let s = Style::default().bg(bg);
                 put(
                     buf,
@@ -500,74 +447,84 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                     y,
                     &[
                         seg("⚑ race ", s.fg(t.accent).add_modifier(Modifier::BOLD)),
-                        seg(truncate(&race.prompt, w.saturating_sub(18) as usize), s.fg(t.text)),
+                        seg(truncate(&race.prompt, w.saturating_sub(16) as usize), s.fg(t.text)),
                         seg(format!("  {}", race.entries.len()), s.fg(t.muted)),
                     ],
-                    r.right(),
+                    right,
                 );
                 hit(app, row, HyHit::RaceOpen(*id));
             }
             // Nothing running: one click starts a shell there.
             Line::Empty(pi) => {
-                let hov = hovered(app, row);
-                let bg = if hov { crate::client::render::blend(surf, t.text, 0.10) } else { surf };
-                fill(buf, row, bg);
+                let bg = if hovered(app, row) { hover } else { pb };
+                if bg != pb {
+                    row_pill(look, buf, row.x, y, row.width, bg, pb);
+                }
                 let st = Style::default().bg(bg);
                 let nk = k(app, &Action::ShellHere);
                 put(
                     buf,
-                    x0 + 6,
+                    x0 + 5,
                     y,
                     &[seg("empty  ", st.fg(t.muted).add_modifier(Modifier::ITALIC)), seg(nk, st.fg(t.accent).add_modifier(Modifier::BOLD)), seg(" new pane", st.fg(t.muted))],
-                    r.right(),
+                    right,
                 );
                 hit(app, row, HyHit::ShellIn(*pi));
-            }
-            // A quiet divider: ── Terminals 4 ─────────
-            Line::Section(kind, n) => {
-                let st = Style::default().bg(surf);
-                let label = format!(" {} {n} ", kind.heading());
-                let left = 2u16;
-                let rest = w.saturating_sub(left + label.width() as u16 + 2);
-                put(
-                    buf,
-                    x0 + 1,
-                    y,
-                    &[seg("─".repeat(left as usize), st.fg(t.line)), seg(label, st.fg(t.muted)), seg("─".repeat(rest as usize), st.fg(t.line))],
-                    r.right(),
-                );
             }
             Line::Gap => {}
         }
     }
-    let plain = Style::default().bg(surf);
+    let plain = Style::default().bg(pb);
     if scroll > 0 {
-        put(buf, r.right() - 1, r.y, &[seg("▲", plain.fg(t.muted))], r.right());
+        put(buf, r.right() - 2, top, &[seg("▲", plain.fg(t.muted))], r.right() - 1);
     }
     if scroll + list_h < lines.len() {
-        put(buf, r.right() - 1, r.y + list_h as u16 - 1, &[seg("▼", plain.fg(t.muted))], r.right());
+        put(buf, r.right() - 2, top + list_h as u16 - 1, &[seg("▼", plain.fg(t.muted))], r.right() - 1);
     }
-    // Quiet hints: new, jump, settings.
-    let by = r.bottom().saturating_sub(3);
-    hline(buf, x0 + 2, by, w.saturating_sub(4), t, surf);
-    let mut hx = x0 + 2;
-    for (key, label, h) in [(k(app, &Action::ShellHere), "new", HyHit::NewPane), (k(app, &Action::GoTo), "go to", HyHit::GoTo), (k(app, &Action::Settings), "settings", HyHit::Settings)] {
-        let hot = plain.fg(t.accent).add_modifier(Modifier::BOLD);
-        // A key that's the label's first letter is that letter, lit: "new", not "n new".
-        let segs = match label.strip_prefix(key.as_str()) {
-            Some(rest) => vec![seg(key.clone(), hot), seg(rest.to_string(), plain.fg(t.text))],
-            None => vec![seg(key, hot), seg(format!(" {label}"), plain.fg(t.text))],
-        };
-        let sw = segs_width(&segs);
-        // A narrow sidebar shows the hints that fit, whole.
-        if hx + sw > r.right().saturating_sub(1) {
-            break;
+    // The foot: a rule, then actions on the left and settings on the right (a dot when an
+    // update is ready).
+    if r.height < 8 {
+        return;
+    }
+    let ry = r.bottom() - 4;
+    hline(buf, x0 + 3, ry, w.saturating_sub(6), t, pb);
+    let fy = ry + 1;
+    let hot = plain.fg(t.accent).add_modifier(Modifier::BOLD);
+    if focused_side {
+        let items = app.cursor_items();
+        let keys = crate::client::menu::menu_keys(&items);
+        let back = [seg("Esc", hot), seg(" back", plain.fg(t.text))];
+        let bx = right.saturating_sub(segs_width(&back));
+        put(buf, bx, fy, &back, right);
+        let mut segs: Vec<Seg> = Vec::new();
+        let pairs = items.iter().zip(keys).filter_map(|((label, _), k)| {
+            k.map(|k| (k.to_string(), label.trim_start_matches('▶').trim().trim_end_matches('…').split_whitespace().next().unwrap_or("").to_lowercase()))
+        });
+        for (key, word) in pairs {
+            let pair = [seg(key, hot), seg(format!(" {word}  "), plain.fg(t.text))];
+            if x0 + 3 + segs_width(&segs) + segs_width(&pair) <= bx {
+                segs.extend(pair);
+            }
         }
-        let hr = Rect { x: hx, y: by + 1, width: sw, height: 1 };
-        let segs: Vec<Seg> = if hovered(app, hr) { segs.into_iter().map(|(x, st)| (x, st.bg(t.hov))).collect() } else { segs };
-        put(buf, hx, by + 1, &segs, r.right());
-        hit(app, hr, h);
-        hx += sw + 4;
+        put(buf, x0 + 3, fy, &segs, bx);
+        return;
+    }
+    let lit = |app: &App, hr: Rect, segs: Vec<Seg>| -> Vec<Seg> { if hovered(app, hr) { segs.into_iter().map(|(x, st)| (x, st.bg(t.hov))).collect() } else { segs } };
+    let actions = vec![seg(k(app, &Action::Actions), hot), seg(" actions", plain.fg(t.text))];
+    let ar = Rect { x: x0 + 3, y: fy, width: segs_width(&actions), height: 1 };
+    let actions = lit(app, ar, actions);
+    put(buf, ar.x, fy, &actions, right);
+    hit(app, ar, HyHit::Actions);
+    let mut set = vec![seg(k(app, &Action::Settings), hot), seg(if w < 30 { " prefs" } else { " settings" }, plain.fg(t.text))];
+    if app.update_available.is_some() {
+        set.push(seg(" ●", hot));
+    }
+    let sw = segs_width(&set);
+    let sr = Rect { x: right.saturating_sub(sw), y: fy, width: sw, height: 1 };
+    if sr.x > ar.right() {
+        let set = lit(app, sr, set);
+        put(buf, sr.x, fy, &set, right);
+        hit(app, sr, HyHit::Settings);
     }
 }
 
@@ -595,16 +552,35 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
         put(f.buffer_mut(), area.x + 4, area.y + 3, &[seg(format!("Nothing open. Press {} {nk} for a new session.", app.keymap.prefix.to_string().replace("C-", "Ctrl+")), Style::default().fg(t.muted))], area.right());
         return;
     };
-    // Tabs, once there's more than one.
     // Which tab was on screen last, per session.
     app.hy.tick += 1;
     let (tick, cur) = (app.hy.tick, app.hy.tab);
     if let Some(tab) = app.hy.tabs.get_mut(cur) {
         tab.used = tick;
     }
-    // The tab rail, always: the session's tabs and a + tab for another.
+    let look = Look::of(&app.cfg.ui);
     draw_tab_bar(app, f.buffer_mut(), Rect { height: 1, ..area }, model, t);
-    let area = Rect { y: area.y + 1, height: area.height.saturating_sub(1), ..area };
+    let skip = if look.tiled { 1 } else { 2 };
+    let area = Rect { y: area.y + skip, height: area.height.saturating_sub(skip), ..area };
+    if let Mode::NewTab(nt) = &app.mode
+        && nt.tab.is_none()
+    {
+        let nt = (**nt).clone();
+        draw_new_tab(app, f, area, t, &nt);
+        return;
+    }
+    // Between cards: `gap` rows stacked, twice that in columns side by side.
+    let (gap_x, gap_y) = (look.gap * 2, look.gap);
+    let inset = |r: Rect| -> Rect {
+        let mut r = r;
+        if r.right() < area.right() {
+            r.width = r.width.saturating_sub(gap_x);
+        }
+        if r.bottom() < area.bottom() {
+            r.height = r.height.saturating_sub(gap_y);
+        }
+        r
+    };
     app.hy.dividers.clear();
     let layout = app
         .hy
@@ -619,60 +595,42 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
     };
     let leaves = layout.leaves();
     let arrange = app.hy.tabs.get(app.hy.tab).map(|tab| tab.arrange).unwrap_or_default();
-    // Split with two: where you drag the line (below). Anything else: by the arrangement.
+    // Split with two: where you drag the gap (below). Anything else: by the arrangement.
     if leaves.len() >= 3 || arrange != Arrange::Split {
         let rects = arranged(arrange, &leaves, focus, area);
-        // A line in the middle of each gutter between panes side by side.
-        let buf = f.buffer_mut();
-        for (_, r) in &rects {
-            let gx = r.right() + 1;
-            if r.right() + 3 <= area.right() && rects.iter().any(|(_, o)| o.x == r.right() + 3 && o.y < r.bottom() && r.y < o.bottom()) {
-                for yy in r.top()..r.bottom() {
-                    if let Some(px) = buf.cell_mut((gx, yy)) {
-                        px.set_symbol("│").set_style(Style::default().fg(t.line).bg(t.bg));
-                    }
-                }
-            }
-        }
         app.hy.leaf_rects = rects.clone();
         for (id, r) in rects {
-            draw_session(app, f, r, id, id == focus, model, t);
+            draw_session(app, f, inset(r), id, id == focus, model, t);
         }
         return;
     }
-    // Two: each in its part, a gutter between them (space │ space), the line drags.
     let rects = layout.rects(area);
     app.hy.leaf_rects = rects.clone();
     for (id, r) in rects {
-        let mut r = r;
-        if r.right() < area.right() {
-            r.width = r.width.saturating_sub(3);
-        }
-        if r.bottom() < area.bottom() {
-            r.height = r.height.saturating_sub(1);
-        }
-        draw_session(app, f, r, id, id == focus, model, t);
+        draw_session(app, f, inset(r), id, id == focus, model, t);
     }
     for (i, (sa, horizontal, path)) in layout.splits(area).into_iter().enumerate() {
         let ratio = layout.ratio_at(&path).unwrap_or(0.5);
         let div = crate::layout::Node::divider(sa, horizontal, ratio);
-        // Side by side: the line in the middle of the three-column gutter, and the whole
-        // gutter grabs it (one column is hard to hit). Stacked: a blank row (it shows when
-        // you point at it). What lights up is exactly what a press grabs.
-        let (div, grab) = if horizontal {
-            let line = Rect { x: div.x.saturating_sub(1), ..div };
-            (line, Rect { x: line.x.saturating_sub(1), width: 3, ..line })
+        // The gap between the two grabs it, and a cell either side of its middle line (one
+        // column is hard to hit); it lights up while you point at it or drag.
+        let grab = if horizontal {
+            let g = gap_x.max(1);
+            Rect { x: div.x.saturating_sub(g), width: g + 1, ..div }
         } else {
-            (div, div)
+            let h = gap_y.max(1);
+            Rect { y: div.y.saturating_sub(h), height: h, ..div }
         };
-        let c = if app.hy.drag == Some(Drag::Divider(i)) || hovered(app, grab) { t.accent } else { t.line };
-        let buf = f.buffer_mut();
-        for yy in div.top()..div.bottom() {
-            for xx in div.left()..div.right() {
-                if (horizontal || c == t.accent)
-                    && let Some(px) = buf.cell_mut((xx, yy)) {
-                        px.set_symbol(if horizontal { "│" } else { "─" }).set_style(Style::default().fg(c).bg(t.bg));
+        if app.hy.drag == Some(Drag::Divider(i)) || hovered(app, grab) {
+            let buf = f.buffer_mut();
+            let (lx, ly) = (grab.x + grab.width / 2, grab.y + grab.height / 2);
+            for yy in grab.top()..grab.bottom() {
+                for xx in grab.left()..grab.right() {
+                    let on = if horizontal { xx == lx } else { yy == ly };
+                    if on && let Some(px) = buf.cell_mut((xx, yy)) {
+                        px.set_symbol(if horizontal { "│" } else { "─" }).set_style(Style::default().fg(t.accent).bg(t.bg));
                     }
+                }
             }
         }
         hit(app, grab, HyHit::Divider(i));
@@ -687,61 +645,161 @@ pub(in crate::client) fn row_menu_button(app: &mut App, buf: &mut Buffer, r: Rec
     hit(app, r, h);
 }
 
-/// One chip per tab: what it shows; the one you're in is filled (with a ✕ when there are
-/// others to go to). + tab makes another.
+/// The most urgent state among the panes of a tab, for its pill.
+fn tab_state(app: &App, tab: &HyTab) -> Option<Status> {
+    tab.layout
+        .leaves()
+        .iter()
+        .filter_map(|id| app.snap.terms.get(id))
+        .filter(|i| i.agent.is_some())
+        .map(|i| i.status)
+        .min_by_key(|s| rank(*s))
+}
+
+/// What a tab is called: its own name, else what runs in it.
+pub(in crate::client) fn tab_name(app: &App, model: &[Proj], tab: &HyTab) -> String {
+    if !tab.name.is_empty() {
+        return tab.name.clone();
+    }
+    find(model, tab.focus).map(|(_, _, s)| s.name.clone()).unwrap_or_else(|| {
+        app.snap.terms.get(&tab.focus).map(|i| match &i.agent {
+            Some(a) => a.clone(),
+            None if i.is_shell() => "shell".into(),
+            None => i.display_name(),
+        }).unwrap_or_else(|| "…".into())
+    })
+}
+
+/// Leader mode is on: waiting for the key, or showing the key map.
+pub(in crate::client) fn armed(app: &App) -> bool {
+    matches!(app.mode, Mode::Prefix { .. } | Mode::KeyMap(_))
+}
+
+/// The tab row: a pill per tab (number, name, its most urgent state; the current one in the
+/// accent), a + pill, and the layout chip at the far right (the leader pill while armed).
 pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
+    let look = Look::of(&app.cfg.ui);
+    let pb = pane_bg(t);
     fill(buf, r, t.bg);
-    let mut x = r.x + 1;
-    let mut shown = 0;
+    let small = buf.area.width < NARROW;
+    // The right end first, so the tabs know where to stop.
+    let right: Vec<Seg> = if armed(app) {
+        let ink = Style::default().fg(t.bg).add_modifier(Modifier::BOLD);
+        let lead = app.keymap.prefix.to_string().replace("C-", "Ctrl+").to_uppercase();
+        let mut segs = vec![seg(format!(" ⌨ {lead} "), ink)];
+        if !small {
+            segs.push(seg(" press a key · ? shortcuts · Esc ", Style::default().fg(t.bg)));
+        }
+        pill(look, segs, t.sky(), t.bg)
+    } else {
+        let n = app.hy.tabs.get(app.hy.tab).map(|tab| tab.layout.leaves().len()).unwrap_or(1);
+        let shape = match n {
+            0 | 1 => "▯",
+            2 => "▯▯",
+            _ => "▦",
+        };
+        let tint = blend(t.sky(), t.bg, 0.78);
+        pill(look, vec![seg(shape, Style::default().fg(t.sky()).add_modifier(Modifier::BOLD))], tint, t.bg)
+    };
+    let rw = segs_width(&right);
+    let rx = r.right().saturating_sub(rw);
+    put(buf, rx, r.y, &right, r.right());
+    hit(app, Rect { x: rx, y: r.y, width: rw, height: 1 }, if armed(app) { HyHit::Leader } else { HyHit::Layout });
+    let mut x = r.x;
     let tabs = app.session_tabs();
-    let closable = tabs.len() > 1;
-    for i in tabs {
+    let adding = match &app.mode {
+        Mode::NewTab(nt) if nt.tab.is_none() => Some((**nt).clone()),
+        _ => None,
+    };
+    for (n, i) in tabs.iter().copied().enumerate() {
         let tab = &app.hy.tabs[i];
-        shown += 1;
-        let n = tab.layout.leaves().len();
-        // A session's other tabs have no row of their own: say what's in them from the pane.
-        let name = find(model, tab.focus).map(|(_, _, s)| if s.title == WAITING || s.title.is_empty() { s.agent.clone() } else { format!("{} · {}", s.agent, truncate(&s.title, 18)) }).unwrap_or_else(|| {
-            app.snap.terms.get(&tab.focus).map(|i| match &i.agent {
-                Some(a) => a.clone(),
-                None if i.is_shell() => "shell".into(),
-                None => i.display_name(),
-            }).unwrap_or_else(|| "…".into())
-        });
-        let label = if n > 1 { format!(" {shown} {name} +{} ", n - 1) } else { format!(" {shown} {name} ") };
-        let w = label.width() as u16;
-        if x + w + 4 > r.right() {
+        let on = i == app.hy.tab && adding.is_none();
+        let state = tab_state(app, tab);
+        let editing = matches!(&app.mode, Mode::NewTab(nt) if nt.tab == Some(i) && nt.naming);
+        let name = if editing {
+            match &app.mode {
+                Mode::NewTab(nt) => nt.name.clone(),
+                _ => String::new(),
+            }
+        } else if small && !on {
+            String::new()
+        } else {
+            tab_name(app, model, tab)
+        };
+        let fg = if on { t.acc_ink } else { t.text };
+        let mut segs = vec![seg(" ", Style::default()), seg(format!("{}", n + 1), Style::default().fg(fg).add_modifier(Modifier::BOLD))];
+        if !name.is_empty() || editing {
+            let mut ns = Style::default().fg(fg);
+            if on {
+                ns = ns.add_modifier(Modifier::BOLD);
+            }
+            segs.push(seg(format!(" {}", truncate(&name, 24)), ns));
+        }
+        if editing {
+            segs.push(seg("█", Style::default().fg(fg)));
+        }
+        if let Some(st) = state {
+            let c = if st == Status::Blocked { t.blocked } else if on { t.acc_ink } else { t.muted };
+            let mut gs = Style::default().fg(c);
+            if st == Status::Blocked {
+                gs = gs.add_modifier(Modifier::BOLD);
+            }
+            segs.push(seg(format!(" {}", glyph(app, st)), gs));
+        }
+        segs.push(seg(" ", Style::default()));
+        let bg = if on { t.accent } else { pb };
+        let segs = pill(look, segs, bg, t.bg);
+        let w = segs_width(&segs);
+        if x + w + 6 > rx {
             break;
         }
         let cr = Rect { x, y: r.y, width: w, height: 1 };
-        let on = i == app.hy.tab;
-        let st = if on {
-            Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)
-        } else if hovered(app, cr) {
-            Style::default().bg(t.hov).fg(t.strong)
-        } else {
-            Style::default().bg(t.btn).fg(t.text)
-        };
-        put(buf, x, r.y, &[seg(label, st)], r.right());
+        let segs = if !on && hovered(app, cr) { segs.into_iter().map(|(s, st)| (s, if st.bg == Some(pb) { st.bg(t.hov) } else if st.fg == Some(pb) { st.fg(t.hov) } else { st })).collect() } else { segs };
+        put(buf, x, r.y, &segs, rx);
         hit(app, cr, HyHit::TabPick(i));
-        x += w;
-        if on && closable {
-            let xr = Rect { x, y: r.y, width: 2, height: 1 };
-            put(buf, x, r.y, &[seg("✕ ", st)], r.right());
-            hit(app, xr, HyHit::TabClose(i));
-            x += 2;
-        }
-        x += 1;
+        x += w + 1;
     }
-    let pr = Rect { x, y: r.y, width: 7, height: 1 };
-    put(buf, x, r.y, &[seg(" + tab ", if hovered(app, pr) { Style::default().bg(t.hov).fg(t.strong) } else { Style::default().bg(t.btn).fg(t.muted) })], r.right());
-    hit(app, pr, HyHit::TabNew);
+    // A tab being added: lit, named as you type.
+    if let Some(nt) = adding {
+        let ink = Style::default().fg(t.acc_ink).add_modifier(Modifier::BOLD);
+        let name = if nt.naming { nt.name.clone() } else if nt.name.is_empty() { nt.fallback.clone() } else { nt.name.clone() };
+        let mut segs = vec![seg(" ", ink), seg(format!("{} ", tabs.len() + 1), ink), seg(truncate(&name, 24), ink)];
+        if nt.naming {
+            segs.push(seg("█", Style::default().fg(t.acc_ink)));
+        }
+        segs.push(seg(" ", ink));
+        let segs = pill(look, segs, t.accent, t.bg);
+        let w = segs_width(&segs);
+        if x + w <= rx {
+            put(buf, x, r.y, &segs, rx);
+            x += w + 1;
+        }
+    }
+    let plus = pill(look, vec![seg(" + ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD))], if hovered(app, Rect { x, y: r.y, width: 5, height: 1 }) { t.hov } else { pb }, t.bg);
+    let pw = segs_width(&plus);
+    if x + pw <= rx {
+        put(buf, x, r.y, &plus, rx);
+        hit(app, Rect { x, y: r.y, width: pw, height: 1 }, HyHit::TabNew);
+    }
 }
 
+/// A pane as a card: its name in the top border with project · branch after it, state and ✕
+/// on the right, the terminal inside (3 columns and a row in), folder and branch in the
+/// footer, model and context on the right of it. Unfocused cards fade; one that needs you
+/// keeps its amber.
 pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, term: TermId, focused: bool, model: &[Proj], t: &Theme) {
     let Some(info) = app.snap.terms.get(&term).cloned() else { return };
+    let look = Look::of(&app.cfg.ui);
     let found = find(model, term);
-    let (title, wt, agent) = found
-        .map(|(_, w, s)| (s.title.clone(), if w.main { w.branch.clone() } else { w.name.clone() }, s.agent.clone()))
+    let st = info.status;
+    // While the sidebar has the keys, no pane shows as focused.
+    let focused = focused && app.mode != Mode::Side;
+    let (name, sub) = found
+        .map(|(p, w, s)| {
+            let br = if p.git && !w.branch.is_empty() { format!(" · {}", w.branch) } else { String::new() };
+            let on = if s.is_agent && s.title != WAITING && !s.title.is_empty() && s.title != s.name { format!("{} · ", s.title) } else { String::new() };
+            (s.name.clone(), format!("{on}{}{br}", p.name))
+        })
         .unwrap_or_else(|| {
             // A pane beside another in a split has no sidebar row of its own: say what it is
             // from the pane itself.
@@ -750,84 +808,70 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
                 None if info.is_shell() => "shell".into(),
                 None => info.display_name(),
             };
-            (String::new(), String::new(), agent)
+            (agent, folder_name(&info.cwd))
         });
-    let st = info.status;
-    let _ = (&title, &wt);
-    // While the sidebar has the keys, no pane shows as focused.
-    let focused = focused && app.mode != Mode::Side;
-    // Title bar: name and where on the left (project · branch, cut with … before the right
-    // side); state and ✕ on the right. The focused pane's bar is the accent.
-    let bg = if focused { t.accent } else { t.sidebar_bg };
-    let ink = |c: Color| if focused { t.acc_ink } else { c };
-    fill(f.buffer_mut(), Rect { height: 1, ..r }, bg);
-    let mut right: Vec<Seg> = Vec::new();
     let scrolled = app.parsers.get(&term).map(|p| p.screen().scrollback()).filter(|n| *n > 0);
-    if let Some(n) = scrolled {
-        right.push(seg(format!("↑{n}   "), Style::default().fg(ink(t.accent)).bg(bg)));
+    // Footer: where it runs on the left; model, context and spend on the right.
+    let dim = Style::default().fg(t.muted);
+    let green = t.ansi.map(|a| a[1]).unwrap_or(t.done);
+    let mut foot = vec![seg(tilde(&info.cwd), dim)];
+    if let Some(b) = found.map(|(p, w, _)| (p.git && !w.branch.is_empty()).then(|| w.branch.clone())).unwrap_or_else(|| info.branch.clone()) {
+        foot.push(seg(" · ", dim));
+        foot.push(seg(format!("⎇ {b}"), Style::default().fg(green)));
+    }
+    let mut foot_r: Vec<Seg> = Vec::new();
+    let mut meta: Vec<String> = Vec::new();
+    if let Some(m) = found.map(|(_, _, s)| s.model.clone()).filter(|m| !m.is_empty()) {
+        meta.push(m);
     }
     if info.agent.is_some() {
-        let u = &info.usage;
-        let mut used = Vec::new();
-        if let Some(c) = u.context {
-            used.push(seg(format!("ctx {c:.0}%"), Style::default().fg(if focused { t.acc_ink } else { fullness(t, c) }).bg(bg)));
+        if let Some(c) = info.usage.context {
+            meta.push(format!("ctx {c:.0}%"));
         }
-        if let Some(c) = u.cost.filter(|c| *c >= 0.01) {
-            used.push(seg(format!("{}${c:.2}", if used.is_empty() { "" } else { " · " }), Style::default().fg(ink(t.muted)).bg(bg)));
+        if let Some(c) = info.usage.cost.filter(|c| *c >= 0.01) {
+            meta.push(format!("${c:.2}"));
         }
-        if !used.is_empty() {
-            used.push(seg("   ", Style::default().bg(bg)));
-            right.extend(used);
-        }
-        if let Some(at) = info.resume_at {
-            right.push(seg(format!("⏸ limit · says continue in {}   ", until(at)), Style::default().fg(ink(t.working)).bg(bg)));
-        }
-        let mut s = Style::default().fg(ink(t.status(st))).bg(bg);
-        if st == Status::Blocked {
-            s = s.add_modifier(Modifier::BOLD);
-        }
-        let extra = if st == Status::Working { format!(" {}", age(info.since)) } else { String::new() };
-        right.push(seg(format!("{} {}{extra}   ", glyph(app, st), state_label(st)), s));
     }
-    let xr = Rect { x: r.right().saturating_sub(2), y: r.y, width: 1, height: 1 };
-    right.push(seg("✕", Style::default().fg(if hovered(app, xr) { t.err } else { ink(t.muted) }).bg(bg)));
-    let rw = segs_width(&right);
-    let (name, place) = found
-        .map(|(p, w, s)| {
-            let br = if p.git && !w.branch.is_empty() { format!(" · {}", w.branch) } else { String::new() };
-            let model = if s.model.is_empty() { String::new() } else { format!(" · {}", s.model) };
-            // What it's on (Claude's title for the conversation, or its first task) first.
-            let on = if s.is_agent && s.title != WAITING && !s.title.is_empty() && s.title != s.name { format!("{} · ", s.title) } else { String::new() };
-            (s.name.clone(), format!("{on}{}{br}{model}", p.name))
-        })
-        .unwrap_or_else(|| {
-            let br = info.branch.as_ref().map(|b| format!(" · {b}")).unwrap_or_default();
-            (agent.clone(), format!("{}{br}", folder_name(&info.cwd)))
-        });
-    let icon = if info.agent.is_some() { format!("{} ", kind_icon(app, &agent, true)) } else { String::new() };
-    let room = (r.width as usize).saturating_sub(rw as usize + 4 + icon.chars().count() + name.chars().count() + 2);
-    let place = if place.chars().count() > room { format!("{}…", place.chars().take(room.saturating_sub(1)).collect::<String>()) } else { place };
-    put(
-        f.buffer_mut(),
-        r.x + 1,
-        r.y,
-        &[
-            seg(format!("{icon}{name}"), Style::default().fg(ink(t.strong)).bg(bg).add_modifier(Modifier::BOLD)),
-            seg(format!("  {place}"), Style::default().fg(ink(t.muted)).bg(bg)),
-        ],
-        r.right().saturating_sub(rw + 2),
-    );
-    put(f.buffer_mut(), r.right().saturating_sub(rw + 1), r.y, &right, r.right());
+    if let Some(at) = info.resume_at {
+        foot_r.push(seg(format!("⏸ limit · continues in {}   ", until(at)), Style::default().fg(t.working)));
+    }
+    if let Some(n) = scrolled {
+        foot_r.push(seg(format!("↑{n}  "), Style::default().fg(t.accent)));
+    }
+    if !meta.is_empty() {
+        foot_r.push(seg(meta.join(" · "), dim));
+    }
+    let border = if !focused {
+        t.line
+    } else if armed(app) {
+        t.sky()
+    } else {
+        match app.cfg.ui.focus_border.as_str() {
+            "bright" => t.strong,
+            "none" => t.line,
+            _ => t.accent,
+        }
+    };
+    let mut c = Card::new(t, &name);
+    c.sub = &sub;
+    c.state = info.agent.is_some().then_some(st).filter(|s| *s != Status::None);
+    c.close = Some(HyHit::CloseSplit(term));
+    c.foot = foot;
+    c.foot_r = foot_r;
+    if focused {
+        c = c.lit(border);
+        c.title_fg = t.accent;
+    }
+    let buf = f.buffer_mut();
+    let inside = card(app, buf, r, &c, t);
     app.pane_frames.push((term, r));
-    hit(app, Rect { x: r.right().saturating_sub(3), y: r.y, width: 3, height: 1 }, HyHit::CloseSplit(term));
 
-    // A blank row under the bar; output starts two cells in.
+    // The terminal: 3 columns in, a row below the border, above a blank row and the footer.
     // Answer buttons only for a question asked through hydra (ask-human), which has nowhere
     // else to be answered: an agent's own question is answered in its own prompt.
     let ask = st == Status::Blocked && info.agent.is_some() && app.pending_question(term).is_some();
-    let bot = r.bottom().saturating_sub(if ask { 2 } else { 0 });
-    let top = r.y + 2;
-    let inner = Rect { x: r.x + 2, y: top, width: r.width.saturating_sub(3), height: bot.saturating_sub(top) };
+    let below = 3 + if ask { 2 } else { 0 };
+    let inner = Rect { x: r.x + 3, y: r.y + 2, width: r.width.saturating_sub(6), height: r.height.saturating_sub(2 + below) };
     app.panes.push((term, inner));
     app.hits.push((inner, Hit::Pane(term)));
     let copying = matches!(&app.mode, Mode::Copy(c) if c.term == term);
@@ -839,7 +883,7 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
         }
     } else if let Some(p) = app.parsers.get(&term) {
         let screen = p.screen();
-        render_screen(screen, inner, f.buffer_mut(), t.bg);
+        render_screen(screen, inner, f.buffer_mut(), c.bg);
         if focused
             && !screen.hide_cursor()
             && scrolled.is_none()
@@ -856,16 +900,16 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
     // A scrollbar in the margin when there's history: where you are, click or drag it.
     let (cur, total) = app.history(term);
     if total > 0 && inner.height > 2 {
-        let track = Rect { x: inner.right(), y: inner.y, width: 1, height: inner.height };
+        let track = Rect { x: inner.right() + 1, y: inner.y, width: 1, height: inner.height };
         let h = track.height as usize;
         let thumb = (h * h / (h + total)).clamp(1, h);
         let top = track.y + ((h - thumb) * (total - cur) / total) as u16;
         let hot = app.hy.drag == Some(Drag::Scroll(term)) || hovered(app, track);
         for yy in track.top()..track.bottom() {
             let on = yy >= top && yy < top + thumb as u16;
-            let (sym, c) = if on { ("┃", if hot { t.accent } else { t.muted }) } else { ("│", t.line) };
+            let (sym, col) = if on { ("┃", if hot { t.accent } else { t.muted }) } else { ("│", t.line) };
             if let Some(px) = f.buffer_mut().cell_mut((track.x, yy)) {
-                px.set_symbol(sym).set_style(Style::default().fg(c).bg(t.bg));
+                px.set_symbol(sym).set_style(Style::default().fg(col).bg(c.bg));
             }
         }
         if app.hy.drag.is_none() || app.hy.drag == Some(Drag::Scroll(term)) {
@@ -876,10 +920,12 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
 
     // Scrolled up: say so, and how to get back.
     if let Some(n) = scrolled {
-        let note = vec![
-            seg(format!(" ↑ {n} lines up "), Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD)),
-            seg(" type, or scroll down, to go back ", Style::default().bg(t.card2).fg(t.text)),
-        ];
+        let note = pill(
+            look,
+            vec![seg(format!(" ↑ {n} lines up "), Style::default().fg(t.acc_ink).add_modifier(Modifier::BOLD))],
+            t.accent,
+            c.bg,
+        );
         let w = segs_width(&note);
         put(f.buffer_mut(), inner.right().saturating_sub(w), inner.y, &note, inner.right());
     }
@@ -897,26 +943,34 @@ pub(in crate::client) fn draw_session(app: &mut App, f: &mut Frame, r: Rect, ter
         put(f.buffer_mut(), x, inner.y + inner.height / 2, &note, inner.right());
     }
 
-    // Answer bar: the choices of the question asked through hydra.
-    if ask && bot + 2 <= r.bottom() {
-        let bot = r.bottom() - 1;
-        fill(f.buffer_mut(), Rect { x: r.x, y: bot, width: r.width, height: 1 }, t.card2);
-        let opts = app.answer_options(term);
-        let need: u16 = opts.iter().take(4).map(|o| o.chars().count() as u16 + 5).sum();
-        // In a narrow pane the label shrinks to its dot.
-        let label = if r.width.saturating_sub(4 + need) >= 10 { "● answer   " } else { "● " };
-        let mut x = put(f.buffer_mut(), r.x + 2, bot, &[seg(label, Style::default().fg(t.blocked).bg(t.card2).add_modifier(Modifier::BOLD))], r.right());
-        for (i, o) in opts.iter().enumerate().take(4) {
-            let key = char::from_digit(i as u32 + 1, 10).unwrap_or('1');
-            let kind = if i == 0 { BtnKind::Primary } else { BtnKind::Normal };
-            let w = segs_width(&button(t, o, &key.to_string(), kind, false));
-            let br = Rect { x, y: bot, width: w, height: 1 };
-            let segs = button(t, o, &key.to_string(), kind, hovered(app, br));
-            x = put(f.buffer_mut(), x, bot, &segs, r.right()) + 1;
-            app.hits.push((br, Hit::Button(crate::client::Btn::Answer(term, key))));
-        }
+    // Not the one you're in: its inside fades (the border and its amber tag stay as they are).
+    if !focused {
+        dim_inside(f.buffer_mut(), inside, look.dim, t);
     }
 
+    // Answer bar: the choices of the question asked through hydra, a full-width pill that
+    // keeps its amber even when the card is faded.
+    if ask && r.height >= 8 {
+        let ay = r.bottom() - 5;
+        let (lx, rx) = (r.x + 3, r.right().saturating_sub(3));
+        row_pill(look, f.buffer_mut(), lx - 1, ay, rx - lx + 2, t.card2, c.bg);
+        let opts = app.answer_options(term);
+        let full: u16 = opts.iter().take(4).map(|o| o.width() as u16 + 6).sum();
+        // In a narrow pane the label shrinks to its dot, then the buttons to their keys.
+        let roomy = rx.saturating_sub(lx) >= full + 11;
+        let label = if roomy { "● answer   " } else { "● " };
+        let mut x = put(f.buffer_mut(), lx, ay, &[seg(label, Style::default().fg(t.blocked).bg(t.card2).add_modifier(Modifier::BOLD))], rx);
+        let keys_only = rx.saturating_sub(x) < full;
+        for (i, o) in opts.iter().enumerate().take(4) {
+            let key = char::from_digit(i as u32 + 1, 10).unwrap_or('1').to_string();
+            let label = if keys_only { String::new() } else { o.clone() };
+            let w = segs_width(&button_pill(look, t, &label, &key, i == 0, false, t.card2));
+            let br = Rect { x, y: ay, width: w, height: 1 };
+            let segs = button_pill(look, t, &label, &key, i == 0, hovered(app, br), t.card2);
+            x = put(f.buffer_mut(), x, ay, &segs, rx) + 1;
+            app.hits.push((br, Hit::Button(crate::client::Btn::Answer(term, key.chars().next().unwrap_or('1')))));
+        }
+    }
 }
 
 /// A note (copied, saved, couldn't …) as a small pop-up just above the bottom bar, centred
@@ -962,115 +1016,9 @@ pub(in crate::client) fn draw_toast(app: &mut App, buf: &mut Buffer, panes: Rect
 }
 
 /// "72% " in front of an agent's row once its context is getting full.
-fn context_tag(s: &Session, st: Style, ink: Option<Color>, t: &Theme) -> Vec<Seg> {
+fn context_tag(s: &Session, st: Style, t: &Theme) -> Vec<Seg> {
     match s.context.filter(|c| *c >= CONTEXT_SHOWN_FROM) {
-        Some(c) => vec![seg(format!("{c:.0}% "), st.fg(ink.unwrap_or(fullness(t, c))))],
+        Some(c) => vec![seg(format!("{c:.0}% "), st.fg(fullness(t, c)))],
         None => Vec::new(),
-    }
-}
-
-/// The footer's right side: the queue and spend ("queue 1 running   $4.20 today").
-fn queue_and_spend(app: &App, t: &Theme, s: Style) -> Vec<Seg> {
-    let mut out = Vec::new();
-    // The queue at a glance: running, waiting, ready for review.
-    let q = &app.snap.queue;
-    let count = |f: fn(&crate::protocol::QueueState) -> bool| q.iter().filter(|x| f(&x.state)).count();
-    let running = count(|s| matches!(s, crate::protocol::QueueState::Starting | crate::protocol::QueueState::Running(_)));
-    let waiting = count(|s| *s == crate::protocol::QueueState::Waiting);
-    let review = count(|s| matches!(s, crate::protocol::QueueState::Review(_)));
-    if running + waiting + review > 0 {
-        let mut parts = Vec::new();
-        for (n, what) in [(running, "running"), (waiting, "waiting"), (review, "to review")] {
-            if n > 0 {
-                parts.push(format!("{n} {what}"));
-            }
-        }
-        out.push(seg(format!("queue {}   ", parts.join(" · ")), s.fg(if review > 0 { t.done } else { t.muted })));
-    }
-    if app.snap.spent_today >= 0.01 {
-        out.push(seg(format!("${:.2} today   ", app.snap.spent_today), s.fg(t.muted)));
-    }
-    out
-}
-
-pub(in crate::client) fn draw_status(app: &mut App, buf: &mut Buffer, r: Rect, model: &[Proj], t: &Theme) {
-    let surf = t.sidebar_bg;
-    fill(buf, r, surf);
-    let whole = r;
-    // Its line sits between rows of air.
-    let r = Rect { y: r.y + FOOTER_PAD.min(r.height.saturating_sub(1)), height: 1, ..r };
-    let s = Style::default().bg(surf);
-    // In the sidebar: its keys (the row's own, as its menu has them). Otherwise only what
-    // needs you; where you are is on each pane's title bar, and notes pop up as toasts.
-    // Leader pressed: the whole bar turns the accent and says what the next key can do.
-    if matches!(app.mode, Mode::Prefix { .. }) {
-        fill(buf, whole, t.accent);
-        let ink = Style::default().bg(t.accent).fg(t.acc_ink);
-        let lead = app.keymap.prefix.to_string().replace("C-", "Ctrl+");
-        let mut row = vec![seg(format!(" {lead} "), ink.add_modifier(Modifier::BOLD | Modifier::REVERSED)), seg("  then:  ", ink)];
-        for (a, what) in [
-            (Action::GoTo, "go to"),
-            (Action::Palette, "palette"),
-            (Action::ShellHere, "new session"),
-            (Action::SplitRight, "split"),
-            (Action::Help, "all keys"),
-        ] {
-            let key = k(app, &a);
-            if !key.is_empty() {
-                row.push(seg(key, ink.add_modifier(Modifier::BOLD)));
-                row.push(seg(format!(" {what}   "), ink));
-            }
-        }
-        row.push(seg("Esc", ink.add_modifier(Modifier::BOLD)));
-        row.push(seg(" cancel", ink));
-        put(buf, r.x + 1, r.y, &row, r.right());
-        return;
-    }
-    let left: Vec<Seg> = if app.mode == Mode::Side {
-        let items = app.cursor_items();
-        let keys = crate::client::menu::menu_keys(&items);
-        let mut list: Vec<(String, String)> = vec![("↑↓".into(), "move".into()), ("Enter".into(), "open".into())];
-        for ((label, _), k) in items.iter().zip(keys) {
-            if let Some(k) = k {
-                let l = label.trim_start_matches('▶').trim().trim_end_matches('…').split_whitespace().next().unwrap_or("").to_lowercase();
-                list.push((k.to_string(), l));
-            }
-        }
-        list.push(("Esc".into(), "back".into()));
-        let refs: Vec<(&str, &str)> = list.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
-        hints(t, &refs).into_iter().map(|(x, st)| (x, if st.bg.is_none() || st.bg == Some(t.card) { st.bg(surf) } else { st })).collect()
-    } else {
-        let needs = model.iter().flat_map(|p| p.sessions()).filter(|x| x.status == Status::Blocked).count();
-        if needs > 0 {
-            vec![seg(format!("● {needs} needs you"), s.fg(t.blocked).add_modifier(Modifier::BOLD)), seg(format!("   {} inbox", k(app, &Action::Jump)), s.fg(t.muted))]
-        } else {
-            Vec::new()
-        }
-    };
-    let mut right = queue_and_spend(app, t, s);
-    if let Some(host) = crate::ipc::remote() {
-        right.push(seg(format!(" ⇄ {host} "), Style::default().bg(t.btn).fg(t.accent).add_modifier(Modifier::BOLD)));
-        right.push(seg(" ", s));
-    }
-    let rw = segs_width(&right);
-    // Lined up with the panes, not under the sidebar.
-    put(buf, app.hy.crumb_x.max(r.x + 1), r.y, &left, r.right().saturating_sub(rw + 2));
-    hit(app, Rect { width: 60.min(r.width), ..r }, HyHit::Jump);
-    put(buf, r.right().saturating_sub(rw), r.y, &right, r.right());
-    // Under the sidebar: which hydra this is, and an Update button when a newer one is out.
-    if app.mode != Mode::Side {
-        let end = app.hy.crumb_x.max(r.x + 1).saturating_sub(1);
-        let ver = [seg(format!("hydra {}  ", env!("CARGO_PKG_VERSION")), s.fg(t.muted))];
-        let x = put(buf, r.x + 2, r.y, &ver, end);
-        if app.update_available.is_some() {
-            let label = if app.updating { " updating… " } else { " Update now " };
-            let w = label.width() as u16;
-            if x + w <= end {
-                let br = Rect { x, y: r.y, width: w, height: 1 };
-                let (bg, fg) = if hovered(app, br) { (t.accent, t.acc_ink) } else { (t.btn, t.strong) };
-                put(buf, x, r.y, &[seg(label, Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD))], end);
-                hit(app, br, HyHit::Update);
-            }
-        }
     }
 }

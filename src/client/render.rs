@@ -10,7 +10,6 @@ use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget};
-use std::time::Duration;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// The smallest window hydra draws into (below it, a note to make it bigger).
@@ -56,11 +55,19 @@ fn draw_overlays(app: &mut App, f: &mut Frame, area: Rect, t: &crate::theme::The
     // Copy mode holds the whole history; match by reference and clone only small fields.
     match &app.mode {
         Mode::Prefix { since } => {
-            if app.cfg.ui.which_key && since.elapsed() >= Duration::from_millis(app.cfg.ui.which_key_delay_ms) {
-                super::hydra::draw_keys(app, f, area, &t);
+            if app.keymap_shown(*since) {
+                let km = super::hydra::KeyMap { query: String::new(), searching: false, step: None, sel: 0 };
+                super::hydra::draw_keymap(app, f, area, &t, &km);
             }
         }
-        Mode::Help { .. } => super::hydra::draw_keys(app, f, area, &t),
+        Mode::KeyMap(km) => {
+            let km = (**km).clone();
+            super::hydra::draw_keymap(app, f, area, &t, &km);
+        }
+        Mode::Actions { sel } => {
+            let sel = *sel;
+            super::hydra::draw_actions(app, f, area, &t, sel);
+        }
         Mode::Talk { term, input } => {
             let (term, input) = (*term, input.clone());
             super::hydra::draw_talk(app, f, area, &t, term, &input);

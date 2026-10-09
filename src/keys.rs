@@ -282,6 +282,10 @@ pub enum Action {
     KillServer,
     /// Install the newest hydra and restart this window into it.
     Update,
+    /// Every command with its key, as a list (the sidebar's "a actions").
+    Actions,
+    /// The worktrees step of the key map: new, switch, merge, delete.
+    Worktrees,
     /// Explicitly unbind a default.
     None,
 }
@@ -380,6 +384,8 @@ impl Action {
             Action::SendPrefix => "send prefix key".into(),
             Action::KillServer => "kill server".into(),
             Action::Update => "Update hydra".into(),
+            Action::Actions => "Actions".into(),
+            Action::Worktrees => "Worktrees…".into(),
             Action::None => "unbound".into(),
         }
     }
@@ -475,6 +481,8 @@ impl Action {
             Action::SendPrefix => "send-prefix".into(),
             Action::KillServer => "kill-server".into(),
             Action::Update => "update".into(),
+            Action::Actions => "actions".into(),
+            Action::Worktrees => "worktrees".into(),
             Action::None => return None,
         })
     }
@@ -583,6 +591,8 @@ impl FromStr for Action {
             "send-prefix" => Action::SendPrefix,
             "kill-server" => Action::KillServer,
             "update" => Action::Update,
+            "actions" => Action::Actions,
+            "worktrees" => Action::Worktrees,
             "none" | "unbind" => Action::None,
             _ => bail!("unknown action `{s}`"),
         })
@@ -591,20 +601,26 @@ impl FromStr for Action {
 
 /// Bindings active after the prefix key.
 pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
-    // Panes (as herdr)
-    ("v", "split-right"),
-    ("|", "split-right"),
-    ("-", "split-down"),
-    ("h", "focus-left"),
-    ("j", "focus-down"),
-    ("k", "focus-up"),
-    ("l", "focus-right"),
+    // Agents
+    ("j", "jump"),
+    ("T", "talk"),
+    ("1", "answer:1"),
+    ("2", "answer:2"),
+    ("3", "answer:3"),
+    ("n", "new-session"),
+    ("m", "reply"),
+    // Panes
+    ("p", "new-pane"),
+    ("z", "zoom"),
+    ("x", "close-pane"),
+    ("l", "arrange"),
     ("left", "focus-left"),
     ("down", "focus-down"),
     ("up", "focus-up"),
     ("right", "focus-right"),
-    ("x", "close-pane"),
-    ("z", "zoom"),
+    ("v", "split-right"),
+    ("|", "split-right"),
+    ("-", "split-down"),
     ("b", "toggle-sidebar"),
     ("H", "resize-left"),
     ("J", "resize-down"),
@@ -612,47 +628,38 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("L", "resize-right"),
     ("y", "copy-mode"),
     ("pageup", "scroll-up"),
+    ("pagedown", "scroll-down"),
     ("=", "arrange"),
     ("{", "prev-prompt"),
     ("}", "next-prompt"),
-    ("pagedown", "scroll-down"),
-    // Tabs (as herdr)
-    ("c", "new-tab"),
+    // Tabs
+    ("t", "new-tab"),
+    ("r", "rename-tab"),
     ("]", "next-tab"),
     ("[", "prev-tab"),
     ("X", "close-tab"),
-    ("1", "select-tab-1"),
-    ("2", "select-tab-2"),
-    ("3", "select-tab-3"),
-    ("4", "select-tab-4"),
-    ("5", "select-tab-5"),
-    ("6", "select-tab-6"),
-    ("7", "select-tab-7"),
-    ("8", "select-tab-8"),
-    ("9", "select-tab-9"),
-    // Getting around
-    ("g", "go-to"),
-    ("e", "browse-tree"),
-    ("a", "jump"),
-    ("p", "palette"),
-    ("space", "palette"),
-    (":", "palette"),
-    // Starting things
-    ("n", "shell-here"),
-    (".", "presets"),
-    // Agents
-    ("m", "talk"),
-    ("T", "talk"),
-    ("r", "reply"),
-    ("R", "rename-workspace"),
-    // Code
+    // Project
+    ("o", "open-project"),
+    ("w", "worktrees"),
     ("f", "files"),
+    ("d", "changes"),
     ("F", "find-file"),
     ("/", "search-code"),
-    ("d", "changes"),
     ("B", "switch-branch"),
     ("P", "pr"),
     ("S", "ship"),
+    ("W", "new-worktree"),
+    // Getting around
+    ("g", "go-to"),
+    ("e", "browse-tree"),
+    ("space", "palette"),
+    (":", "palette"),
+    ("a", "actions"),
+    // Starting things
+    ("s", "shell-here"),
+    (".", "presets"),
+    ("R", "rename-workspace"),
+    // Tools
     ("i", "inbox"),
     ("Q", "queue"),
     ("u", "checkpoints"),
@@ -661,10 +668,9 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("A", "toolbox"),
     ("C", "race"),
     ("M", "map"),
-    ("W", "new-worktree"),
     ("V", "paste-image"),
     ("ctrl+v", "paste-image"),
-    // App
+    // Hydra
     (",", "settings"),
     ("?", "help"),
     ("U", "memory"),
@@ -674,8 +680,19 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("ctrl+space", "send-prefix"),
 ];
 
-/// Bindings active without the prefix. Empty by default so nothing is stolen from programs.
-pub const DEFAULT_GLOBAL_KEYS: &[(&str, &str)] = &[];
+/// Bindings active without the prefix: Alt+1–9 go to a tab. Nothing else is taken from
+/// programs.
+pub const DEFAULT_GLOBAL_KEYS: &[(&str, &str)] = &[
+    ("alt+1", "select-tab-1"),
+    ("alt+2", "select-tab-2"),
+    ("alt+3", "select-tab-3"),
+    ("alt+4", "select-tab-4"),
+    ("alt+5", "select-tab-5"),
+    ("alt+6", "select-tab-6"),
+    ("alt+7", "select-tab-7"),
+    ("alt+8", "select-tab-8"),
+    ("alt+9", "select-tab-9"),
+];
 
 /// A mouse event as the bytes a program that turned on mouse reporting expects, at (col,
 /// row) inside its screen (0-based). None: the program didn't ask for this kind of event;

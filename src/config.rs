@@ -91,6 +91,18 @@ pub struct Ui {
     pub start_dir: String,
     /// Sidebar sessions (and worktrees) sorted needs → done → working → idle.
     pub attention_sort: bool,
+    /// Panes as cards with gaps between them ("floating"), or packed edge to edge ("tiled").
+    pub panes: String,
+    /// Card corners: "rounded", or "square" for fonts that draw rounded corners badly.
+    pub corners: String,
+    /// Space between floating cards: "0", "1" or "2" rows (twice as many columns side by side).
+    pub gap: String,
+    /// How far unfocused panes fade toward their background: "off", "subtle", "40%", "60%".
+    pub dim: String,
+    /// The focused card's border: "accent", "bright" or "none".
+    pub focus_border: String,
+    /// Round the ends of pills (tabs, buttons) with Nerd Font half-circles; off: square ends.
+    pub pill_caps: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -465,8 +477,8 @@ impl Default for Ui {
         Ui {
             sidebar: true,
             sidebar_position: "left".into(),
-            which_key_delay_ms: 350,
-            which_key: false,
+            which_key_delay_ms: 600,
+            which_key: true,
             mouse: true,
             spinner: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"].map(String::from).to_vec(),
             workspace_colors: ["#a593ff", "#5aa9ff", "#ff7ab6", "#3dd6c0", "#e8c565", "#ff9f6b", "#c792ea", "#7fd8a4"]
@@ -476,6 +488,12 @@ impl Default for Ui {
             update_check: true,
             start_dir: String::new(),
             attention_sort: true,
+            panes: "floating".into(),
+            corners: "rounded".into(),
+            gap: "1".into(),
+            dim: "40%".into(),
+            focus_border: "accent".into(),
+            pill_caps: true,
         }
     }
 }

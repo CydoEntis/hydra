@@ -370,6 +370,11 @@ impl Theme {
         self.ws.map(|w| w[3]).unwrap_or(self.done)
     }
 
+    /// Leader mode's colour (sky), and nothing else's: the armed pill, its border, the key map.
+    pub fn sky(&self) -> Color {
+        self.ws.map(|w| w[1]).unwrap_or(Color::Rgb(0x5a, 0xa9, 0xff))
+    }
+
     pub fn status(&self, s: crate::protocol::Status) -> Color {
         use crate::protocol::Status::*;
         match s {

@@ -1,6 +1,6 @@
 # 0004. One UI layout: the hydra layout
 
-- **Status:** Accepted
+- **Status:** Superseded by 0007
 - **Date:** 2026-10-03
 
 ## Context

@@ -215,40 +215,62 @@ pub(in crate::client) fn draw_talk(app: &mut App, f: &mut Frame, area: Rect, t: 
     if rows.is_empty() {
         rows.push(String::new());
     }
-    let box_h = (rows.len() as u16).clamp(6, 14);
-    let ctx = context.as_deref().map(|c| crate::client::views::wrap(c, w.saturating_sub(4) as usize)).unwrap_or_default();
+    let look = Look::of(&app.cfg.ui);
+    let box_h = (rows.len() as u16).clamp(1, 8);
+    let ctx = context.as_deref().map(|c| crate::client::views::wrap(c, w.saturating_sub(8) as usize)).unwrap_or_default();
     let ctx_h = ctx.len().min(3) as u16;
-    let h = 3 + ctx_h + 1 + box_h + 3;
-    let r = panel(app, buf, area, w, h, &format!("Message {agent}"), &[], t);
-    let c = Style::default().bg(t.card);
-    let mut head = vec![
-        seg(format!("{} ", glyph(app, status)), c.fg(t.status(status)).add_modifier(Modifier::BOLD)),
-        seg(state_label(status).to_string(), c.fg(t.status(status))),
-    ];
+    let h = 2 + 1 + ctx_h + 2 + box_h + 4;
+    let h = h.min(area.height.saturating_sub(2));
+    let r = Rect { x: area.x + area.width.saturating_sub(w) / 2, y: area.y + area.height.saturating_sub(h) / 2, width: w, height: h };
+    hit(app, area, HyHit::Close);
+    hit(app, r, HyHit::Noop);
+    let model = app.hy_model();
+    let sub = find(&model, term).map(|(p, wt, _)| if p.git && !wt.branch.is_empty() { format!("{} · {}", p.name, wt.branch) } else { p.name.clone() }).unwrap_or_default();
+    let name = found.as_ref().map(|s| s.name.clone()).unwrap_or(agent.clone());
+    let mut c = Card::new(t, &name).lit(t.accent);
+    c.sub = &sub;
+    c.bg = t.card;
+    c.state = (status != Status::None).then_some(status);
+    c.close = Some(HyHit::Close);
+    let cs = Style::default().bg(t.card);
+    let hot = cs.fg(t.accent).add_modifier(Modifier::BOLD);
+    c.foot = vec![seg("Enter", hot), seg(" send   ", cs.fg(t.text)), seg("Shift+Enter", hot), seg(" new line   ", cs.fg(t.text)), seg("Esc", hot), seg(" close", cs.fg(t.text))];
+    card(app, buf, r, &c, t);
+    let mut y = r.y + 2;
     if title != WAITING && !title.is_empty() {
-        head.push(seg(format!("  ·  {title}"), c.fg(t.muted)));
+        put(buf, r.x + 4, y, &[seg(title.clone(), cs.fg(t.muted))], r.right() - 4);
+        y += 1;
     }
-    put(buf, r.x + 2, r.y + 2, &head, r.right() - 1);
-    let col = if status == Status::Blocked { t.blocked } else { t.text };
-    for (i, l) in ctx.iter().take(3).enumerate() {
-        put(buf, r.x + 2, r.y + 3 + i as u16, &[seg(l.clone(), c.fg(col))], r.right() - 1);
+    let col = if status == Status::Blocked { t.strong } else { t.text };
+    for l in ctx.iter().take(3) {
+        let mut st = cs.fg(col);
+        if status == Status::Blocked {
+            st = st.add_modifier(Modifier::BOLD);
+        }
+        put(buf, r.x + 4, y, &[seg(l.clone(), st)], r.right() - 4);
+        y += 1;
     }
-    let bx = Rect { x: r.x + 2, y: r.y + 4 + ctx_h, width: r.width.saturating_sub(4), height: box_h };
-    fill(buf, bx, t.card2);
-    let s = Style::default().bg(t.card2);
+    // What you're writing, in a pill (a taller box once it wraps).
+    let by = r.bottom().saturating_sub(4 + box_h);
     let first = rows.len().saturating_sub(box_h as usize);
+    let s = Style::default().bg(t.card2);
     for (i, l) in rows[first..].iter().enumerate() {
+        let yy = by + i as u16;
+        if box_h == 1 {
+            row_pill(look, buf, r.x + 2, yy, r.width.saturating_sub(4), t.card2, t.card);
+        } else {
+            fill(buf, Rect { x: r.x + 3, y: yy, width: r.width.saturating_sub(6), height: 1 }, t.card2);
+        }
         let last = first + i + 1 == rows.len();
-        let mut segs = vec![seg(format!(" {l}"), s.fg(t.strong))];
+        let mut segs = vec![seg(if i == 0 { "› " } else { "  " }, s.fg(t.accent).add_modifier(Modifier::BOLD)), seg(l.clone(), s.fg(t.strong))];
         if last {
             segs.push(seg("█", s.fg(t.accent)));
         }
         if input.is_empty() {
             segs.push(seg(format!(" Write to {agent}…"), s.fg(t.muted)));
         }
-        put(buf, bx.x, bx.y + i as u16, &segs, bx.right());
+        put(buf, r.x + 4, yy, &segs, r.right() - 4);
     }
-    put(buf, r.x + 2, r.bottom() - 2, &hints(t, &[("Enter", "send"), ("Shift+Enter", "new line"), ("Esc", "close")]), r.right() - 1);
 }
 
 // Settings ------------------------------------------------------------------------------------
@@ -316,24 +338,53 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
     use crate::client::modal::Cat;
     let buf = f.buffer_mut();
     dim_all(buf, area, t);
+    let look = Look::of(&app.cfg.ui);
     let r = panel(app, buf, area, 84, 40.min(area.height.saturating_sub(2)), "Settings", &[], t);
     let c = Style::default().bg(t.card);
-    // Tabs
+    // Tabs: the current one a pill; General carries a dot when an update is ready.
     let mut x = r.x + 3;
     for (i, cat) in Cat::ALL.iter().enumerate() {
         let on = i == v.cat;
-        let txt = format!(" {} ", cat.label());
-        let st = if on { Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD) } else { c.fg(t.text) };
-        let tr = Rect { x, y: r.y + 2, width: txt.width() as u16, height: 1 };
-        let st = if !on && hovered(app, tr) { st.bg(t.hov) } else { st };
-        put(buf, x, r.y + 2, &[seg(txt.clone(), st)], r.right());
+        let dot = *cat == Cat::General && app.update_available.is_some();
+        let mut segs = vec![seg(format!(" {} ", cat.label()), Style::default().fg(if on { t.acc_ink } else { t.text }).add_modifier(if on { Modifier::BOLD } else { Modifier::empty() }))];
+        if dot {
+            segs.push(seg("● ", Style::default().fg(if on { t.acc_ink } else { t.accent }).add_modifier(Modifier::BOLD)));
+        }
+        let w = segs_width(&segs) + 2;
+        let tr = Rect { x, y: r.y + 2, width: w, height: 1 };
+        let segs = if on {
+            pill(look, segs, t.accent, t.card)
+        } else {
+            let bg = if hovered(app, tr) { t.hov } else { t.card };
+            let mut out = vec![seg(" ", c.bg(bg))];
+            out.extend(segs.into_iter().map(|(s, st)| (s, st.bg(bg))));
+            out.push(seg(" ", c.bg(bg)));
+            out
+        };
+        put(buf, x, r.y + 2, &segs, r.right());
         hit(app, tr, HyHit::SetTab(i));
-        x += txt.width() as u16 + 2;
+        x += w + 1;
+    }
+    // Which hydra this is, and the way to the next one.
+    let mut ver = vec![seg(format!("hydra {}", env!("CARGO_PKG_VERSION")), c.fg(t.muted))];
+    if let Some(new) = &app.update_available {
+        ver.push(seg(format!(" → {new}  "), c.fg(t.accent).add_modifier(Modifier::BOLD)));
+    }
+    // Under the tabs, at the right.
+    let vw = segs_width(&ver);
+    let update = app.update_available.as_ref().map(|_| button_pill(look, t, if app.updating { "updating…" } else { "Update now" }, "", true, false, t.card));
+    let uw = update.as_ref().map(|u| segs_width(u)).unwrap_or(0);
+    let vx = r.right().saturating_sub(vw + uw + 4);
+    let vy = r.y + 4;
+    put(buf, vx, vy, &ver, r.right() - 3);
+    if let Some(u) = update {
+        put(buf, vx + vw, vy, &u, r.right() - 3);
+        hit(app, Rect { x: vx + vw, y: vy, width: uw, height: 1 }, HyHit::Update);
     }
     hline(buf, r.x + 3, r.y + 3, r.width.saturating_sub(6), t, t.card);
     let cat = Cat::ALL[v.cat.min(Cat::ALL.len() - 1)];
     let rows = crate::client::design::settings_rows(cat);
-    let lx = r.x + 5;
+    let lx = r.x + 6;
     let vx = r.x + 34;
     // What the selected row does (shown under it).
     let help = match rows.get(v.sel) {
@@ -365,7 +416,9 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
         lines.push(L::Blank);
     }
     let top = r.y + 5;
-    let h = r.height.saturating_sub(11) as usize;
+    // Appearance keeps room at the foot for its preview.
+    let preview = cat == Cat::Appearance && r.height >= 30;
+    let h = r.height.saturating_sub(if preview { 16 } else { 11 }) as usize;
     let at = lines.iter().position(|l| matches!(l, L::Row(i) if *i == v.sel)).unwrap_or(0);
     let start = (at + 2).saturating_sub(h);
     for (k, line) in lines.iter().enumerate().skip(start).take(h) {
@@ -373,17 +426,19 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
         match line {
             L::Blank => {}
             L::Head(g) => {
-                put(buf, r.x + 3, y, &[seg(*g, c.fg(t.muted).add_modifier(Modifier::BOLD))], r.right());
+                put(buf, r.x + 4, y, &[seg(*g, c.fg(t.muted).add_modifier(Modifier::BOLD))], r.right());
             }
             L::Row(i) => {
                 let row = &rows[*i];
                 let sel = *i == v.sel;
-                let rr = Rect { x: r.x + 1, y, width: r.width - 2, height: 1 };
+                let rr = Rect { x: r.x + 3, y, width: r.width.saturating_sub(6), height: 1 };
                 let bg = if sel || hovered(app, rr) { t.hov } else { t.card };
-                fill(buf, rr, bg);
+                if bg != t.card {
+                    row_pill(look, buf, rr.x, y, rr.width, bg, t.card);
+                }
                 let st = Style::default().bg(bg);
                 if sel {
-                    put(buf, r.x + 3, y, &[seg("›", st.fg(t.accent).add_modifier(Modifier::BOLD))], r.right());
+                    put(buf, r.x + 4, y, &[seg("›", st.fg(t.accent).add_modifier(Modifier::BOLD))], r.right());
                 }
                 let mut ls = st.fg(if sel { t.strong } else { t.text });
                 if sel {
@@ -417,14 +472,15 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
                             let mut cx = vx;
                             for (vi, o) in opts.iter().enumerate() {
                                 let on = Some(vi) == cur;
-                                let txt = format!(" {o} ");
-                                if cx + txt.width() as u16 >= r.right() - 1 {
+                                // The chosen one a pill; the others plain, the same width.
+                                let segs = if on { pill(look, vec![seg(o.clone(), Style::default().fg(t.acc_ink).add_modifier(Modifier::BOLD))], t.accent, bg) } else { vec![seg(format!(" {o} "), st.fg(t.muted))] };
+                                let w = segs_width(&segs);
+                                if cx + w >= r.right() - 3 {
                                     break;
                                 }
-                                let s2 = if on { Style::default().bg(t.accent).fg(t.acc_ink).add_modifier(Modifier::BOLD) } else { st.fg(t.muted) };
-                                put(buf, cx, y, &[seg(txt.clone(), s2)], r.right() - 1);
-                                hit(app, Rect { x: cx, y, width: txt.width() as u16, height: 1 }, HyHit::SetVal(*i, vi));
-                                cx += txt.width() as u16 + 1;
+                                put(buf, cx, y, &segs, r.right() - 3);
+                                hit(app, Rect { x: cx, y, width: w, height: 1 }, HyHit::SetVal(*i, vi));
+                                cx += w + 1;
                             }
                         } else {
                             let ctrl: Vec<Seg> = crate::client::design::control(app, t, row, v, sel).into_iter().map(|(x, s)| (x, if s.bg.is_none() { s.bg(bg) } else { s })).collect();
@@ -439,10 +495,32 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
     if rows.is_empty() {
         put(buf, lx, top, &[seg("Nothing to change here.", c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right());
     }
-    if cat == Cat::Appearance {
-        let y = (top + lines.len() as u16 + 1).min(r.bottom().saturating_sub(8));
-        put(buf, lx, y, &[seg("Swatches: background, surface, accent, needs you, done, error, two ANSI.", c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right() - 2);
-        put(buf, lx, y + 1, &[seg("Agent output follows the theme's 16 ANSI colours.", c.fg(t.muted).add_modifier(Modifier::ITALIC))], r.right() - 2);
+    // How panes look with these settings: one focused, one faded.
+    if preview {
+        let py = r.bottom().saturating_sub(10);
+        put(buf, r.x + 4, py, &[seg("PREVIEW", c.fg(t.muted).add_modifier(Modifier::BOLD))], r.right());
+        let mini = |app: &mut App, buf: &mut Buffer, mx: u16, focus: bool| {
+            let label = if focus { "focused" } else { "dimmed" };
+            let mut card_look = Card::new(t, "");
+            card_look.bg = if focus { pane_bg(t) } else { t.card };
+            if focus {
+                card_look = card_look.lit(match app.cfg.ui.focus_border.as_str() {
+                    "bright" => t.strong,
+                    "none" => t.line,
+                    _ => t.accent,
+                });
+            }
+            let mr = Rect { x: mx, y: py + 1, width: 18, height: 3 };
+            card(app, buf, mr, &card_look, t);
+            let fg = if focus { t.strong } else { blend(t.text, t.card, Look::of(&app.cfg.ui).dim) };
+            let mut st = Style::default().bg(card_look.bg).fg(fg);
+            if focus {
+                st = st.add_modifier(Modifier::BOLD);
+            }
+            put(buf, mx + 2, py + 2, &[seg(label, st)], mr.right() - 1);
+        };
+        mini(app, buf, lx, true);
+        mini(app, buf, lx + 20, false);
     }
     // The selected row's help, always in the same place.
     hline(buf, r.x + 3, r.bottom() - 5, r.width.saturating_sub(6), t, t.card);
@@ -453,95 +531,4 @@ pub(in crate::client) fn draw_settings(app: &mut App, f: &mut Frame, area: Rect,
     let file = vec![seg("config.toml  ", c.fg(t.muted)), seg("o", c.fg(t.accent).add_modifier(Modifier::BOLD)), seg(" open", c.fg(t.muted))];
     let fw = segs_width(&file);
     put(buf, r.right().saturating_sub(fw + 3), r.bottom() - 2, &file, r.right());
-}
-
-// Keys ----------------------------------------------------------------------------------------
-
-pub(in crate::client) fn draw_keys(app: &mut App, f: &mut Frame, area: Rect, t: &Theme) {
-    use crate::layout::Dir;
-    let buf = f.buffer_mut();
-    dim_all(buf, area, t);
-    #[allow(clippy::type_complexity)]
-    let cols: [(&str, Vec<(Vec<Action>, &str)>); 4] = [
-        (
-            "GET AROUND",
-            vec![
-                (vec![Action::GoTo], "go to session"),
-                (vec![Action::BrowseTree], "focus sidebar"),
-                (vec![Action::Focus(Dir::Left), Action::Focus(Dir::Down), Action::Focus(Dir::Up), Action::Focus(Dir::Right)], "focus pane"),
-                (vec![Action::Jump], "inbox"),
-                (vec![Action::PrevTab, Action::NextTab], "prev / next tab"),
-                (vec![Action::Palette], "palette"),
-            ],
-        ),
-        (
-            "PANES",
-            vec![
-                (vec![Action::SplitRight], "split right"),
-                (vec![Action::SplitDown], "split down"),
-                (vec![Action::Zoom], "zoom"),
-                (vec![Action::ToggleSidebar], "sidebar on/off"),
-                (vec![Action::ClosePane], "close pane"),
-                (vec![Action::NewTab], "new tab"),
-            ],
-        ),
-        (
-            "START & TALK",
-            vec![
-                (vec![Action::ShellHere], "new session"),
-                (vec![Action::Talk], "message"),
-                (vec![Action::Reply], "reply"),
-                (vec![Action::RenameWorkspace], "rename"),
-                (vec![Action::Presets], "presets"),
-                (vec![Action::Queue], "queue"),
-            ],
-        ),
-        (
-            "CODE & APP",
-            vec![
-                (vec![Action::Files], "files"),
-                (vec![Action::Find(1)], "search code"),
-                (vec![Action::Changes], "changes"),
-                (vec![Action::Branches], "branch"),
-                (vec![Action::Inbox], "tickets"),
-                (vec![Action::Checkpoints], "checkpoints"),
-                (vec![Action::Chats], "past chats"),
-                (vec![Action::Settings], "settings"),
-                (vec![Action::History], "history"),
-            ],
-        ),
-    ];
-    let tallest = cols.iter().map(|(_, v)| v.len()).max().unwrap_or(0) as u16;
-    let r = panel(app, buf, area, 120, tallest * 2 + 9, "Keys", &[], t);
-    let cw = (r.width - 6) / 4;
-    for (ci, (head, items)) in cols.iter().enumerate() {
-        let cx = r.x + 3 + ci as u16 * cw;
-        put(buf, cx, r.y + 2, &[seg(*head, Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::BOLD))], cx + cw);
-        // The first key of each, in a column of its own; labels line up after it.
-        let first = |acts: &Vec<Action>| key_text(app, acts).split("  ").next().unwrap_or("").to_string();
-        let kw = items.iter().map(|(a, _)| segs_width(&keycaps(t, &first(a), t.card))).max().unwrap_or(3);
-        for (j, (acts, label)) in items.iter().enumerate() {
-            let y = r.y + 4 + j as u16 * 2;
-            let caps = keycaps(t, &first(acts), t.card);
-            if caps.is_empty() {
-                put(buf, cx, y, &[seg("·", Style::default().fg(t.line).bg(t.card))], cx + cw);
-            } else {
-                put(buf, cx, y, &caps, cx + cw);
-            }
-            put(buf, cx + kw + 2, y, &[seg(label.to_string(), Style::default().fg(t.text).bg(t.card))], cx + cw - 1);
-        }
-    }
-    let lead = app.keymap.prefix.to_string().replace("C-", "Ctrl+");
-    let mut foot = vec![seg("In a terminal: ", Style::default().fg(t.muted).bg(t.card))];
-    foot.extend(lead.split('+').map(|p| keycap(t, p)).flat_map(|c| [c, seg("+", Style::default().fg(t.muted).bg(t.card))]).collect::<Vec<_>>());
-    foot.pop();
-    foot.push(seg(", then the key.   In the sidebar (↑↓) and on the splash, just the key.", Style::default().fg(t.muted).bg(t.card)));
-    put(buf, r.x + 3, r.bottom() - 3, &foot, r.right() - 2);
-    put(
-        buf,
-        r.x + 3,
-        r.bottom() - 2,
-        &[seg("Everything is also clickable: projects, worktrees, sessions, answer buttons, Jump, + Pane, Settings.", Style::default().fg(t.muted).bg(t.card).add_modifier(Modifier::ITALIC))],
-        r.right() - 2,
-    );
 }

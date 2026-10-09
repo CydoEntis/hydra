@@ -72,18 +72,17 @@ included). Inspired by [herdr](https://github.com/ogulcancelik/herdr),
   in the right folders and resumes agents (`claude --resume <id>`, `codex resume --last`, ...).
   Each pane's recent output is kept on disk too, so its history is still there to scroll
   back through, above a line marking the restart.
-- **One screen for everything.** A sidebar of your projects and the sessions in each (agent icon,
-  name, status), panes on the right with tabs and splits, and popups for the rest. The leader is
-  `Ctrl+Space`; keys follow herdr's where they overlap (`v`/`-` split, `h j k l` focus, `x` close,
-  `z` zoom, `[`/`]` tabs).
-- **Find anything.** `<leader> g` goes to any project or session by typing its name,
-  `<leader> p` is a command palette in plain words, `<leader> a` jumps to what needs you, and
-  `<leader> ?` lists every key.
+- **One screen for everything.** Floating cards: a full-height sidebar of your projects and the
+  sessions in each, tabs as pills above the panes, and every pane a rounded card with its name,
+  state and ✕ in its border; the one you're in is lit, the others fade. The leader is
+  `Ctrl+Space`: a sky-blue pill says it's armed, and a pause (or `?`) shows every key.
+- **Find anything.** `<leader> j` jumps to what needs you, `<leader> g` goes to any project or
+  session by typing its name, `<leader> Space` is a command palette in plain words, `a actions`
+  at the foot of the sidebar lists the common commands, and `<leader> ?` maps every key.
 - **Status at a glance.** Working (yellow, its name shimmering), needs you (red), done (green until
   you look), idle. An alert or a sound tells you when one needs you or finishes out of view.
-- **Usage and limits.** The footer shows what sessions cost today; each agent's bar shows how
-  full its context is and what its
-  session has cost, and a row shows the context once it's past half. An agent stopped by a limit
+- **Usage and limits.** Each agent's card shows how full its context is and what its session
+  has cost, and its sidebar row shows the context once it's past half. An agent stopped by a limit
   is told "continue" once the limit resets (Settings → Continue after a limit). Claude's numbers
   come from its status line: `hydra integrate claude` makes hydra's run first and then yours,
   which looks the same as before.
@@ -126,9 +125,9 @@ another `hydra` comes first. No admin rights needed. `HYDRA_VERSION=v0.3.0` pick
 `HYDRA_INSTALL_DIR` a folder. If scripts are blocked (a locked-down work PC), download the archive
 for your machine from [Releases](https://github.com/CydoEntis/hydra/releases) and put `hydra` on your PATH.
 To update later: Hydra checks each time you open it (and every few hours while it stays
-open), and when a newer version is out an **Update now** button
-shows by the version at the bottom left of the footer (also "Update hydra" in the command
-palette). Click it to see your version, the new one and what changed; confirm, and the new
+open), and when a newer version is out a dot shows after `, settings` at the foot of the
+sidebar, and Settings has an **Update now** button by the version (also "Update hydra" in the
+command palette). Click it to see your version, the new one and what changed; confirm, and the new
 version downloads and the window restarts into it, with your sessions still running. From a
 shell it's `hydra update` (or `hydra update --check` to just
 look). Turn the check off in Settings (Check for updates).
@@ -146,8 +145,8 @@ hydra            # attach (starts the server if needed); opens the current dir
 hydra ~/code/api # open or switch to that directory
 ```
 
-The sidebar has a section per kind of session: **AGENTS**, **TERMINALS** and **SSH** (sessions on
-another machine). Inside each, sessions are grouped by **where they are working now**: the git
+Agents come first in the sidebar, then terminals, then sessions on other machines (SSH). They are
+grouped by **where they are working now**: the git
 repo they're in (a subfolder counts as its repo) or the folder itself outside git, and for SSH
 the machine they're connected to. Nothing to open or set up: `cd` somewhere in a shell and it moves
 to that group; start an agent in a shell (or ssh somewhere) and it moves section. An agent stays in
@@ -155,54 +154,57 @@ the group of the folder it started in while it runs, however many folders it wor
 split beside a session stays with it.
 
 ```
-▾ ▌shop-api                       ●1 ⠹1
-   ⚑ race add rate limiting  2
-   ◉ main folder · main  #412 ✓
-     › shell
-   WORKTREES
-   ⑂ calm-heron           ⠹ claude 2m
-       Rate limit /login
-   ⑂ quick-fox            ● codex 40s
-       Allow running npm test?
-   BRANCHES ▸ 6
-▸ ▌web-shop                         ●1
+╭──────────────────────────────╮
+│                              │
+│  ● shop-api              ● 1 │
+│   ● claude      main · 3m    │
+│     Allow running npm test?  │
+│   ⠹ calm-heron          2m   │
+│   › shell                    │
+│                              │
+│  ● web-shop                  │
+│   ✓ quick-fox          40s   │
+│                              │
+│  ──────────────────────────  │
+│  a actions        , settings │
+╰──────────────────────────────╯
 ```
 
-- **main folder** is the repo itself on whatever branch it's on; shells open here.
-- **WORKTREES**: every new claude / codex gets its own (named for you), so agents never edit the
-  same files. One agent per worktree is one row; what it's on, or the question it's asking, is
-  under it.
-- **BRANCHES** (folded): recent branches not checked out anywhere; click one to open it in a new
-  worktree with an agent.
+- A project is its dot (in its colour) and name; `● 1` on the right when something there needs
+  you, `no git` outside a repo.
+- Under it, its sessions: state, name, `branch · age` on the right. A session that needs you has
+  its question under it. Every new claude / codex gets its own worktree (named for you), so agents
+  never edit the same files.
 - `#412 ✓` / `#412 ✕±`: the branch's pull request, its checks, and review state. Click it.
 - Things that need you sort to the top. Agents asleep (see Settings) show `☾ asleep`.
 - Drag a group's name, or a session, up or down to reorder (what needs you still comes first);
   drop a session on another group (its name or one of its sessions) to move it there, within its
   section. Click to fold or open. With the sidebar focused
-  (`Ctrl+Space e`), a row's menu letters work directly: `x` (or Delete) closes, `r` renames,
-  `m` messages. The bottom-left says which hydra you're on.
+  (`Ctrl+Space e`), a row's menu letters work directly (the sidebar's foot lists them): `x` (or
+  Delete) closes, `r` renames, `m` messages. Settings says which hydra you're on.
 
-The leader key is `Ctrl+Space`. Press it and wait a moment to see every binding.
+The leader key is `Ctrl+Space`. Press it and a sky-blue pill appears at the end of the tab row
+(the pane you're in turns sky too); press a key, or wait a moment (or press `?`) for the key map.
+In the key map a key runs its command, Tab searches them all by name, and keys marked `›` open a
+second step (`w` worktrees: new, switch, merge, delete; Backspace goes back).
 
 | keys (after the leader) | action |
 |---|---|
-| `g` (or `a`) | **Inbox and Go to** in one: what needs you on top (answer a question with its number, Enter goes there, Delete marks a finished one seen), then every session; type to find any session |
-| `e` | focus the sidebar |
-| `p` (or Space) | **command palette**: type what you want |
-| `n` | **new session**: a shell right where you are (run `claude`, `codex`, … in it; hydra sees the agent) |
-| `v` / `-` | split right / split down |
-| `h j k l` or arrows | focus the pane that way (left past the edge: the sidebar) |
-| `x` / `z` / `b` / `y` | close pane / zoom pane / show or hide the sidebar / select text with keys |
-| `H J K L` | resize |
-| `=` | arrange this tab's panes: split (where you put them) → grid → main and stack → columns (a strip that slides to the pane you're on) |
-| `{` / `}` | jump to the previous / next command in the history (shells that mark their prompts: fish, PowerShell in hydra, others with OSC 133) |
-| `c` / `]` `[` / `1–9` / `X` | **tabs of the session you're on**: new tab (a shell where you are) / next, previous / go to tab / close the tab and what's in it (twice if an agent runs there). A session's tabs share its sidebar row; the tab rail along the top shows them, with **+ tab** for another |
-| `m` / `r` / `R` | message an agent / reply to the focused one / rename a session |
-| `f` / `F` / `/` | files / find a file / search the code |
-| `d` / `B` / `P` / `S` | changes / switch branch / pull request / ship |
-| `i` / `I` / `.` / `A` | tickets / ideas / presets / agent tools |
+| `j` | **jump** to what needs you (answer a question with its number, Enter goes there), then every session |
+| `T` / `m` | talk to an agent / reply to the one you're in |
+| `1` `2` `3` | answer the question of the pane you're in |
+| `n` / `p` / `s` | new agent / new pane (where and what to run) / a shell right where you are |
+| `z` / `x` / `l` | zoom / close / layout of this tab: split → grid → main and stack → columns (`=` too) |
+| arrows | focus the pane that way (left past the edge: the sidebar) |
+| `v` / `-` / `H J K L` | split right / split down / resize |
+| `t` / `r` / `]` `[` / `X` | **tabs**: new tab (named in its pill, then claude, codex or a shell) / rename it / next, previous / close it. `Alt+1`–`9` (no leader) goes to a tab |
+| `o` / `w` / `f` / `d` | open a project / worktrees › / files / changes |
+| `g` / `e` / `Space` / `a` | go to / focus the sidebar / command palette / actions |
+| `F` / `/` / `B` / `P` / `S` | find a file / search the code / switch branch / pull request / ship |
+| `i` / `I` / `.` / `A` / `R` | tickets / ideas / presets / agent tools / rename a session |
 | `Q` / `u` / `O` | the queue / checkpoints (roll a folder back) / past chats (search, pick one up again) |
-| `,` / `?` / `U` / `N` / `q` | settings / keys / memory / history / detach |
+| `y` / `{` `}` / `b` | select text with keys / previous, next command in the history / sidebar on or off |
+| `,` / `?` / `U` / `N` / `q` | settings / key map / memory / history / quit (agents keep running) |
 
 In **Files**: Enter puts the path in the agent's prompt, `e` opens it in your editor (`editor`
 in config; nvim, helix … open inside hydra), `y` copies the path. In **Changes**: `c` commit,
@@ -266,8 +268,8 @@ default 3), each in its own worktree, and starts the next when one finishes, wit
 closed too. The tracker follows: Linear and Plane move the issue to In Progress and then to
 a review state if the team has one; GitHub gets a comment at each step. The **Queue** tab
 (last in Tickets, or "Queue" in the palette) lists it all, takes a typed task without a
-ticket, opens a running one (Enter) and removes one (Del). The footer counts what's running,
-waiting and ready for review.
+ticket, opens a running one (Enter) and removes one (Del), with what's running, waiting and
+ready for review.
 
 **Merging.** In Changes, `m` merges a worktree's branch into the main one, then closes its
 sessions and removes the worktree and the branch. Closing the last session in a worktree

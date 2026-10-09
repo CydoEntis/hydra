@@ -85,13 +85,14 @@ Everything below is shipped on `dev` unless marked.
 - Memory per session — shipped — `Mode::Memory`
 
 **The UI (one layout, ADR-0004)**
-- Sidebar: projects → sessions, status glyph + agent icon + name, attention sort, keyboard and mouse, row letter keys — shipped — `src/client/hydra.rs` `draw_side`
-- Panes: tabs, any number of splits (grid for 3+), zoom, drag dividers, title bar with ✕ — shipped — `src/client/hydra.rs` `draw_session`
-- Go to switcher, command palette (plain-word commands), Jump to what needs you, Keys screen — shipped — `draw_goto`, `draw_palette`, `draw_keys`
+- Floating look: rounded cards with gaps, title and state in the border, unfocused cards faded, pill tabs, no app footer; floating or tiled, corners, gap, dim, focus border, pill ends in Settings — done, unreleased — `src/client/hydra/card.rs`, `screen.rs`, ADR-0007
+- Sidebar card: projects → sessions, state glyph + name, branch · age, question under it, attention sort, keyboard and mouse, row letter keys, `a actions` / `, settings` foot — shipped — `src/client/hydra/screen.rs` `draw_side`
+- Panes: tabs as pills (named in their pill), any number of splits (grid for 3+), zoom, drag the gap between them, ✕ in the border — shipped — `src/client/hydra/screen.rs` `draw_session`
+- Go to switcher, command palette (plain-word commands), Jump to what needs you, key map (searchable, second steps), actions list — shipped — `draw_goto`, `draw_palette`, `src/client/hydra/leader.rs`
 - Right-click menus, confirm before closing, toasts — shipped — `src/client/menu.rs`
 - Splash: Resume / New / Open a folder — shipped — `draw_splash`
 - Settings popup grouped by section, key rebinding, themes with contrast audit — shipped — `draw_settings`, `src/theme.rs`
-- herdr-compatible leader keys — shipped — `src/keys.rs` `DEFAULT_PREFIX_KEYS`, ADR-0005
+- Leader keys from the floating design's key map, armed pill in sky — done, unreleased — `src/keys.rs` `DEFAULT_PREFIX_KEYS`, ADR-0006
 - Copy on select with toast, copy mode, Ctrl+click paths, paste images — shipped — `src/client/copy.rs`, `src/client/pick.rs`
 
 **Code and git**
@@ -119,7 +120,7 @@ Everything below is shipped on `dev` unless marked.
 
 ## Out
 
-- Other UI layouts (workspaces, tree, dock, sidebar) — declined 2026-10-03: one layout to build and test (ADR-0004). Bringing them back needs a new decision.
+- Other UI layouts (workspaces, tree, dock, sidebar) — declined 2026-10-03: one layout to build and test (ADR-0004, now ADR-0007: floating and tiled are styles of it). Bringing them back needs a new decision.
 
 ## Later
 
@@ -130,8 +131,8 @@ Everything below is shipped on `dev` unless marked.
 - [ADR-0001](docs/adr/0001-daemon-owns-sessions.md) — A daemon owns every session; clients only draw. Rules out: sessions inside the UI process.
 - [ADR-0002](docs/adr/0002-portable-pty-and-vt100.md) — portable-pty (ConPTY) and vt100 for terminals. Rules out: a home-grown PTY layer.
 - [ADR-0003](docs/adr/0003-msgpack-over-local-sockets.md) — msgpack frames over local sockets, versioned. Rules out: unversioned message changes; network listeners.
-- [ADR-0004](docs/adr/0004-one-layout.md) — One UI layout. Rules out: a layout setting, new code for old layouts.
-- [ADR-0005](docs/adr/0005-herdr-compatible-keys.md) — Leader keys follow herdr where they overlap. Rules out: default bindings that clash with herdr's for shared actions.
+- [ADR-0006](docs/adr/0006-floating-design-keys.md) — Leader keys follow the floating design's key map (supersedes ADR-0005). Rules out: defaults that differ from the key map shown in the app.
+- [ADR-0007](docs/adr/0007-floating-and-tiled-styles.md) — One layout, drawn floating or tiled (supersedes ADR-0004). Rules out: other layouts, styles that move or hide parts of the UI.
 
 ## Rules
 
@@ -139,7 +140,7 @@ Everything below is shipped on `dev` unless marked.
 - Status reports need the pane's token or its process chain — `src/daemon/mod.rs` hook handling — AGENTS.md non-negotiable 5
 - Nothing in a cloned repo runs without the user's approval — `src/project.rs` — SECURITY.md
 - Client and daemon refuse to talk across protocol versions — `src/protocol.rs` `PROTOCOL_VERSION`, checked on `Hello` — ADR-0003
-- Config always loads the hydra layout — `src/config.rs` `Config::load` — ADR-0004
+- Config always loads the hydra layout — `src/config.rs` `Config::load` — ADR-0007
 - Every built-in theme passes the contrast audit — `cargo test` (theme audit test in `src/theme.rs`) — readability
 - Both platform sides compile — `cargo check --target x86_64-unknown-linux-gnu` / `aarch64-apple-darwin` — AGENTS.md non-negotiable 3
 - clippy is clean — `cargo clippy --all-targets -- -D warnings` — CODE-STANDARDS

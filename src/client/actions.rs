@@ -118,7 +118,7 @@ impl App {
                 self.mode = Mode::Prompt { kind: PromptKind::ConfirmRemoveWorktree(w.id), input: String::new() };
             }
             Action::Detach => self.quit = Some("detached".into()),
-            Action::Help => self.mode = Mode::Help { scroll: 0 },
+            Action::Help => self.open_keymap(None),
             Action::ReloadConfig => self.reload_config(),
             Action::PaneInfo => {
                 if let Some(msg) = self.focused().and_then(|t| self.pane_info(t)) {

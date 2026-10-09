@@ -66,7 +66,6 @@ enum Mode {
     Quick(modal::Quick),
     Toolbox(Box<toolbox::ToolboxView>),
     Prompt { kind: PromptKind, input: String },
-    Help { scroll: u16 },
     Copy(Box<copy::Copy>),
     /// Pick an existing worktree of the repo, or type a branch to create one.
     Worktrees { ws: WsId, cmd: Option<String>, items: Option<Vec<WorktreeEntry>>, query: String, sel: usize },
@@ -104,6 +103,12 @@ enum Mode {
     Confirm(Box<menu::Confirm>),
     /// The switcher: projects and sessions, typed to filter.
     GoTo { query: String, sel: usize },
+    /// The leader's key map (or its second step), typed to search.
+    KeyMap(Box<hydra::KeyMap>),
+    /// Every command with its key (the sidebar's "a actions").
+    Actions { sel: usize },
+    /// A tab named in its pill, then what runs in it.
+    NewTab(Box<hydra::NewTab>),
 }
 
 /// The ship confirm: the branch and what shipping it will do.
@@ -701,7 +706,7 @@ impl App {
                 if let Some(v) = newer
                     && app.update_available.as_ref() != Some(&v)
                 {
-                    app.notify(format!("hydra {v} is out: click Update now at the bottom left"), false);
+                    app.notify(format!("hydra {v} is out: Update now is in Settings"), false);
                     app.update_available = Some(v);
                     app.update_notes = notes;
                 }

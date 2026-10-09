@@ -183,6 +183,12 @@ pub const SETTINGS: &[Setting] = &[
     Setting { path: "sleep_after", label: "Put idle agents to sleep", kind: Kind::Choice(&["never", "15m", "1h", "4h"]), cat: Cat::Sessions, help: "Agents sitting idle this long are stopped to save memory; opening one resumes it where it was." },
     Setting { path: "scrollback", label: "Scrollback lines", kind: Kind::Int { step: 1000, min: 1000, max: 100_000 }, cat: Cat::Sessions, help: "How much history each session keeps for scrolling and search." },
     // Appearance
+    Setting { path: "ui.panes", label: "Layout", kind: Kind::Choice(&["floating", "tiled"]), cat: Cat::Appearance, help: "Gaps and rounded borders between panes. Tiled packs them edge to edge." },
+    Setting { path: "ui.corners", label: "Corners", kind: Kind::Choice(&["rounded", "square"]), cat: Cat::Appearance, help: "Use square corners if your font draws rounded ones badly." },
+    Setting { path: "ui.gap", label: "Gap", kind: Kind::Choice(&["0", "1", "2"]), cat: Cat::Appearance, help: "Space between floating panes: rows stacked, twice that in columns side by side." },
+    Setting { path: "ui.dim", label: "Dim unfocused", kind: Kind::Choice(&["off", "subtle", "40%", "60%"]), cat: Cat::Appearance, help: "How far the panes you're not in fade. Their colours stay recognisable." },
+    Setting { path: "ui.focus_border", label: "Focus border", kind: Kind::Choice(&["accent", "bright", "none"]), cat: Cat::Appearance, help: "How the pane you're in is outlined." },
+    Setting { path: "ui.pill_caps", label: "Round pill ends", kind: Kind::Bool, cat: Cat::Appearance, help: "Tabs and buttons get round ends. Needs a Nerd Font; turn off for square ends." },
     Setting { path: "theme", label: "Theme", kind: Kind::Choice(crate::theme::BUILTIN), cat: Cat::Appearance, help: "Changes the whole app live. Agent output keeps its own colours; only the ANSI palette is themed." },
     // Agents
     Setting { path: "worktree.per_agent", label: "Own worktree per agent", kind: Kind::Bool, cat: Cat::Agents, help: "Agents started in a repo's main folder (+ New, the quick prompt, or claude/codex typed in a shell) get their own branch and folder." },
