@@ -19,6 +19,20 @@ pub enum Kind {
 /// The built-in sound names (anything else is a path to a sound file).
 pub const SOUNDS: &[&str] = &["glass", "ping", "chime", "pop", "off"];
 
+/// An agent that says the same thing again this soon (it finished, worked a moment longer for
+/// a subagent, finished again) isn't news: no second alert.
+pub const SAME_AGAIN_AFTER: std::time::Duration = std::time::Duration::from_secs(120);
+/// Several agents at once ring once.
+pub const ANY_AGAIN_AFTER: std::time::Duration = std::time::Duration::from_secs(4);
+
+/// Whether an alert for `status` goes now, given the last one for this agent (its status,
+/// when) and the last for any agent. Needs-you after a finish is new, so it goes.
+pub fn should_alert<S: PartialEq>(status: &S, last_here: Option<(&S, std::time::Instant)>, last_any: Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    let same_again = last_here.is_some_and(|(s, at)| s == status && now.saturating_duration_since(at) < SAME_AGAIN_AFTER);
+    let crowded = last_any.is_some_and(|at| now.saturating_duration_since(at) < ANY_AGAIN_AFTER);
+    !same_again && !crowded
+}
+
 /// Show a desktop notification and/or play the sound for `kind`, as configured. `link`:
 /// where clicking the notification goes.
 pub fn alert(cfg: &crate::config::Notify, kind: Kind, title: &str, body: &str, link: Option<String>) {
@@ -200,6 +214,17 @@ $p.Open([Uri]$env:SESHI_SOUND); $p.Volume = 1; $p.Play(); Start-Sleep -Milliseco
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_agent_rings_once_for_the_same_news_and_a_crowd_rings_once() {
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        assert!(should_alert(&"done", None, None, now), "first time: it goes");
+        assert!(!should_alert(&"done", Some((&"done", now - Duration::from_secs(30))), None, now), "done again 30s later: quiet");
+        assert!(should_alert(&"needs", Some((&"done", now - Duration::from_secs(30))), None, now), "needs you after done: it goes");
+        assert!(should_alert(&"done", Some((&"done", now - Duration::from_secs(300))), None, now), "done again much later: it goes");
+        assert!(!should_alert(&"done", None, Some(now - Duration::from_secs(1)), now), "another agent just rang: one ding for both");
+    }
 
     #[test]
     fn sound_names() {

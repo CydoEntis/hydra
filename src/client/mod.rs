@@ -296,6 +296,10 @@ pub struct App {
     sizes: HashMap<TermId, (u16, u16)>,
     mode: Mode,
     sidebar: bool,
+    /// The last alert per agent (its status, when) and for any agent: the same news again
+    /// soon doesn't ring twice.
+    alerted: HashMap<TermId, (Status, Instant)>,
+    last_alert: Option<Instant>,
     /// What's moving, and how far the sidebar and the sheet are in this frame (0 to 1).
     motion: motion::Motion,
     side_frac: f32,
@@ -464,6 +468,8 @@ impl App {
             restart: None,
             theme: cfg.theme(),
             sidebar: cfg.ui.sidebar,
+            alerted: HashMap::new(),
+            last_alert: None,
             motion: motion::Motion::default(),
             side_frac: 1.0,
             sheet_frac: 1.0,

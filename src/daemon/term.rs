@@ -99,6 +99,8 @@ pub struct Term {
     pub last_screen: Option<(String, u64)>,
     /// The status (by when it began) a phone alert went out for, so it goes once.
     pub phoned: u64,
+    /// The last desktop alert the server rang for it (no window open): its status, when.
+    pub alerted: Option<(Status, std::time::Instant)>,
     /// Hooks reported for this agent session: trust them over heuristics.
     pub hooked: bool,
     pub last_output: Instant,
@@ -519,6 +521,7 @@ impl Term {
             last_hook: None,
             last_screen: None,
             phoned: 0,
+            alerted: None,
             hooked: false,
             last_output: now,
             last_input: now,

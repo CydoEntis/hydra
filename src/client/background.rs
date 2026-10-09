@@ -88,13 +88,20 @@ impl App {
                 if self.focused() == Some(term) && self.window_focused {
                     return;
                 }
-                let (title, body) = self.alert_text(term, status);
-                let kind = if status == Status::Blocked { crate::alert::Kind::Needs } else { crate::alert::Kind::Done };
-                crate::alert::alert(&self.cfg.notify, kind, &title, &body, Some(crate::reveal::link(term)));
+                // The same news again soon, or another agent just rang: the note says it, quietly.
+                let now = Instant::now();
+                let ring = crate::alert::should_alert(&status, self.alerted.get(&term).map(|(s, at)| (s, *at)), self.last_alert, now);
+                if ring {
+                    self.alerted.insert(term, (status, now));
+                    self.last_alert = Some(now);
+                    let (title, body) = self.alert_text(term, status);
+                    let kind = if status == Status::Blocked { crate::alert::Kind::Needs } else { crate::alert::Kind::Done };
+                    crate::alert::alert(&self.cfg.notify, kind, &title, &body, Some(crate::reveal::link(term)));
+                }
                 if self.focused() == Some(term) {
                     return;
                 }
-                if self.cfg.notify.bell {
+                if self.cfg.notify.bell && ring {
                     use std::io::Write;
                     let _ = std::io::stdout().write_all(b"\x07");
                     let _ = std::io::stdout().flush();

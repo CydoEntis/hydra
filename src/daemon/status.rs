@@ -220,10 +220,14 @@ impl Daemon {
         }
         if matches!(new, Status::Blocked | Status::Done) {
             self.broadcast(|c| c.attach, ServerMsg::Attention { term, status: new });
-            // No window open: the server tells you itself.
+            // No window open: the server tells you itself (once for the same news).
+            let now = std::time::Instant::now();
+            let last_any = self.terms.values().filter_map(|t| t.alerted.map(|(_, at)| at)).max();
             if !self.has_viewer()
-                && let Some(t) = self.terms.get(&term)
+                && let Some(t) = self.terms.get_mut(&term)
+                && crate::alert::should_alert(&new, t.alerted.as_ref().map(|(s, at)| (s, *at)), last_any, now)
             {
+                t.alerted = Some((new, now));
                 let agent = t.agent.clone().unwrap_or_else(|| "an agent".into());
                 let place = t.place();
                 let summary = t.summary.trim();

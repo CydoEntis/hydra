@@ -59,7 +59,6 @@ pub(in crate::client) fn pane_bg(t: &Theme) -> Color {
 /// A state's colour on a card or tab: working reads as plain text, the rest as their state.
 pub(in crate::client) fn state_color(t: &Theme, st: Status) -> Color {
     match st {
-        Status::Working => t.text,
         Status::None => t.muted,
         s => t.status(s),
     }
