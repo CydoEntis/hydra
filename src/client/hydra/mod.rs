@@ -88,8 +88,6 @@ pub(super) struct Hy {
     /// The next session that opens goes in a new tab (Ctrl+Space w), until this time.
     /// A new tab was asked for in this session: the next session to show goes in it.
     pub new_tab: Option<(Instant, TermId)>,
-    /// What that new tab is called (named in its pill before anything runs in it).
-    pub new_tab_name: Option<String>,
     /// Counts frames, for `HyTab::used`.
     pub tick: u64,
     /// A tab's ✕ clicked once with an agent in it: a second click closes it.
@@ -166,18 +164,11 @@ pub(super) struct HyTab {
     pub name: String,
 }
 
-/// A tab being named in its pill: a new one (then what to run in it), or one renamed.
+/// A tab being renamed in its pill.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct NewTab {
-    /// The session the tab belongs to.
-    pub owner: TermId,
+pub(super) struct TabName {
+    pub tab: usize,
     pub name: String,
-    /// Typing its name; after Enter, choosing what runs in it.
-    pub naming: bool,
-    /// Renaming this tab (no new one).
-    pub tab: Option<usize>,
-    /// "tab 4": what it's called if you don't type a name.
-    pub fallback: String,
 }
 
 /// The second step of a leader key that opens one (`w` worktrees).
@@ -1040,8 +1031,6 @@ pub(super) enum HyHit {
     Leader,
     /// A key in the key map (its row in the shown list).
     KeyRow(usize),
-    /// A choice on the new tab's card: c claude, x codex, s shell, m move a pane here.
-    NewTabPick(char),
     /// A pane's scrollbar (click or drag).
     ScrollBar(TermId),
     FindTab(u8),

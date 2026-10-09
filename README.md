@@ -175,11 +175,11 @@ second step (`w` worktrees: new, switch, merge, delete; Backspace goes back).
 | `j` | **jump** to what needs you (answer a question with its number, Enter goes there), then every session |
 | `T` / `m` | talk to an agent / reply to the one you're in |
 | `1` `2` `3` | answer the question of the pane you're in |
-| `n` / `p` / `s` | new agent / new pane (where and what to run) / a shell right where you are |
+| `n` / `p` | a shell right where you are (cd and run what you like; it groups itself) / a shell beside this one |
 | `z` / `x` / `l` | zoom / close / layout of this tab: split → grid → main and stack → columns (`=` too) |
 | arrows | focus the pane that way (left past the edge: the sidebar) |
 | `v` / `-` / `H J K L` | split right / split down / resize |
-| `t` / `r` / `]` `[` / `X` | **tabs**: new tab (named in its pill, then claude, codex or a shell) / rename it / next, previous / close it. `Alt+1`–`9` (no leader) goes to a tab |
+| `t` / `r` / `]` `[` / `X` | **tabs**: new tab (a shell where you are) / rename it in its pill (or double-click it) / next, previous / close it. `Alt+1`–`9` (no leader) goes to a tab |
 | `o` / `w` / `f` / `d` | open a project / worktrees › / files / changes |
 | `g` / `e` / `Space` / `a` | go to / focus the sidebar / command palette / actions |
 | `F` / `/` / `B` / `P` / `S` | find a file / search the code / switch branch / pull request / ship |

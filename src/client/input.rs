@@ -183,7 +183,7 @@ impl App {
             }
             Mode::KeyMap(km) => self.on_keymap_key(*km, &k),
             Mode::Actions { sel } => self.on_actions_key(sel, &k),
-            Mode::NewTab(nt) => self.on_new_tab_key(*nt, &k),
+            Mode::RenameTab(nt) => self.on_rename_tab_key(*nt, &k),
             Mode::Picker { mut query, mut sel, commands } => {
                 let n = self.pick_items(&query, commands).len();
                 let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);

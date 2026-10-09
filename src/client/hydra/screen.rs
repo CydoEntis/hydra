@@ -577,13 +577,6 @@ pub(in crate::client) fn draw_main(app: &mut App, f: &mut Frame, area: Rect, mod
     draw_tab_bar(app, f.buffer_mut(), Rect { height: 1, ..area }, model, t);
     let skip = if look.tiled { 1 } else { 2 };
     let area = Rect { y: area.y + skip, height: area.height.saturating_sub(skip), ..area };
-    if let Mode::NewTab(nt) = &app.mode
-        && nt.tab.is_none()
-    {
-        let nt = (**nt).clone();
-        draw_new_tab(app, f, area, t, &nt);
-        return;
-    }
     // Between cards: `gap` rows stacked, as many columns side by side.
     let (gap_x, gap_y) = (look.gap, look.gap);
     let inset = |r: Rect| -> Rect {
@@ -722,18 +715,14 @@ pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, 
     hit(app, Rect { x: rx, y: r.y, width: rw, height: 1 }, if armed(app) { HyHit::Leader } else { HyHit::Layout });
     let mut x = r.x;
     let tabs = app.session_tabs();
-    let adding = match &app.mode {
-        Mode::NewTab(nt) if nt.tab.is_none() => Some((**nt).clone()),
-        _ => None,
-    };
     for (n, i) in tabs.iter().copied().enumerate() {
         let tab = &app.hy.tabs[i];
-        let on = i == app.hy.tab && adding.is_none();
+        let on = i == app.hy.tab;
         let state = tab_state(app, tab);
-        let editing = matches!(&app.mode, Mode::NewTab(nt) if nt.tab == Some(i) && nt.naming);
+        let editing = matches!(&app.mode, Mode::RenameTab(nt) if nt.tab == i);
         let name = if editing {
             match &app.mode {
-                Mode::NewTab(nt) => nt.name.clone(),
+                Mode::RenameTab(nt) => nt.name.clone(),
                 _ => String::new(),
             }
         } else if small && !on {
@@ -781,22 +770,6 @@ pub(in crate::client) fn draw_tab_bar(app: &mut App, buf: &mut Buffer, r: Rect, 
             hit(app, Rect { x: x + w - 3, y: r.y, width: 1, height: 1 }, HyHit::TabClose(i));
         }
         x += w + 1;
-    }
-    // A tab being added: lit, named as you type.
-    if let Some(nt) = adding {
-        let ink = Style::default().fg(t.acc_ink).add_modifier(Modifier::BOLD);
-        let name = if nt.naming { nt.name.clone() } else if nt.name.is_empty() { nt.fallback.clone() } else { nt.name.clone() };
-        let mut segs = vec![seg(" ", ink), seg(format!("{} ", tabs.len() + 1), ink), seg(truncate(&name, 24), ink)];
-        if nt.naming {
-            segs.push(seg("█", Style::default().fg(t.acc_ink)));
-        }
-        segs.push(seg(" ", ink));
-        let segs = pill(look, segs, t.accent, t.bg);
-        let w = segs_width(&segs);
-        if x + w <= rx {
-            put(buf, x, r.y, &segs, rx);
-            x += w + 1;
-        }
     }
     let plus = pill(look, vec![seg(" + ", Style::default().fg(t.accent).add_modifier(Modifier::BOLD))], if hovered(app, Rect { x, y: r.y, width: 5, height: 1 }) { t.hov } else { pb }, t.bg);
     let pw = segs_width(&plus);

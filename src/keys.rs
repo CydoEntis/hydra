@@ -607,10 +607,10 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     ("1", "answer:1"),
     ("2", "answer:2"),
     ("3", "answer:3"),
-    ("n", "new-session"),
+    ("n", "shell-here"),
     ("m", "reply"),
     // Panes
-    ("p", "new-pane"),
+    ("p", "split-right"),
     ("z", "zoom"),
     ("x", "close-pane"),
     ("l", "arrange"),
@@ -656,7 +656,6 @@ pub const DEFAULT_PREFIX_KEYS: &[(&str, &str)] = &[
     (":", "palette"),
     ("a", "actions"),
     // Starting things
-    ("s", "shell-here"),
     (".", "presets"),
     ("R", "rename-workspace"),
     // Tools

@@ -37,8 +37,7 @@ impl App {
         };
         if let Some(owner) = new_tab.filter(|o| *o != f) {
             take_out(&mut self.hy.tabs, f);
-            let name = self.hy.new_tab_name.take().unwrap_or_default();
-            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner, used: 0, name });
+            self.hy.tabs.push(HyTab { layout: Node::Leaf(f), focus: f, arrange: Arrange::Split, owner, used: 0, name: String::new() });
             self.hy.tab = self.hy.tabs.len() - 1;
             return;
         }
@@ -438,7 +437,7 @@ impl App {
                     self.cmd(Command::FocusPane { term: to });
                 }
             }
-            // A new tab in this session: named in its pill, then what runs in it.
+            // A new tab in this session: a shell where you are, straight away.
             Action::NewTab => self.new_tab_start(),
             Action::RenameTab => self.rename_tab_start(),
             Action::Actions => self.mode = Mode::Actions { sel: 0 },
@@ -1201,12 +1200,6 @@ impl App {
                 } else if matches!(self.mode, Mode::Prefix { .. }) {
                     let km = KeyMap { query: String::new(), searching: false, step: None, sel: 0 };
                     self.keymap_run(&km, i);
-                }
-            }
-            HyHit::NewTabPick(c) => {
-                if let Mode::NewTab(nt) = &self.mode {
-                    let nt = (**nt).clone();
-                    self.new_tab_pick(nt, c);
                 }
             }
             HyHit::Close => self.mode = Mode::Normal,

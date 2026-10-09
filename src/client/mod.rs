@@ -107,8 +107,8 @@ enum Mode {
     KeyMap(Box<hydra::KeyMap>),
     /// Every command with its key (the sidebar's "a actions").
     Actions { sel: usize },
-    /// A tab named in its pill, then what runs in it.
-    NewTab(Box<hydra::NewTab>),
+    /// A tab being renamed in its pill.
+    RenameTab(Box<hydra::TabName>),
 }
 
 /// The ship confirm: the branch and what shipping it will do.

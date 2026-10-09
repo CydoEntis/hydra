@@ -1,5 +1,5 @@
 //! Leader mode in the floating look: the key map (every leader key by what it acts on, typed
-//! to search), its second steps, the actions list, and a new tab named in its pill.
+//! to search), its second steps, the actions list, and tabs (new, renamed in their pill).
 
 use super::*;
 use crate::layout::Dir;
@@ -12,8 +12,8 @@ const MATCHES_SHOWN: usize = 12;
 /// The key map's groups: what each key does, in the design's words.
 fn groups() -> Vec<(&'static str, Vec<(Action, &'static str)>)> {
     vec![
-        ("AGENTS", vec![(Action::Jump, "jump to waiting"), (Action::Talk, "talk to an agent"), (Action::Answer('1'), "answer"), (Action::NewSession, "new agent")]),
-        ("PANES", vec![(Action::NewPane, "new pane"), (Action::Zoom, "zoom"), (Action::ClosePane, "close"), (Action::Arrange, "layout"), (Action::Focus(Dir::Left), "move focus")]),
+        ("AGENTS", vec![(Action::Jump, "jump to waiting"), (Action::Talk, "talk to an agent"), (Action::Answer('1'), "answer"), (Action::ShellHere, "new shell here")]),
+        ("PANES", vec![(Action::SplitRight, "new pane beside"), (Action::Zoom, "zoom"), (Action::ClosePane, "close"), (Action::Arrange, "layout"), (Action::Focus(Dir::Left), "move focus")]),
         ("TABS", vec![(Action::NewTab, "new tab"), (Action::SelectTab(1), "go to tab"), (Action::RenameTab, "rename")]),
         ("PROJECT", vec![(Action::OpenProject, "open project"), (Action::Worktrees, "worktrees  ›"), (Action::Files, "files"), (Action::Changes, "changes")]),
         ("SESHI", vec![(Action::Settings, "settings"), (Action::Help, "all keys"), (Action::Detach, "quit, agents keep running")]),
@@ -23,7 +23,8 @@ fn groups() -> Vec<(&'static str, Vec<(Action, &'static str)>)> {
 /// The actions list: every common command with its key.
 pub(in crate::client) fn action_items() -> Vec<(&'static str, Action)> {
     vec![
-        ("New pane", Action::NewPane),
+        ("New shell here", Action::ShellHere),
+        ("New pane beside this", Action::SplitRight),
         ("New tab", Action::NewTab),
         ("Jump to what needs you", Action::Jump),
         ("Open project", Action::OpenProject),
@@ -301,56 +302,6 @@ pub(in crate::client) fn draw_actions(app: &mut App, f: &mut Frame, area: Rect, 
     );
 }
 
-/// A new tab before anything runs in it: its card, with what to start there.
-pub(in crate::client) fn draw_new_tab(app: &mut App, f: &mut Frame, area: Rect, t: &Theme, nt: &NewTab) {
-    let look = Look::of(&app.cfg.ui);
-    let model = app.hy_model();
-    let here = find(&model, nt.owner);
-    let proj = here.map(|(p, _, _)| p.name.clone()).unwrap_or_else(|| app.snap.terms.get(&nt.owner).map(|i| folder_name(&i.cwd)).unwrap_or_default());
-    let dir = app.snap.terms.get(&nt.owner).map(|i| tilde(&i.root.clone().unwrap_or_else(|| i.cwd.clone()))).unwrap_or_default();
-    let title = if nt.name.is_empty() { nt.fallback.clone() } else { nt.name.clone() };
-    let mut c = Card::new(t, &title).lit(t.accent);
-    c.foot = vec![seg(dir, Style::default().fg(t.muted))];
-    let buf = f.buffer_mut();
-    card(app, buf, area, &c, t);
-    let bg = c.bg;
-    let cx = area.x + area.width / 2;
-    let cy = (area.y + area.height / 2).saturating_sub(4);
-    let centre = |buf: &mut Buffer, y: u16, segs: &[Seg]| -> u16 {
-        let x = cx.saturating_sub(segs_width(segs) / 2);
-        put(buf, x, y, segs, area.right().saturating_sub(2));
-        x
-    };
-    let st = Style::default().bg(bg);
-    centre(buf, cy, &[seg(format!("New tab in {proj}"), st.fg(t.strong).add_modifier(Modifier::BOLD))]);
-    let hint = if nt.naming { format!("Type a name, then Enter. Esc keeps \"{}\".", nt.fallback) } else { "Pick what runs in it. Backspace renames, Esc cancels.".to_string() };
-    centre(buf, cy + 1, &[seg(hint, st.fg(t.muted).add_modifier(Modifier::ITALIC))]);
-    let choices = [("claude", 'c', true), ("codex", 'x', false), ("shell", 's', false)];
-    let mut segs: Vec<Seg> = Vec::new();
-    let mut spans: Vec<(u16, u16, char)> = Vec::new();
-    for (i, (label, key, primary)) in choices.iter().enumerate() {
-        let b = button_pill(look, t, label, &key.to_string(), *primary, false, bg);
-        let at = segs_width(&segs);
-        spans.push((at, segs_width(&b), *key));
-        segs.extend(b);
-        if i + 1 < choices.len() {
-            segs.push(seg("  ", st));
-        }
-    }
-    let x0 = centre(buf, cy + 4, &segs);
-    for (at, w, key) in spans {
-        let br = Rect { x: x0 + at, y: cy + 4, width: w, height: 1 };
-        if hovered(app, br) && key != 'c' {
-            let label = choices.iter().find(|c| c.1 == key).map(|c| c.0).unwrap_or("");
-            put(buf, br.x, br.y, &button_pill(look, t, label, &key.to_string(), false, true, bg), br.right());
-        }
-        hit(app, br, HyHit::NewTabPick(key));
-    }
-    let mv = vec![seg("or move a pane here  ", st.fg(t.muted)), seg("m", st.fg(t.accent).add_modifier(Modifier::BOLD))];
-    let mx = centre(buf, cy + 6, &mv);
-    hit(app, Rect { x: mx, y: cy + 6, width: segs_width(&mv), height: 1 }, HyHit::NewTabPick('m'));
-}
-
 impl App {
     /// The leader was pressed `since` and the key map shows by itself now.
     pub(in crate::client) fn keymap_shown(&self, since: Instant) -> bool {
@@ -455,93 +406,46 @@ impl App {
         }
     }
 
-    /// Start naming a new tab of the session you're on.
+    /// A new tab of the session you're on: a shell where you are (cd and run what you like;
+    /// the sidebar groups it by where it works).
     pub(in crate::client) fn new_tab_start(&mut self) {
         let Some(owner) = self.hy.tabs.get(self.hy.tab).map(|t| t.owner).or(self.focused()) else {
             self.notify("open a session first".into(), true);
             return;
         };
-        let n = self.session_tabs().len();
-        self.mode = Mode::NewTab(Box::new(NewTab { owner, name: String::new(), naming: true, tab: None, fallback: format!("tab {}", n + 1) }));
+        self.hy.new_tab = Some((Instant::now(), owner));
+        self.hy_act(&Action::ShellHere);
     }
 
     /// Rename the tab you're on, in its pill.
     pub(in crate::client) fn rename_tab_start(&mut self) {
         let i = self.hy.tab;
         if let Some(tab) = self.hy.tabs.get(i) {
-            let (owner, name) = (tab.owner, tab.name.clone());
-            self.mode = Mode::NewTab(Box::new(NewTab { owner, name, naming: true, tab: Some(i), fallback: String::new() }));
+            let name = tab.name.clone();
+            self.mode = Mode::RenameTab(Box::new(TabName { tab: i, name }));
         }
     }
 
-    pub(in crate::client) fn on_new_tab_key(&mut self, mut nt: NewTab, k: &KeyEvent) {
-        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-        if nt.naming {
-            match k.code {
-                KeyCode::Enter | KeyCode::Esc => {
-                    if let Some(i) = nt.tab {
-                        if k.code == KeyCode::Enter
-                            && let Some(tab) = self.hy.tabs.get_mut(i)
-                        {
-                            tab.name = nt.name.trim().to_string();
-                        }
-                        self.mode = Mode::Normal;
-                        return;
-                    }
-                    // Esc keeps the name it would have had.
-                    if k.code == KeyCode::Esc || nt.name.trim().is_empty() {
-                        nt.name = nt.fallback.clone();
-                    }
-                    nt.naming = false;
-                }
-                KeyCode::Backspace => {
-                    nt.name.pop();
-                }
-                KeyCode::Char(c) if !ctrl && nt.name.chars().count() < QUERY_MAX => nt.name.push(c),
-                _ => {}
-            }
-            self.mode = Mode::NewTab(Box::new(nt));
-            return;
-        }
+    /// Typing a tab's name: Enter keeps it (empty: named after what runs in it), Esc doesn't.
+    pub(in crate::client) fn on_rename_tab_key(&mut self, mut nt: TabName, k: &KeyEvent) {
         match k.code {
-            KeyCode::Esc => self.mode = Mode::Normal,
-            KeyCode::Backspace => {
-                nt.naming = true;
-                self.mode = Mode::NewTab(Box::new(nt));
-            }
-            KeyCode::Enter => self.new_tab_pick(nt, 'c'),
-            KeyCode::Char(c @ ('c' | 'x' | 's' | 'm')) => self.new_tab_pick(nt, c),
-            _ => self.mode = Mode::NewTab(Box::new(nt)),
-        }
-    }
-
-    /// Start what goes in the new tab: claude (c), codex (x), a shell (s), or move the pane
-    /// you're on into it (m).
-    pub(in crate::client) fn new_tab_pick(&mut self, nt: NewTab, c: char) {
-        let name = if nt.name.trim().is_empty() { nt.fallback.clone() } else { nt.name.trim().to_string() };
-        self.mode = Mode::Normal;
-        if c == 'm' {
-            let Some(f) = self.focused() else { return };
-            let Some(i) = self.hy.tabs.iter().position(|t| t.layout.contains(f) && t.layout.leaves().len() > 1) else {
-                self.notify("move a pane from a split: this one is on its own".into(), false);
+            KeyCode::Enter => {
+                if let Some(tab) = self.hy.tabs.get_mut(nt.tab) {
+                    tab.name = nt.name.trim().to_string();
+                }
+                self.mode = Mode::Normal;
                 return;
-            };
-            if let Some(rest) = self.hy.tabs[i].layout.clone().remove(f) {
-                self.hy.tabs[i].layout = rest;
-                self.hy.tabs[i].focus = self.hy.tabs[i].layout.first_leaf();
             }
-            self.hy.tabs.push(HyTab { layout: crate::layout::Node::Leaf(f), focus: f, arrange: Arrange::Split, owner: nt.owner, used: 0, name });
-            self.hy.tab = self.hy.tabs.len() - 1;
-            return;
+            KeyCode::Esc => {
+                self.mode = Mode::Normal;
+                return;
+            }
+            KeyCode::Backspace => {
+                nt.name.pop();
+            }
+            KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) && nt.name.chars().count() < QUERY_MAX => nt.name.push(c),
+            _ => {}
         }
-        let dir = self.snap.terms.get(&nt.owner).map(|t| t.root.clone().unwrap_or_else(|| t.cwd.clone())).unwrap_or_else(|| self.here_dir());
-        self.hy.new_tab = Some((Instant::now(), nt.owner));
-        self.hy.new_tab_name = Some(name);
-        let cmd = match c {
-            'c' => Some("claude".to_string()),
-            'x' => Some("codex".to_string()),
-            _ => None,
-        };
-        self.hy_new_session(dir, cmd, false);
+        self.mode = Mode::RenameTab(Box::new(nt));
     }
 }

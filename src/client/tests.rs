@@ -758,19 +758,11 @@ mod hydra_tests {
         app.hy_place(1, None);
         let o = draw(&mut app, 160, 45);
         assert!(o.contains(" 1 claude") && o.contains(" + ") && app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::TabNew)), "the tab row, with +, even with one tab");
-        // Ctrl+Space t in claude's session: the new tab is named in its pill, then a shell
-        // starts in it.
+        // Ctrl+Space t in claude's session: a shell where you are, straight away, as a tab of
+        // claude's (no card to fill in first).
         let key = |app: &mut App, c: KeyCode| app.on_key(KeyEvent::new(c, KeyModifiers::NONE));
         app.act(Action::NewTab);
-        assert!(matches!(&app.mode, Mode::NewTab(nt) if nt.owner == 1 && nt.naming), "naming a new tab of claude's");
-        for c in "tests".chars() {
-            key(&mut app, KeyCode::Char(c));
-        }
-        let o = draw(&mut app, 160, 45);
-        show(&o);
-        assert!(o.contains(" 2 tests█") && o.contains("New tab in shop-api") && o.contains("claude c"), "named in its pill, what to start below");
-        key(&mut app, KeyCode::Enter);
-        key(&mut app, KeyCode::Char('s'));
+        assert_eq!(app.mode, Mode::Normal, "nothing to answer first");
         assert!(matches!(app.hy.new_tab, Some((_, 1))), "the next session is a tab of claude's: {:?}", app.hy.new_tab);
         app.hy_place(3, Some(1));
         app.hy_fresh();
@@ -778,18 +770,17 @@ mod hydra_tests {
         let o = draw(&mut app, 160, 45);
         show(&o);
         assert_eq!(app.session_tabs().len(), 2);
-        assert!(o.contains(" 1 claude") && o.contains(" 2 tests"), "claude's tabs, the new one by its name");
+        assert!(o.contains(" 1 claude") && o.contains(" 2 shell"), "claude's tabs, the new one named after what runs in it");
         // Renamed in its pill.
         app.act(Action::RenameTab);
-        for _ in 0.."tests".len() {
-            key(&mut app, KeyCode::Backspace);
-        }
-        for c in "shell".chars() {
+        for c in "tests".chars() {
             key(&mut app, KeyCode::Char(c));
         }
+        let o = draw(&mut app, 160, 45);
+        assert!(o.contains(" 2 tests█"), "typed in its pill");
         key(&mut app, KeyCode::Enter);
         let o = draw(&mut app, 160, 45);
-        assert!(o.contains(" 2 shell"), "renamed");
+        assert!(o.contains(" 2 tests"), "renamed");
         // Another session: its own view, with its own rail.
         app.hy_place(2, Some(3));
         let o = draw(&mut app, 160, 45);
@@ -1153,10 +1144,10 @@ mod hydra_tests {
         assert!(matches!(app.mode, Mode::Actions { sel: 0 }));
         let o = draw(&mut app, 160, 45);
         show(&o);
-        assert!(o.contains("╭─ Actions") && o.contains("New pane") && o.contains("Jump to what needs you ● 1") && o.contains("+ key, anywhere"));
-        // Its key runs it.
-        app.on_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
-        assert!(matches!(app.mode, Mode::HyPane(_)), "p: new pane");
+        assert!(o.contains("╭─ Actions") && o.contains("New shell here") && o.contains("Jump to what needs you ● 1") && o.contains("+ key, anywhere"));
+        // Its key runs it: o opens a project.
+        app.on_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE));
+        assert!(matches!(app.mode, Mode::Finder(_)), "o: open project");
     }
 
     #[test]
@@ -1235,7 +1226,7 @@ mod hydra_tests {
         mouse(&mut app, MouseEventKind::Down(MouseButton::Left), at);
         let at = pill(&app, first);
         mouse(&mut app, MouseEventKind::Up(MouseButton::Left), at);
-        assert!(matches!(&app.mode, Mode::NewTab(nt) if nt.tab == Some(first)), "renaming the first tab");
+        assert!(matches!(&app.mode, Mode::RenameTab(nt) if nt.tab == first), "renaming the first tab");
         app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         // Drag the first onto the third: it moves there, and stays the one you're on.
         let (a, c) = (app.session_tabs()[0], app.session_tabs()[2]);
@@ -1863,7 +1854,7 @@ mod hydra_tests {
         let (_, mut app) = super::design_tests::render_with(160, 45);
         app.cfg.ui.which_key = false;
         let lead = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::CONTROL);
-        for (c, what) in [('g', "go to"), ('p', "palette"), ('?', "keys"), (',', "settings")] {
+        for (c, what) in [('g', "go to"), ('o', "open project"), ('?', "keys"), (',', "settings")] {
             app.mode = Mode::Normal;
             app.on_key(lead);
             assert!(matches!(app.mode, Mode::Prefix { .. }), "leader waits");
