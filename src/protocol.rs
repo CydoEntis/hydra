@@ -108,8 +108,6 @@ pub enum Command {
     MarkSeen { term: TermId },
     /// Name a pane yourself (empty: back to the automatic name).
     RenamePane { term: TermId, name: String },
-    /// A checkout's dev server (from its `.seshi.toml`): start, stop or restart it.
-    Dev { dir: PathBuf, action: DevAction },
     /// The agent in `term` moves into a new worktree of its repo: made now, and when its turn
     /// ends it restarts there, resumed (the agent runs `seshi worktree --move`).
     MoveToWorktree { term: TermId, branch: Option<String> },
@@ -327,21 +325,7 @@ pub struct GitInfo {
     pub ahead: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum DevAction {
-    Start,
-    Stop,
-    Restart,
-}
 
-/// A pane running a checkout's dev server.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DevInfo {
-    pub dir: PathBuf,
-    pub port: Option<u16>,
-    /// Its output said it's up (the `ready` pattern), or there's no pattern.
-    pub ready: bool,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabInfo {
@@ -379,8 +363,6 @@ pub struct TermInfo {
     pub label: String,
     /// The model it's using, short ("opus 4.5"), if known.
     pub model: String,
-    /// It's a checkout's dev server.
-    pub dev: Option<DevInfo>,
     /// Memory used by what runs in it (bytes).
     #[serde(default)]
     pub mem: u64,

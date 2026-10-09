@@ -33,7 +33,6 @@ pub enum Act {
     /// git init and a first commit, so agents there can get worktrees.
     GitInit(PathBuf),
     OpenWorktree(usize),
-    Dev(PathBuf, crate::protocol::DevAction),
     /// Download the newest seshi and restart into it.
     Update,
 }
@@ -167,14 +166,6 @@ impl App {
         let (_, _, s) = find(&model, term)?;
         let agent = s.agent.clone();
         let dir = find(&model, term).map(|(_, w, _)| w.path.clone());
-        if let (Some(_), Some(d)) = (&s.dev, &dir) {
-            use crate::protocol::DevAction;
-            let items = vec![
-                ("Restart".to_string(), Act::Dev(d.clone(), DevAction::Restart)),
-                ("Stop".to_string(), Act::Dev(d.clone(), DevAction::Stop)),
-            ];
-            return Some(("dev server".into(), items));
-        }
         let info = self.snap.terms.get(&term);
         // A program seshi doesn't know can be taught.
         let mut items = Vec::new();
@@ -187,11 +178,6 @@ impl App {
         items.push(("Rename".to_string(), Act::RenamePane(term)));
         if let Some(d) = dir.filter(|d| crate::gitfs::head(d).is_some()) {
             items.push(("Changes".to_string(), Act::Changes(d)));
-        }
-        if let Some(d) = find(&model, term).filter(|(_, w, _)| !w.main && !w.sessions.iter().any(|x| x.dev.is_some())).map(|(_, w, _)| w.path.clone())
-            && crate::project::load(&d).dev.is_some_and(|x| !x.run.trim().is_empty())
-        {
-            items.push(("▶ Run dev server here".to_string(), Act::Dev(d, crate::protocol::DevAction::Start)));
         }
         items.push(("Close".to_string(), Act::End(vec![term])));
         // Titled by what it is (an agent, or the program's name), never its window title.
@@ -216,12 +202,6 @@ impl App {
             items.push(("Open worktree…".to_string(), Act::OpenWorktree(pi)));
         } else {
             items.push(("Make it a git repo…".to_string(), Act::GitInit(p.path.clone())));
-        }
-        if let Some(main) = p.wts.iter().find(|w| w.main)
-            && crate::project::load(&main.path).dev.is_some_and(|d| !d.run.trim().is_empty())
-            && !main.sessions.iter().any(|s| s.dev.is_some())
-        {
-            items.push(("▶ Run dev server".to_string(), Act::Dev(main.path.clone(), crate::protocol::DevAction::Start)));
         }
         Some((p.name.clone(), items))
     }
@@ -439,7 +419,6 @@ impl App {
                     self.cmd(Command::FocusPane { term: t });
                 }
             }
-            Act::Dev(dir, action) => self.cmd(Command::Dev { dir, action }),
             Act::End(ts) => {
                 for t in ts {
                     // Out of its split first: the pane beside it takes the room (and the

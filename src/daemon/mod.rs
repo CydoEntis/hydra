@@ -153,8 +153,6 @@ struct Daemon {
     spent: Vec<(u64, f64)>,
     codex_busy: bool,
     last_codex: Instant,
-    /// Extra environment for the next pane spawned (a dev server's PORT).
-    next_env: Vec<(String, String)>,
     /// The next pane runs its command once and ends with it (a popup).
     next_once: bool,
     /// The prewarmed agent: (repo, its worktree, its pane), and whether one is being made.
@@ -329,7 +327,6 @@ impl Daemon {
             | Command::NewTab { .. }
             | Command::Split { .. }
             | Command::NewWorktree { .. }
-            | Command::Dev { .. }
             | Command::Popup { .. } => {
                 self.may(client, Grant::Start, None)
             }
@@ -404,7 +401,6 @@ impl Daemon {
             spent: Vec::new(),
             codex_busy: false,
             last_codex: Instant::now() - Duration::from_secs(3600),
-            next_env: Vec::new(),
             next_once: false,
             spare: None,
             spare_making: false,
@@ -950,7 +946,6 @@ impl Daemon {
                     name: if t.name.is_empty() { t.first_prompt.clone() } else { t.name.clone() },
                     model: t.model.clone(),
                     label: t.label.clone(),
-                    dev: t.dev.as_ref().map(|(d, _)| d.clone()),
                     mem: t.mem,
                     bell: t.bell,
                     said: t.said.clone(),
@@ -1022,9 +1017,8 @@ impl Daemon {
             }
             self.adopt = Some((dir, term));
         }
-        let env = std::mem::take(&mut self.next_env);
         let once = std::mem::take(&mut self.next_once);
-        let t = Term::spawn(&self.cfg, SpawnSpec { id, cmd, cwd, cols, rows, env: &env, once }, self.tx.clone())?;
+        let t = Term::spawn(&self.cfg, SpawnSpec { id, cmd, cwd, cols, rows, once }, self.tx.clone())?;
         self.terms.insert(id, t);
         self.had_terms = true;
         Ok(id)

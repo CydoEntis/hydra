@@ -140,65 +140,6 @@ impl Daemon {
                 }
                 self.poll_git_soon();
             }
-            Command::Dev { dir, action } => {
-                let key = |p: &std::path::Path| p.to_string_lossy().replace('\\', "/").trim_end_matches('/').to_lowercase();
-                let running: Vec<TermId> = self.terms.values().filter(|t| t.dev.as_ref().is_some_and(|(d, _)| key(&d.dir) == key(&dir))).map(|t| t.id).collect();
-                if matches!(action, DevAction::Stop | DevAction::Restart) {
-                    if running.is_empty() && action == DevAction::Stop {
-                        anyhow::bail!("no dev server is running in {}", dir.display());
-                    }
-                    for t in running.iter().copied() {
-                        self.close_term(t);
-                    }
-                } else if !running.is_empty() {
-                    anyhow::bail!("its dev server is already running");
-                }
-                if action == DevAction::Stop {
-                    self.dirty = true;
-                    return Ok(true);
-                }
-                let proj = crate::project::load(&dir);
-                let dev = proj.dev.filter(|d| !d.run.trim().is_empty()).ok_or_else(|| {
-                    anyhow::anyhow!("no dev server set up: add [dev] run = \"...\" to {} in the repo", crate::project::FILE)
-                })?;
-                let port = dev.port.map(|base| self.known_port(&dir, base).unwrap_or_else(|| crate::project::port_for(&dir, base)));
-                self.next_env = port.map(|p| vec![("PORT".to_string(), p.to_string())]).unwrap_or_default();
-                // Its own tab in the checkout's workspace, so it never takes screen space.
-                let ws = self
-                    .workspaces
-                    .iter()
-                    .find(|w| w.tabs.iter().flat_map(|t| t.layout.leaves()).any(|id| self.terms.get(&id).and_then(|t| t.head.as_ref()).is_some_and(|h| key(&h.top) == key(&dir))))
-                    .map(|w| w.id);
-                let (cols, rows) = self.guess_size();
-                let term = self.spawn(Some(&dev.run), &dir, cols, rows)?;
-                let ready_re = Some(dev.ready.trim()).filter(|r| !r.is_empty()).and_then(|r| regex::RegexBuilder::new(r).case_insensitive(true).build().ok());
-                if let Some(t) = self.terms.get_mut(&term) {
-                    t.dev = Some((DevInfo { dir: dir.clone(), port, ready: ready_re.is_none() }, ready_re));
-                }
-                let id = self.next();
-                let tab = TabInfo { id, name: "dev".into(), layout: Node::Leaf(term), focus: term };
-                match ws.and_then(|ws| self.workspaces.iter_mut().find(|w| w.id == ws)) {
-                    Some(w) => w.tabs.push(tab),
-                    None => {
-                        let ws = self.next();
-                        let (color, _) = (self.workspaces.len() as u8, ());
-                        self.workspaces.push(WorkspaceInfo {
-                            id: ws,
-                            name: format!("dev · {}", dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
-                            cwd: dir.clone(),
-                            tabs: vec![tab],
-                            active_tab: id,
-                            git: None,
-                            worktree: false,
-                            color,
-                            is_new: false,
-                            group: None,
-                        });
-                    }
-                }
-                self.dirty = true;
-                return Ok(true);
-            }
             Command::MoveToWorktree { term, branch } => {
                 let t = self.terms.get(&term).ok_or_else(|| anyhow::anyhow!("no pane {term}"))?;
                 if t.agent.is_none() {

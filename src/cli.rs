@@ -104,7 +104,7 @@ pub fn ls(as_json: bool) -> Result<()> {
                     "tabs": w.tabs.iter().map(|t| json!({
                         "id": t.id, "name": t.name, "active": t.id == w.active_tab, "focus": t.focus,
                         "panes": t.layout.leaves().iter().filter_map(|id| snap.terms.get(id)).map(|p| json!({
-                            "id": p.id, "process": p.process, "title": p.title, "agent": p.agent, "asleep": p.asleep, "win32_input": p.win32_input, "dev": p.dev, "model": p.model, "name": p.name, "mem_mb": p.mem >> 20, "bell": p.bell,
+                            "id": p.id, "process": p.process, "title": p.title, "agent": p.agent, "asleep": p.asleep, "win32_input": p.win32_input, "model": p.model, "name": p.name, "mem_mb": p.mem >> 20, "bell": p.bell,
                             "status": p.status.label(), "cols": p.cols, "rows": p.rows, "cwd": p.cwd,
                         })).collect::<Vec<_>>(),
                     })).collect::<Vec<_>>(),
@@ -645,21 +645,6 @@ pub fn doctor() -> Result<()> {
     Ok(())
 }
 
-/// `seshi dev [start|stop|restart]`: this checkout's dev server.
-pub fn dev(action: &str, dir: Option<PathBuf>) -> Result<()> {
-    let action = match action {
-        "start" | "run" => DevAction::Start,
-        "stop" => DevAction::Stop,
-        "restart" => DevAction::Restart,
-        other => bail!("{other}? use start, stop or restart"),
-    };
-    let dir = match dir {
-        Some(d) => d,
-        None => std::env::current_dir()?,
-    };
-    let dir = crate::gitfs::head(&dir).map(|h| h.top).unwrap_or(dir);
-    command(Command::Dev { dir, action })
-}
 
 /// Run by an agent inside a pane: make a worktree and move this agent into it.
 pub fn move_to_worktree(branch: String) -> Result<()> {

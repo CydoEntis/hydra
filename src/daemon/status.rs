@@ -222,28 +222,6 @@ impl Daemon {
     }
 
     pub(super) fn update_statuses(&mut self) {
-        // Dev servers: up once their output shows the ready pattern (and which port, if it
-        // prints a localhost URL).
-        static URL: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?:localhost|127\.0\.0\.1):(\d{2,5})").unwrap());
-        for t in self.terms.values_mut() {
-            if let Some((d, re)) = &mut t.dev
-                && !d.ready
-            {
-                let text = {
-                    let screen = t.parser.screen();
-                    screen.contents()
-                };
-                if re.as_ref().is_some_and(|r| r.is_match(&text)) {
-                    d.ready = true;
-                    if d.port.is_none()
-                        && let Some(p) = URL.captures(&text).and_then(|c| c[1].parse().ok())
-                    {
-                        d.port = Some(p);
-                    }
-                    self.dirty = true;
-                }
-            }
-        }
         // Messages typed to a sleeping agent: deliver once it's ready (its hooks say idle) or
         // after a few seconds.
         for t in self.terms.values_mut() {

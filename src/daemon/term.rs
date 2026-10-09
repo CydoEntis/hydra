@@ -152,8 +152,6 @@ pub struct Term {
     pub mem: u64,
     /// It rang the bell while you weren't looking at it.
     pub bell: bool,
-    /// Running a checkout's dev server: its info and what "ready" looks like.
-    pub dev: Option<(crate::protocol::DevInfo, Option<regex::Regex>)>,
     /// The name given in the agent (/rename), its first prompt, and its model.
     pub name: String,
     pub first_prompt: String,
@@ -168,8 +166,6 @@ pub struct SpawnSpec<'a> {
     pub cwd: &'a Path,
     pub cols: u16,
     pub rows: u16,
-    /// More environment for this one (a dev server's PORT).
-    pub env: &'a [(String, String)],
     /// Run the command and end with it (a popup), rather than keep a shell after.
     pub once: bool,
 }
@@ -449,7 +445,7 @@ impl Term {
             }
             cmd.env("ZDOTDIR", dir);
         }
-        for (k, v) in cfg.env.iter().chain(spec.env.iter().map(|(k, v)| (k, v))) {
+        for (k, v) in &cfg.env {
             cmd.env(k, v);
         }
 
@@ -533,7 +529,6 @@ impl Term {
             resume_at: None,
             continued: None,
             pending_move: None,
-            dev: None,
             spare: false,
             mem: 0,
             bell: false,

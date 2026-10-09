@@ -446,7 +446,6 @@ seshi focus 3 | close 3 | kill-server [--forget]
 seshi send -p 3 --wait "fix the bug"   # waits for the turn to end, prints the agent's reply
 seshi wait -p 3 [--regex "passed"]     # the turn ending, or text on the screen (exit 2: timeout)
 seshi worktree --move [name]           # run by an agent: move itself into a new worktree
-seshi dev start|stop|restart           # this worktree's dev server (from .seshi.toml)
 seshi doctor                           # check everything seshi relies on
 seshi --remote me@box                  # the UI here, agents on another machine (any command)
 ```
@@ -478,11 +477,6 @@ seshi ls/send/hook ──┼──►   seshi daemon
 Commit one to the repo:
 
 ```toml
-[dev]
-run = "npm run dev"              # right-click a folder > Run dev server, or `seshi dev`
-ready = "ready in|listening on"  # the row says "ready" once the output matches
-port = 3000                      # each worktree gets its own $PORT: 3000, 3001, ...
-
 [hooks]
 on_create = "npm install"        # in every new worktree
 on_remove = ""

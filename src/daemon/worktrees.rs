@@ -197,14 +197,6 @@ impl Daemon {
         });
     }
 
-    /// A checkout's dev-server port from the worktree lists already in the snapshot (the
-    /// same order `git worktree list` gives), without running git.
-    pub(super) fn known_port(&self, dir: &std::path::Path, base: u16) -> Option<u16> {
-        self.workspaces.iter().filter_map(|w| w.git.as_ref()).find_map(|g| {
-            let i = g.worktrees.iter().position(|wt| same_path(&wt.path, dir))?;
-            Some(base.saturating_add(i as u16))
-        })
-    }
 
     /// A worktree hook (`on_create` / `on_remove` in the repo's .seshi.toml) as a job to run.
     pub(super) fn hook_job(&self, dir: &std::path::Path, create: bool) -> Option<impl FnOnce() -> String + Send + 'static> {
@@ -215,7 +207,6 @@ impl Daemon {
         }
         let shell = self.cfg.shell_command();
         let dir = dir.to_path_buf();
-        let base = proj.dev.and_then(|d| d.port);
         let allowed = crate::project::allowed(&dir, &cmd);
         Some(move || {
             let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -226,9 +217,6 @@ impl Daemon {
             if let Some(h) = crate::gitfs::head(&dir) {
                 vars.push(("SESHI_BRANCH", h.branch.clone()));
                 vars.push(("SESHI_REPO", h.main_root.display().to_string()));
-            }
-            if let Some(b) = base {
-                vars.push(("PORT", crate::project::port_for(&dir, b).to_string()));
             }
             let what = if create { "on_create" } else { "on_remove" };
             match crate::project::run_hook(&shell, &dir, &cmd, &vars) {

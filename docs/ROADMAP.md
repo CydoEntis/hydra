@@ -96,7 +96,7 @@ Everything below is shipped on `dev` unless marked.
 - Worktrees per agent, create / move / remove with hooks — shipped — `src/daemon/git.rs`, `src/project.rs`
 - Files (tree, preview, in-place edit, external editor), find file, search code — shipped — `src/client/files.rs`, `src/client/find.rs`, `src/client/views.rs`
 - Changes (diff, review marks, commit, git init offer), branch switcher, pull requests, Ship — shipped — `src/client/branch.rs`, `src/client/pr.rs`
-- Dev server per worktree (`.seshi.toml`) — shipped — `src/project.rs`
+- Worktree hooks (`.seshi.toml` `on_create` / `on_remove`, run once allowed) — shipped — `src/project.rs`
 - Tasks (a worktree's review: commit, merge, PR, throw away) — shipped — `src/client/tasks.rs`
 - Own worktree for `claude`/`codex` typed into a shell in a repo's main folder — shipped 0.9.12 — `seshi agent-dir`, `daemon/term.rs` `agent_functions`
 - Usage and limits meter, context per agent, continue after a limit — shipped 0.10.0 — `seshi statusline`, `src/daemon/usage.rs`

@@ -315,8 +315,6 @@ pub(super) struct Session {
     /// Subagents it's running right now.
     pub subagents: Vec<String>,
     pub model: String,
-    /// A dev server, not an agent or a shell.
-    pub dev: Option<crate::protocol::DevInfo>,
     /// It rang the bell and you haven't looked.
     pub bell: bool,
     /// How full its context is, 0–100, when it says.
@@ -657,7 +655,6 @@ impl App {
                     is_agent: t.agent.is_some(),
                     asleep: t.asleep,
                     subagents: t.subagents.clone(),
-                    dev: t.dev.clone(),
                     bell: t.bell,
                     model: t.model.clone(),
                     context: t.usage.context,

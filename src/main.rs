@@ -209,15 +209,6 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<String>,
     },
-    /// Start, stop or restart this worktree's dev server (from `.seshi.toml`).
-    Dev {
-        /// start | stop | restart
-        #[arg(default_value = "start")]
-        action: String,
-        /// The checkout (default: here).
-        #[arg(long)]
-        dir: Option<PathBuf>,
-    },
     /// Run as an MCP server (stdio) so agents can see and steer the others.
     /// `seshi integrate mcp` registers it with Claude Code.
     Mcp,
@@ -299,7 +290,6 @@ fn main() {
         Some(Cmd::WorktreeRemove { ws, force }) => cli::worktree_remove(ws, force),
         Some(Cmd::KillServer { forget }) => cli::kill_server(forget),
         Some(Cmd::Mcp) => mcp::run(),
-        Some(Cmd::Dev { action, dir }) => cli::dev(&action, dir),
         Some(Cmd::Doctor) => cli::doctor(),
         Some(Cmd::Update { check, force }) => update::run(check, force),
         Some(Cmd::Allow { dir }) => cli::allow(dir),

@@ -30,7 +30,6 @@ mod design_tests {
             name: String::new(),
             label: String::new(),
             model: String::new(),
-            dev: None,
             mem: 0,
             bell: false,
             id,

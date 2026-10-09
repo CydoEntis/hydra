@@ -360,13 +360,9 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 } else {
                     ("›".to_string(), t.muted)
                 };
-                let (gl, gc) = match &s.dev {
-                    Some(d) => ("▶".to_string(), if d.ready { t.done } else { t.muted }),
-                    // A bell from something with no status of its own; an agent's state says more
-                    // (codex rings it when it finishes).
-                    None if s.bell && !matches!(s.status, Status::Blocked | Status::Done) => ("♪".to_string(), t.blocked),
-                    None => (gl, gc),
-                };
+                // A bell from something with no status of its own; an agent's state says more
+                // (codex rings it when it finishes).
+                let (gl, gc) = if s.bell && !matches!(s.status, Status::Blocked | Status::Done) { ("♪".to_string(), t.blocked) } else { (gl, gc) };
                 let mut gs = st.fg(gc);
                 if s.status == Status::Blocked {
                     gs = gs.add_modifier(Modifier::BOLD);
@@ -384,11 +380,6 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                     left.extend(shimmer(&s.name, app.spinner_frame(), t.text, t.strong, ns));
                 } else {
                     left.push(seg(s.name.clone(), ns));
-                }
-                if let Some(d) = &s.dev {
-                    let port = d.port.map(|p| format!(" :{p}")).unwrap_or_default();
-                    let state = if d.ready { "ready" } else { "starting…" };
-                    left = vec![seg(format!("dev{port}"), st.fg(t.strong).add_modifier(Modifier::BOLD)), seg(format!("  {state}"), st.fg(if d.ready { t.done } else { t.muted }))];
                 }
                 // Right: branch · age (amber when it needs you); a pull request, a limit, asleep.
                 let pr = (*si == 0).then(|| model[*pi].prs.iter().find(|p| p.branch == wt.branch)).flatten();
