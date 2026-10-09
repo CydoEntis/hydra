@@ -362,14 +362,33 @@ pub(in crate::client) fn draw_side(app: &mut App, buf: &mut Buffer, r: Rect, mod
                 let wt = &model[*pi].wts[*wi];
                 let open_row = Some(s.term) == focus;
                 // Finished and not looked at yet: green, like its dot.
+                // An agent's name wears its state, as its glyph does: amber shimmering while it
+                // works, red when it needs you, green until you look at what it finished, dim
+                // asleep. The lit row keeps bright text, readable on its pill.
                 let unseen = s.is_agent && s.status == Status::Done && !s.asleep;
-                let mut ns = st.fg(if unseen { t.done } else if open_row || sel { t.strong } else { t.text });
-                if open_row || sel || unseen {
+                let needs = s.is_agent && s.status == Status::Blocked && !s.asleep;
+                let working = s.is_agent && s.status == Status::Working && !s.asleep;
+                let name_c = if sel {
+                    t.strong
+                } else if s.asleep {
+                    t.muted
+                } else if needs {
+                    t.blocked
+                } else if unseen {
+                    t.done
+                } else if open_row {
+                    t.strong
+                } else {
+                    t.text
+                };
+                let mut ns = st.fg(name_c);
+                if open_row || sel || unseen || needs {
                     ns = ns.add_modifier(Modifier::BOLD);
                 }
                 let mut left = vec![];
-                if s.is_agent && s.status == Status::Working && !s.asleep {
-                    left.extend(shimmer(&s.name, app.spinner_frame(), t.text, t.strong, ns));
+                if working {
+                    let (base, bright) = if sel { (t.strong, t.strong) } else { (t.working, blend(t.working, t.strong, 0.6)) };
+                    left.extend(shimmer(&s.name, app.spinner_frame(), base, bright, ns));
                 } else {
                     left.push(seg(s.name.clone(), ns));
                 }

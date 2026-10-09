@@ -1522,6 +1522,29 @@ mod hydra_tests {
     }
 
     #[test]
+    fn agent_names_wear_their_state() {
+        let (_, mut app) = super::design_tests::render_with(160, 45);
+        // Nothing lit by the keyboard, and the window on neither of them.
+        app.hy.cursor = None;
+        let mut term = Terminal::new(TestBackend::new(160, 45)).unwrap();
+        term.draw(|f| render::draw(&mut app, f)).unwrap();
+        let buf = term.backend().buffer().clone();
+        // The first letter of a sidebar row's name (the sidebar only, not the card titles).
+        let side = app.hy.side_rect.right();
+        let name_at = |name: &str| {
+            (0..45u16).find_map(|y| {
+                let row: String = (0..side).map(|x| buf[(x, y)].symbol().to_string()).collect();
+                let col = row.find(&format!(" {name} "))?;
+                Some(buf[(row[..col + 1].chars().count() as u16, y)].fg)
+            })
+        };
+        let t = &app.theme;
+        assert_eq!(name_at("claude"), Some(t.blocked), "needs you: its colour");
+        let codex = name_at("rate-limit").or_else(|| name_at("rate")).expect("the working codex in the sidebar (named for its worktree)");
+        assert!(codex != t.text && codex != t.blocked, "working: the shimmer in the working colour, not plain text: {codex:?}");
+    }
+
+    #[test]
     fn the_split_line_drags_again_and_again() {
         let (_, mut app) = super::design_tests::render_with(200, 50);
         let a = app.focused().unwrap();
