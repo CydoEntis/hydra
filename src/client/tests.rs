@@ -756,7 +756,7 @@ mod hydra_tests {
         let rows = |app: &App| app.hy_model().iter().flat_map(|p| p.sessions().map(|s| s.term).collect::<Vec<_>>()).collect::<Vec<_>>();
         app.hy.tabs.clear();
         app.hy_place(1, None);
-        let o = draw(&mut app, 160, 45);
+        draw(&mut app, 160, 45);
         assert!(app.hits.iter().filter(|(_, h)| matches!(h, Hit::Hy(hydra::HyHit::TabPick(_)))).count() == 1 && app.hits.iter().any(|(_, h)| *h == Hit::Hy(hydra::HyHit::TabNew)), "the tab row, with +, even with one tab");
         // Ctrl+Space t in claude's session: a shell where you are, straight away, as a tab of
         // claude's (no card to fill in first).
@@ -783,7 +783,7 @@ mod hydra_tests {
         assert!(o.contains(" tests ") && !o.contains("2 tests"), "renamed: the pill is its name");
         // Another session: its own view, with its own rail.
         app.hy_place(2, Some(3));
-        let o = draw(&mut app, 160, 45);
+        draw(&mut app, 160, 45);
         assert_eq!(app.session_tabs().len(), 1);
         assert!(app.hits.iter().filter(|(_, h)| matches!(h, Hit::Hy(hydra::HyHit::TabPick(_)))).count() == 1, "codex has one tab");
         // Back to claude: the tab you were last on there (the shell).
